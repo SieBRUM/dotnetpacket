@@ -434,6 +434,51 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-lsa":
+    {
+        // Domain recon via lsarpc: open the LSA policy and read the account domain + SID.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-lsa <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        Console.WriteLine($"LSA policy on {host}:");
+        Console.WriteLine($"  OpenPolicy2: {(policy.Success ? "OK" : $"0x{policy.ReturnCode:X8}")}");
+        if (policy.Success)
+        {
+            LsaAccountDomain account = Lsarpc.QueryAccountDomain(pipe, policy.Handle);
+            Console.WriteLine($"  Account domain: {account.Name}");
+            Console.WriteLine($"  Account SID:    {account.Sid}");
+            Lsarpc.Close(pipe, policy.Handle);
+        }
+
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -470,5 +515,7 @@ static void PrintUsage()
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.");
+    Console.WriteLine("  rpc-lsa <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");
     Console.WriteLine("  help             Show this help.");
 }

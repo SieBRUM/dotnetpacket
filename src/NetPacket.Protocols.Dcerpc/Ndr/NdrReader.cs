@@ -44,6 +44,17 @@ public sealed class NdrReader
         return value;
     }
 
+    public byte ReadByte() => _data[_position++];
+
+    /// <summary>Reads a conformant-varying wide string with an explicit character count (no NUL trim).</summary>
+    public string ReadWideChars(int characterCount)
+    {
+        int byteCount = characterCount * 2;
+        string value = System.Text.Encoding.Unicode.GetString(_data, _position, byteCount);
+        _position += byteCount;
+        return value;
+    }
+
     /// <summary>Reads a referent id (0 = NULL pointer).</summary>
     public uint ReadReferent() => ReadUInt32();
 

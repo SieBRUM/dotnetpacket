@@ -71,8 +71,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       DeleteService, CloseServiceHandle — the psexec service-control surface
 - [x] Level-union → struct → deferred unique-string-pointer NDR (host-info parsers)
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
-- [ ] Fuller NDR: conformant arrays of scalars/structs, embedded unions, SID/RPC_UNICODE_STRING
-- [ ] More calls: lsarpc policy/SID lookups, samr user/group enum
+- [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
+- [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
+- [ ] Fuller NDR: conformant arrays of structs, [v1_enum], multi-level pointers
+- [ ] More calls: lsat SID/name lookups, samr user/group enum
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -93,6 +95,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
+- [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -185,3 +188,11 @@ captures here (what differs, why, and whether it is detection-relevant).
   server config. Exercises the level-union -> struct -> deferred unique-string NDR
   decode path. (Samba reports itself as OS 6.1; real Windows reports its true
   build — an OS-version recon signal the SOC can diff.)
+- **2026-10-29 — lsarpc account-domain + SID recon validated against Samba.**
+  `rpc-lsa` does LsarOpenPolicy2 (MAXIMUM_ALLOWED) then LsarQueryInformationPolicy
+  (opnum 7, PolicyAccountDomainInformation) -> domain LABSRV, SID
+  S-1-5-21-2786383041-2443124272-643774106. Exercises RPC_UNICODE_STRING, RPC_SID
+  (conformant), and a 4-byte-tag union. The byte layout was taken from an impacket
+  capture and is pinned by a known-bytes test. Note: Samba implements opnum 7
+  (QueryInformationPolicy) but not opnum 46 (QueryInformationPolicy2) — impacket's
+  Policy2 call faults here, so we use opnum 7.
