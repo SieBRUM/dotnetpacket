@@ -45,6 +45,10 @@ Practical consequences for how we build it:
   and document it — but do not invent new evasion on top.
 - **Faithful, documented ports.** Each ported piece should cite the impacket
   source it came from (module + class) so traffic diffs are explainable.
+- **Realism is a hard requirement.** Traffic must look like a legitimate modern
+  Windows/.NET client (e.g. SMB2/3, not SMB1; real capability sets and negotiate
+  contexts), not like a tool or a minimal demo. Read **`docs/REALISM.md`** before
+  porting anything that goes on the wire.
 - If a requested change would turn this from a detection-research tool into
   something whose main value is attacking un-authorized targets, stop and raise
   it with the repo owner rather than implementing it.
@@ -63,9 +67,16 @@ src/
     Structure/FieldAttribute.cs    #   declarative field metadata
     Structure/NetStructure.cs      #   base class: declarative pack/unpack + override hook
     Hex.cs                         #   hex-dump helper for lab output
-  NetPacket.Protocols.Smb/         # REFERENCE PORT (declarative pattern)
+  NetPacket.Transport/             # sockets: SMB Direct TCP / NetBIOS framing
+    DirectTcpTransport.cs          #   4-byte length-framed messages over TCP
+  NetPacket.Protocols.Smb/         # SMB1 (legacy) + SMB2/3 (realistic transport)
     SmbHeader.cs                   #   SMBv1 header  (impacket smb.SMB.SMBHeader)
     NetBiosSessionHeader.cs        #   NBSS header   (big-endian example)
+    Smb2/Smb2Constants.cs          #   SMB2 commands, dialects, caps, context types
+    Smb2/Smb2Header.cs             #   SMB2 64-byte header (declarative)
+    Smb2/Smb2NegotiateRequest.cs   #   SMB2 NEGOTIATE + 3.1.1 contexts (realistic)
+    Smb2/Smb2NegotiateResponse.cs  #   SMB2 NEGOTIATE response parser
+    Smb2/Smb2Client.cs             #   live NEGOTIATE exchange
   NetPacket.Protocols.Ntlm/        # REFERENCE PORT (manual-override pattern)
     Ntlm.cs                        #   NTLMSSP constants
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -75,21 +86,23 @@ src/
 tests/
   NetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
 docs/
+  REALISM.md                       # REQUIRED READING: make traffic look like a real client
   PORTING_GUIDE.md                 # the mechanical impacket -> .NET recipe
   PORTING_STATUS.md                # tracker: what's ported, what's next
 ```
 
 ## Build & test
 
-> This cloud session has **no .NET SDK and no network to Microsoft endpoints**,
-> so the scaffold is written to be correct but is **not compiled here**. Build
-> and run in your lab (or any machine with the .NET 8 SDK + NuGet access).
+> Requires the .NET 8 SDK and (first build) NuGet access. The build, the test
+> suite, and the live `smb2-negotiate` against a Samba server have all been
+> verified; see `docs/PORTING_STATUS.md` for the validation record.
 
 ```bash
 dotnet restore
 dotnet build -c Release
 dotnet test
 dotnet run --project src/NetPacket.Examples -- smb-header
+dotnet run --project src/NetPacket.Examples -- smb2-negotiate <lab-host>
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

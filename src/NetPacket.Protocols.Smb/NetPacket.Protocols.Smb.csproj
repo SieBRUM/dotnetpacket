@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NetPacket.Core\NetPacket.Core.csproj" />
+    <ProjectReference Include="..\NetPacket.Transport\NetPacket.Transport.csproj" />
   </ItemGroup>
 
 </Project>

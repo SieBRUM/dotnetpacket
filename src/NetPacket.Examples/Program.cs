@@ -46,6 +46,35 @@ switch (args[0])
         return 0;
     }
 
+    case "smb2-negotiate":
+    {
+        // Live SMB2 NEGOTIATE against a lab host, mirroring a modern Windows client.
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: smb2-negotiate <host> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        int port = args.Length >= 3 ? int.Parse(args[2]) : 445;
+
+        Smb2NegotiateResult result = new Smb2Client().Negotiate(host, port);
+        Smb2NegotiateResponse response = result.Response;
+
+        Console.WriteLine($"Connected to {host}:{port}");
+        Console.WriteLine($"  Dialect:      0x{(ushort)response.DialectRevision:x4} ({response.DialectRevision})");
+        Console.WriteLine($"  ServerGuid:   {Hex.ToHexString(response.ServerGuid)}");
+        Console.WriteLine($"  SecurityMode: {response.SecurityMode}");
+        Console.WriteLine($"  Capabilities: {response.Capabilities}");
+        Console.WriteLine($"  SecBuffer:    {response.SecurityBufferLength} bytes (SPNEGO/GSS token)");
+        Console.WriteLine();
+        Console.WriteLine($"--> NEGOTIATE request ({result.RequestBytes.Length} bytes):");
+        Console.Write(Hex.Dump(result.RequestBytes));
+        Console.WriteLine($"<-- NEGOTIATE response ({result.ResponseBytes.Length} bytes):");
+        Console.Write(Hex.Dump(result.ResponseBytes));
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -66,5 +95,7 @@ static void PrintUsage()
     Console.WriteLine("Commands:");
     Console.WriteLine("  smb-header       Build a sample SMBv1 header and hex-dump its bytes.");
     Console.WriteLine("  ntlm-negotiate   Build a sample NTLMSSP NEGOTIATE message and hex-dump its bytes.");
+    Console.WriteLine("  smb2-negotiate <host> [port]");
+    Console.WriteLine("                   Perform a live SMB2 NEGOTIATE against a host and dump both directions.");
     Console.WriteLine("  help             Show this help.");
 }
