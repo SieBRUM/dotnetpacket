@@ -17,14 +17,58 @@ public sealed record ShareInfo1(string Name, uint RawType, string Remark)
     public bool IsSpecial => (RawType & 0x80000000) != 0;
 }
 
+/// <summary>A SERVER_INFO_101 record (MS-SRVS 2.2.4.41): platform, name, OS version, server type.</summary>
+public sealed record ServerInfo101(
+    uint PlatformId,
+    string Name,
+    uint VersionMajor,
+    uint VersionMinor,
+    uint Type,
+    string Comment);
+
 /// <summary>
 /// Minimal srvsvc client (MS-SRVS). Port of the parts of impacket's
-/// <c>dcerpc.v5.srvs</c> needed for share enumeration — the canonical remote
-/// recon call. The pipe must already be bound to the srvsvc interface.
+/// <c>dcerpc.v5.srvs</c> needed for recon — share enumeration and server info.
+/// The pipe must already be bound to the srvsvc interface.
 /// </summary>
 public static class Srvsvc
 {
     private const ushort OpnumNetrShareEnum = 15;
+    private const ushort OpnumNetrServerGetInfo = 21;
+
+    /// <summary>NetrServerGetInfo level 101 (MS-SRVS 3.1.4.17): server name, OS version, and type.</summary>
+    public static ServerInfo101 NetrServerGetInfo(DcerpcPipe pipe)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteUniqueString(null); // ServerName [in,string,unique]
+        ndr.WriteUInt32(101);        // Level
+        byte[] stub = pipe.Call(OpnumNetrServerGetInfo, ndr.ToArray());
+        return ParseServerInfo101(stub);
+    }
+
+    /// <summary>Parses a NetrServerGetInfo level-101 response stub (exposed for tests and offline analysis).</summary>
+    public static ServerInfo101 ParseServerInfo101(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        reader.ReadUInt32();                 // union discriminant (Level == 101)
+        uint infoReferent = reader.ReadReferent();
+        if (infoReferent == 0)
+        {
+            return new ServerInfo101(0, string.Empty, 0, 0, 0, string.Empty);
+        }
+
+        uint platformId = reader.ReadUInt32();
+        uint nameReferent = reader.ReadReferent();
+        uint versionMajor = reader.ReadUInt32();
+        uint versionMinor = reader.ReadUInt32();
+        uint type = reader.ReadUInt32();
+        uint commentReferent = reader.ReadReferent();
+
+        string name = nameReferent != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string comment = commentReferent != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+
+        return new ServerInfo101(platformId, name, versionMajor, versionMinor, type, comment);
+    }
 
     /// <summary>
     /// NetrShareEnum level 1 (MS-SRVS 3.1.4.8): enumerate the server's shares with

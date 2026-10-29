@@ -69,8 +69,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR context handles (20-byte) + top-level [ref]/[unique] strings (`NdrWriter`/`NdrReader`)
 - [x] svcctl (`Svcctl`): OpenSCManagerW, OpenServiceW, CreateServiceW, StartServiceW,
       DeleteService, CloseServiceHandle — the psexec service-control surface
-- [ ] Fuller NDR: structs, conformant arrays of scalars, embedded unions, non-string pointers
-- [ ] More calls: srvsvc NetrServerGetInfo, wkssvc NetrWkstaGetInfo, lsarpc/samr enum
+- [x] Level-union → struct → deferred unique-string-pointer NDR (host-info parsers)
+- [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
+- [ ] Fuller NDR: conformant arrays of scalars/structs, embedded unions, SID/RPC_UNICODE_STRING
+- [ ] More calls: lsarpc policy/SID lookups, samr user/group enum
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -90,6 +92,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
+- [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -175,3 +178,10 @@ captures here (what differs, why, and whether it is detection-relevant).
     discriminator worth recording.
   - _Scope:_ lab/benign only. The example never leaves a service behind (it deletes
     on the success path, which Samba never reaches).
+- **2026-10-29 — Host/OS recon (wkssvc + srvsvc GetInfo) validated against Samba.**
+  `rpc-hostinfo` reads wkssvc NetrWkstaGetInfo(100) -> ComputerName LABSRV,
+  Domain WORKGROUP, OS 6.1 (platform 500), and srvsvc NetrServerGetInfo(101) ->
+  Name LABSRV, type 0x00809a03, comment "NetPacket Lab" — all matching the lab
+  server config. Exercises the level-union -> struct -> deferred unique-string NDR
+  decode path. (Samba reports itself as OS 6.1; real Windows reports its true
+  build — an OS-version recon signal the SOC can diff.)

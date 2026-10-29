@@ -382,6 +382,58 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-hostinfo":
+    {
+        // Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-hostinfo <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+
+        DcerpcPipe wkssvc = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Wkssvc.Pipe);
+        wkssvc.Bind(DcerpcInterface.Wkssvc);
+        WkstaInfo100 wksta = Wkssvc.NetrWkstaGetInfo(wkssvc);
+        wkssvc.Close();
+
+        DcerpcPipe srvsvc = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Srvsvc.Pipe);
+        srvsvc.Bind(DcerpcInterface.Srvsvc);
+        ServerInfo101 server = Srvsvc.NetrServerGetInfo(srvsvc);
+        srvsvc.Close();
+
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Host info for {host}:");
+        Console.WriteLine("  wkssvc NetrWkstaGetInfo(100):");
+        Console.WriteLine($"    ComputerName: {wksta.ComputerName}");
+        Console.WriteLine($"    Domain/Group: {wksta.LanGroup}");
+        Console.WriteLine($"    OS version:   {wksta.VersionMajor}.{wksta.VersionMinor} (platform {wksta.PlatformId})");
+        Console.WriteLine("  srvsvc NetrServerGetInfo(101):");
+        Console.WriteLine($"    Name:         {server.Name}");
+        Console.WriteLine($"    OS version:   {server.VersionMajor}.{server.VersionMinor}");
+        Console.WriteLine($"    Server type:  0x{server.Type:x8}");
+        Console.WriteLine($"    Comment:      {server.Comment}");
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -416,5 +468,7 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
+    Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.");
     Console.WriteLine("  help             Show this help.");
 }
