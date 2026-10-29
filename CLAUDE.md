@@ -78,9 +78,12 @@ src/
     Smb2/Smb2NegotiateResponse.cs  #   SMB2 NEGOTIATE response parser
     Smb2/Smb2SessionSetup.cs       #   SMB2 SESSION_SETUP request/response
     Smb2/Smb2TreeConnect.cs        #   SMB2 TREE_CONNECT request/response
+    Smb2/Smb2Create.cs             #   SMB2 CREATE request/response (open a file)
+    Smb2/Smb2ReadClose.cs          #   SMB2 READ + CLOSE request/response
     Smb2/Smb2Flags.cs              #   header/session/share flag + enum coverage
+    Smb2/Smb2CreateConstants.cs    #   access mask, disposition, options, file attributes
     Smb2/Smb2Crypto.cs             #   preauth integrity, SP800-108 KDF, AES-CMAC signing
-    Smb2/Smb2Client.cs             #   NEGOTIATE + NTLMv2 SESSION_SETUP + signed TREE_CONNECT
+    Smb2/Smb2Client.cs             #   full session: NEGOTIATE..SESSION_SETUP..TREE_CONNECT..READ
   NetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -113,6 +116,7 @@ dotnet test
 dotnet run --project src/NetPacket.Examples -- smb2-negotiate <lab-host>
 dotnet run --project src/NetPacket.Examples -- smb2-login <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- smb2-connect <lab-host> <share> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

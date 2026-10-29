@@ -162,6 +162,50 @@ switch (args[0])
         return tree.Connected ? 0 : 1;
     }
 
+    case "smb2-cat":
+    {
+        // Full file read: NEGOTIATE + SESSION_SETUP + TREE_CONNECT + CREATE + READ + CLOSE.
+        if (args.Length < 6)
+        {
+            Console.Error.WriteLine("usage: smb2-cat <host> <share> <path> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string share = args[2];
+        string path = args[3];
+        string user = args[4];
+        string password = args[5];
+        string domain = args.Length >= 7 ? args[6] : string.Empty;
+        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult tree = client.TreeConnect($@"\\{host}\{share}");
+        if (!tree.Connected)
+        {
+            Console.Error.WriteLine($"Tree connect failed: {NtStatus.Describe(tree.Status)}");
+            return 1;
+        }
+
+        byte[] content = client.ReadFile(tree.TreeId, path);
+        client.TreeDisconnect(tree.TreeId);
+
+        Console.WriteLine($@"Read \\{host}\{share}\{path} ({content.Length} bytes, signing={(login.Signed ? "on" : "off")}):");
+        Console.WriteLine("--------");
+        Console.Out.Write(System.Text.Encoding.UTF8.GetString(content));
+        Console.WriteLine("--------");
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -188,5 +232,7 @@ static void PrintUsage()
     Console.WriteLine("                   Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP; dump both handshake rounds.");
     Console.WriteLine("  smb2-connect <host> <share> <user> <password> [domain] [port]");
     Console.WriteLine("                   Full session: NEGOTIATE + SESSION_SETUP + signed TREE_CONNECT to a share.");
+    Console.WriteLine("  smb2-cat <host> <share> <path> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Read a file over SMB2: TREE_CONNECT + CREATE + READ + CLOSE.");
     Console.WriteLine("  help             Show this help.");
 }

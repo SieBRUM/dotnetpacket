@@ -34,8 +34,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] SMB2 SESSION_SETUP request/response + two-round NTLMv2 login (`Smb2Client.Login`)
 - [x] SMB2 signing — 3.1.1 preauth integrity + SP800-108 KDF + AES-CMAC (`Smb2Crypto`)
 - [x] SMB2 TREE_CONNECT / TREE_DISCONNECT, signed (`Smb2Client.TreeConnect`)
-- [x] Comprehensive flag/enum coverage (`Smb2Flags.cs`: header flags, session, share type/flags/caps)
-- [ ] SMB2 CREATE, READ, WRITE, CLOSE, QUERY_DIRECTORY
+- [x] Comprehensive flag/enum coverage (`Smb2Flags.cs`, `Smb2CreateConstants.cs`:
+      header/session/share flags, access mask, create disposition/options, file attributes)
+- [x] SMB2 CREATE / READ / CLOSE (+ `Smb2Client.ReadFile`), signed
+- [ ] SMB2 WRITE, QUERY_DIRECTORY, QUERY_INFO, IOCTL
+- [ ] CREATE contexts (DHnQ / MxAc / QFid) — Windows sends them (realism gap)
 - [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
 
@@ -69,6 +72,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-negotiate <host> [port]` — live SMB2 NEGOTIATE, dumps both directions
 - [x] `smb2-login <host> <user> <password> [domain] [port]` — live NTLMv2 SESSION_SETUP
 - [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
+- [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] (others — add as prioritized by the SOC's detection needs)
@@ -114,3 +118,11 @@ captures here (what differs, why, and whether it is detection-relevant).
   - _Implementation note:_ only the SMB 3.1.1 signing path is implemented
     (AES-CMAC). SMB 2.x (HMAC-SHA256) and 3.0.x (different KDF label/context)
     are not yet covered.
+- **2026-10-29 — Signed file read (CREATE/READ/CLOSE) validated against Samba.**
+  `smb2-cat` reads `\\host\public\readme.txt` end to end: signed CREATE opens the
+  file (FileId + EndOfFile returned), signed READ returns the 59 bytes, signed
+  CLOSE succeeds — all STATUS_SUCCESS, content byte-exact. tshark shows normal
+  signed Create/Read/Close PDUs (Filename, FileId, Read Length all correct).
+  - _Realism gap:_ CREATE sends no create contexts; Windows sends DHnQ (durable
+    handle), MxAc (maximal access query), and QFid. Adding them is the next step
+    toward a Windows-identical open.

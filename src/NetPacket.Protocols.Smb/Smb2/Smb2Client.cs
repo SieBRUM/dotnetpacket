@@ -57,6 +57,26 @@ public sealed class Smb2TreeConnectResult
     public bool Connected => Status == NtStatus.Success;
 }
 
+/// <summary>Outcome of a CREATE (open): status plus the parsed response (FileId, size, ...).</summary>
+public sealed class Smb2CreateResult
+{
+    public required uint Status { get; init; }
+
+    public required Smb2CreateResponse Response { get; init; }
+
+    public bool Succeeded => Status == NtStatus.Success;
+}
+
+/// <summary>Outcome of a READ: status plus the bytes returned.</summary>
+public sealed class Smb2ReadResult
+{
+    public required uint Status { get; init; }
+
+    public required byte[] Data { get; init; }
+
+    public bool Succeeded => Status == NtStatus.Success;
+}
+
 /// <summary>
 /// A stateful SMB2 client connection: NEGOTIATE, NTLMv2 SESSION_SETUP, then signed
 /// TREE_CONNECT — the realistic opening of an SMB session through reaching a share,
@@ -223,6 +243,118 @@ public sealed class Smb2Client : IDisposable
         var responseHeader = new Smb2Header();
         responseHeader.Unpack(response);
         return responseHeader.Status;
+    }
+
+    /// <summary>Opens (or creates) a file on a connected tree.</summary>
+    public Smb2CreateResult Create(
+        uint treeId,
+        string path,
+        Smb2AccessMask access = Smb2AccessMask.FileGenericRead,
+        Smb2CreateDisposition disposition = Smb2CreateDisposition.Open,
+        Smb2CreateOptions options = Smb2CreateOptions.NonDirectoryFile)
+    {
+        var body = new Smb2CreateRequest
+        {
+            Path = path,
+            DesiredAccess = access,
+            CreateDisposition = disposition,
+            CreateOptions = options,
+        };
+
+        (byte[] response, Smb2Header header) = Exchange(Smb2Command.Create, treeId, body.Pack());
+        var parsed = new Smb2CreateResponse();
+        if (header.Status == NtStatus.Success)
+        {
+            parsed.Unpack(response);
+        }
+
+        return new Smb2CreateResult { Status = header.Status, Response = parsed };
+    }
+
+    /// <summary>Reads <paramref name="length"/> bytes at <paramref name="offset"/> from an open FileId.</summary>
+    public Smb2ReadResult Read(uint treeId, byte[] fileId, long offset, int length)
+    {
+        var body = new Smb2ReadRequest
+        {
+            FileId = fileId,
+            Offset = (ulong)offset,
+            Length = (uint)length,
+        };
+
+        (byte[] response, Smb2Header header) = Exchange(Smb2Command.Read, treeId, body.Pack());
+        var parsed = new Smb2ReadResponse();
+        if (header.Status == NtStatus.Success)
+        {
+            parsed.Unpack(response);
+        }
+
+        return new Smb2ReadResult { Status = header.Status, Data = parsed.Data };
+    }
+
+    /// <summary>Closes an open FileId.</summary>
+    public uint Close(uint treeId, byte[] fileId)
+    {
+        var body = new Smb2CloseRequest { FileId = fileId };
+        (_, Smb2Header header) = Exchange(Smb2Command.Close, treeId, body.Pack());
+        return header.Status;
+    }
+
+    /// <summary>Opens a file, reads it in full (looping over READ), and closes it.</summary>
+    public byte[] ReadFile(uint treeId, string path)
+    {
+        Smb2CreateResult create = Create(treeId, path);
+        if (!create.Succeeded)
+        {
+            throw new IOException($"CREATE failed for '{path}': {NtStatus.Describe(create.Status)}");
+        }
+
+        try
+        {
+            var data = new List<byte>();
+            ulong size = create.Response.EndOfFile;
+            const int chunk = 65536;
+            long offset = 0;
+            while ((ulong)offset < size)
+            {
+                int want = (int)Math.Min((ulong)chunk, size - (ulong)offset);
+                Smb2ReadResult read = Read(treeId, create.Response.FileId, offset, want);
+                if (!read.Succeeded || read.Data.Length == 0)
+                {
+                    break;
+                }
+
+                data.AddRange(read.Data);
+                offset += read.Data.Length;
+            }
+
+            return data.ToArray();
+        }
+        finally
+        {
+            Close(treeId, create.Response.FileId);
+        }
+    }
+
+    private (byte[] Response, Smb2Header Header) Exchange(Smb2Command command, uint treeId, byte[] body)
+    {
+        var header = new Smb2Header
+        {
+            Command = (ushort)command,
+            MessageId = _messageId,
+            CreditCharge = 1,
+            CreditRequest = 1,
+            SessionId = _sessionId,
+            TreeId = treeId,
+        };
+
+        byte[] request = SignIfKeyed(Assemble(header, body));
+        _transport.SendMessage(request);
+        byte[] response = _transport.ReceiveMessage();
+        _messageId++;
+
+        var responseHeader = new Smb2Header();
+        responseHeader.Unpack(response);
+        return (response, responseHeader);
     }
 
     private (byte[] Request, byte[] Response) SendSessionSetup(byte[] securityBuffer, ulong sessionId)
