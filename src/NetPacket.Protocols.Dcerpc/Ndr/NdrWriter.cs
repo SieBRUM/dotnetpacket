@@ -88,6 +88,24 @@ public sealed class NdrWriter
         WriteConformantVaryingString(value);
     }
 
+    /// <summary>Writes an RPC_UNICODE_STRING header: Length + MaximumLength (bytes) + Buffer referent.</summary>
+    public void WriteUnicodeStringHeader(string value)
+    {
+        WriteUInt16((ushort)(value.Length * 2)); // Length (bytes, no NUL)
+        WriteUInt16((ushort)(value.Length * 2)); // MaximumLength
+        WriteReferent(true);                      // Buffer pointer
+    }
+
+    /// <summary>Writes an RPC_UNICODE_STRING Buffer (conformant-varying, exact chars, no NUL terminator).</summary>
+    public void WriteUnicodeStringBuffer(string value)
+    {
+        WriteUInt32((uint)value.Length); // MaxCount
+        WriteUInt32(0);                  // Offset
+        WriteUInt32((uint)value.Length); // ActualCount
+        _buffer.AddRange(Encoding.Unicode.GetBytes(value));
+        Align(4);
+    }
+
     /// <summary>Writes a conformant-varying wide string (max/offset/actual + UTF-16LE incl. terminator).</summary>
     public void WriteConformantVaryingString(string value)
     {

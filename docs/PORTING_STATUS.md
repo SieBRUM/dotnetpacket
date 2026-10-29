@@ -75,8 +75,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
 - [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
 - [x] lsat `LsarLookupSids` (SID -> domain\name, the lookupsid behavior) — `Lsat`
+- [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
+      EnumerateUsersInDomain, CloseHandle — the samrdump / enumdomusers behavior
 - [ ] Fuller NDR: [v1_enum], multi-level pointers, lsat LsarLookupNames (name -> SID)
-- [ ] More calls: samr user/group enum
+- [ ] More calls: samr group/alias enum, SamrQueryInformationUser
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -99,6 +101,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
+- [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -208,3 +211,10 @@ captures here (what differs, why, and whether it is detection-relevant).
   output referenced-domain list + translated-names array with enum16 Use + pad).
   Byte layout taken from an impacket capture; parser covered by a synthetic
   round-trip test and the live run.
+- **2026-10-29 — samr domain user enumeration validated against Samba.**
+  `rpc-enumusers` runs the full chain: SamrConnect -> EnumerateDomainsInSamServer
+  (LABSRV, Builtin) -> LookupDomainInSamServer(LABSRV) -> domain SID
+  S-1-5-21-2786383041-2443124272-643774106 -> OpenDomain -> EnumerateUsersInDomain
+  -> RID 1000 labuser. Threads server/domain context handles through five calls and
+  re-marshals the looked-up SID into OpenDomain. The two enumerate calls share one
+  SAMPR_RID_ENUMERATION parser; covered by a synthetic round-trip test and the live run.

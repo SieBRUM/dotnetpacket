@@ -537,6 +537,67 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-enumusers":
+    {
+        // Domain user enumeration via samr (the samrdump / enumdomusers behavior).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-enumusers <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+
+        Console.WriteLine($"SAM on {host} — domains: {string.Join(", ", domains.Entries.Select(d => d.Name))}");
+
+        // The first SAM domain is the account domain (the built-in domain is second).
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is not null)
+        {
+            SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+            SamrEnumResult users = Samr.EnumerateUsers(pipe, dom.Handle);
+
+            Console.WriteLine($"Users in {accountDomain} ({sid}), {users.Entries.Count}:");
+            foreach (SamrRidEntry u in users.Entries)
+            {
+                Console.WriteLine($"  RID {u.Rid,-6} {u.Name}");
+            }
+
+            Samr.CloseHandle(pipe, dom.Handle);
+        }
+        else
+        {
+            Console.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+        }
+
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -577,5 +638,7 @@ static void PrintUsage()
     Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");
     Console.WriteLine("  rpc-lookupsid <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
+    Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  help             Show this help.");
 }
