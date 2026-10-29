@@ -95,7 +95,7 @@ src/
     Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID (RPC_UNICODE_STRING, RPC_SID)
-    Lsat.cs                        #   lsat LsarLookupSids (SID -> domain\name; array-of-structs NDR)
+    Lsat.cs                        #   lsat LsarLookupSids (SID->name) + LsarLookupNames (name->SID)
     Samr.cs                        #   samr connect/enum domains/lookup/open/enum users (samrdump)
     Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
     DcerpcPipe.cs                  #   ncacn_np transport (open pipe on IPC$, transceive, bind, call)
@@ -139,6 +139,7 @@ dotnet run --project src/NetPacket.Examples -- rpc-hostinfo <lab-host> <user> <p
 dotnet run --project src/NetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- rpc-lookupnames <lab-host> <user> <password> [names]
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

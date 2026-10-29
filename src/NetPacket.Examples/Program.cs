@@ -598,6 +598,52 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-lookupnames":
+    {
+        // Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string[] names = args.Length >= 5 ? args[4].Split(',') : new[] { "labuser", "Everyone", "Administrator" };
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        IReadOnlyList<LsaResolvedName> resolved = Lsat.LookupNames(pipe, policy.Handle, names);
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Name lookups on {host}:");
+        foreach (LsaResolvedName r in resolved)
+        {
+            bool ok = r.Use != SidNameUse.Unknown && r.Use != SidNameUse.Invalid && !string.IsNullOrEmpty(r.Sid);
+            Console.WriteLine($"  {r.InputName,-20} {(ok ? $"{r.Sid} ({r.Use})" : "(unresolved)")}");
+        }
+
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -640,5 +686,7 @@ static void PrintUsage()
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
+    Console.WriteLine("  rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
+    Console.WriteLine("                   Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).");
     Console.WriteLine("  help             Show this help.");
 }

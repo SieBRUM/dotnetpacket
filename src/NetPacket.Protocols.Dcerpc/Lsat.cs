@@ -23,6 +23,9 @@ public sealed record LsaResolvedSid(string InputSid, string Domain, string Name,
     public string Display => string.IsNullOrEmpty(Domain) ? Name : $@"{Domain}\{Name}";
 }
 
+/// <summary>One resolved name: the input name, its full SID, and principal kind.</summary>
+public sealed record LsaResolvedName(string InputName, string Sid, SidNameUse Use);
+
 /// <summary>
 /// Minimal lsat client (MS-LSAT). Port of the SID→name lookup in impacket's
 /// <c>dcerpc.v5.lsat</c> — the <c>lookupsid</c> recon behavior. Shares the lsarpc
@@ -31,6 +34,7 @@ public sealed record LsaResolvedSid(string InputSid, string Domain, string Name,
 /// </summary>
 public static class Lsat
 {
+    private const ushort OpnumLsarLookupNames = 14;
     private const ushort OpnumLsarLookupSids = 15;
     private const ushort LsapLookupWksta = 1; // LSAP_LOOKUP_LEVEL
 
@@ -142,6 +146,120 @@ public static class Lsat
         }
 
         return results;
+    }
+
+    /// <summary>LsarLookupNames (opnum 14): translate account names to SIDs (name -> SID).</summary>
+    public static IReadOnlyList<LsaResolvedName> LookupNames(DcerpcPipe pipe, byte[] policyHandle, IReadOnlyList<string> names)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle);
+        ndr.WriteUInt32((uint)names.Count);       // Count
+        ndr.WriteUInt32((uint)names.Count);       // Names array MaxCount
+        foreach (string name in names)
+        {
+            ndr.WriteUnicodeStringHeader(name);
+        }
+
+        foreach (string name in names)
+        {
+            ndr.WriteUnicodeStringBuffer(name);
+        }
+
+        ndr.WriteUInt32(0);                       // TranslatedSids.Entries
+        ndr.WriteReferent(false);                 // TranslatedSids.Sids (NULL)
+        ndr.WriteUInt16(LsapLookupWksta);         // LookupLevel
+        ndr.WriteUInt32(0);                       // MappedCount
+
+        byte[] stub = pipe.Call(OpnumLsarLookupNames, ndr.ToArray());
+        return ParseLookupNames(stub, names);
+    }
+
+    /// <summary>Parses an LsarLookupNames response (referenced domains + translated SIDs). Exposed for tests.</summary>
+    public static IReadOnlyList<LsaResolvedName> ParseLookupNames(byte[] stub, IReadOnlyList<string> names)
+    {
+        var reader = new NdrReader(stub);
+
+        reader.ReadReferent();                    // ReferencedDomains pointer
+        uint domainEntries = reader.ReadUInt32();
+        uint domainsRef = reader.ReadReferent();
+        reader.ReadUInt32();                      // MaxEntries
+
+        var domainNameRefs = new uint[domainEntries];
+        var domainSidRefs = new uint[domainEntries];
+        if (domainsRef != 0)
+        {
+            reader.ReadUInt32();                  // array MaxCount
+            for (int i = 0; i < domainEntries; i++)
+            {
+                reader.ReadUInt16();              // Name.Length
+                reader.ReadUInt16();              // Name.MaximumLength
+                domainNameRefs[i] = reader.ReadReferent();
+                domainSidRefs[i] = reader.ReadReferent();
+            }
+        }
+
+        var domainSids = new (byte Revision, byte[] Authority, uint[] Subs)?[domainEntries];
+        for (int i = 0; i < domainEntries; i++)
+        {
+            if (domainNameRefs[i] != 0)
+            {
+                ReadConformantVaryingString(reader); // domain name (not needed for output)
+            }
+
+            domainSids[i] = domainSidRefs[i] != 0 ? ReadSidComponents(reader) : null;
+        }
+
+        uint sidEntries = reader.ReadUInt32();
+        uint sidsRef = reader.ReadReferent();
+
+        var uses = new SidNameUse[sidEntries];
+        var rids = new uint[sidEntries];
+        var domainIndexes = new int[sidEntries];
+        if (sidsRef != 0)
+        {
+            reader.ReadUInt32();                  // array MaxCount
+            for (int i = 0; i < sidEntries; i++)
+            {
+                uses[i] = (SidNameUse)reader.ReadUInt16();
+                reader.Align(4);                  // enum16 + pad
+                rids[i] = reader.ReadUInt32();
+                domainIndexes[i] = (int)reader.ReadUInt32();
+            }
+        }
+
+        var results = new List<LsaResolvedName>();
+        for (int i = 0; i < sidEntries; i++)
+        {
+            string inputName = i < names.Count ? names[i] : string.Empty;
+            string sid = string.Empty;
+            int di = domainIndexes[i];
+            if (di >= 0 && di < domainSids.Length && domainSids[di] is { } d)
+            {
+                var subs = new uint[d.Subs.Length + 1];
+                Array.Copy(d.Subs, subs, d.Subs.Length);
+                subs[^1] = rids[i];
+                sid = Lsarpc.FormatSid(d.Revision, d.Authority, subs);
+            }
+
+            results.Add(new LsaResolvedName(inputName, sid, uses[i]));
+        }
+
+        return results;
+    }
+
+    private static (byte Revision, byte[] Authority, uint[] Subs) ReadSidComponents(NdrReader reader)
+    {
+        reader.ReadUInt32();                      // conformant MaxCount
+        byte revision = reader.ReadByte();
+        byte count = reader.ReadByte();
+        byte[] authority = reader.ReadBytes(6);
+        var subs = new uint[count];
+        for (int i = 0; i < count; i++)
+        {
+            subs[i] = reader.ReadUInt32();
+        }
+
+        return (revision, authority, subs);
     }
 
     private static string ReadConformantVaryingString(NdrReader reader)
