@@ -95,6 +95,7 @@ src/
     Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID (RPC_UNICODE_STRING, RPC_SID)
+    Lsat.cs                        #   lsat LsarLookupSids (SID -> domain\name; array-of-structs NDR)
     Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
     DcerpcPipe.cs                  #   ncacn_np transport (open pipe on IPC$, transceive, bind, call)
   NetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
@@ -135,6 +136,7 @@ dotnet run --project src/NetPacket.Examples -- rpc-shares <lab-host> <user> <pas
 dotnet run --project src/NetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

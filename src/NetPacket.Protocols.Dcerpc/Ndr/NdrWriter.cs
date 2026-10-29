@@ -47,8 +47,23 @@ public sealed class NdrWriter
     /// <summary>Writes a unique pointer referent id (0 for NULL, else a non-null id).</summary>
     public void WriteReferent(bool present) => WriteUInt32(present ? NonNullReferent : 0);
 
+    public void WriteByte(byte value) => _buffer.Add(value);
+
     /// <summary>Writes raw bytes verbatim (already-aligned payloads such as handles).</summary>
     public void WriteBytes(byte[] value) => _buffer.AddRange(value);
+
+    /// <summary>Writes a conformant RPC_SID: MaxCount(=sub count), Revision, count, 6-byte authority, sub-authorities.</summary>
+    public void WriteSid(byte revision, byte[] identifierAuthority, uint[] subAuthorities)
+    {
+        WriteUInt32((uint)subAuthorities.Length); // conformant MaxCount
+        WriteByte(revision);
+        WriteByte((byte)subAuthorities.Length);
+        WriteBytes(identifierAuthority);           // 6 bytes
+        foreach (uint sub in subAuthorities)
+        {
+            WriteUInt32(sub);
+        }
+    }
 
     /// <summary>Writes a 20-byte RPC context handle (attributes + 16-byte UUID).</summary>
     public void WriteContextHandle(byte[] handle)

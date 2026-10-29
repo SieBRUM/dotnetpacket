@@ -73,8 +73,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
-- [ ] Fuller NDR: conformant arrays of structs, [v1_enum], multi-level pointers
-- [ ] More calls: lsat SID/name lookups, samr user/group enum
+- [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
+- [x] lsat `LsarLookupSids` (SID -> domain\name, the lookupsid behavior) — `Lsat`
+- [ ] Fuller NDR: [v1_enum], multi-level pointers, lsat LsarLookupNames (name -> SID)
+- [ ] More calls: samr user/group enum
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -96,6 +98,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
+- [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -196,3 +199,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   capture and is pinned by a known-bytes test. Note: Samba implements opnum 7
   (QueryInformationPolicy) but not opnum 46 (QueryInformationPolicy2) — impacket's
   Policy2 call faults here, so we use opnum 7.
+- **2026-10-29 — lsat LsarLookupSids (SID->name) validated against Samba.**
+  `rpc-lookupsid` resolves well-known SIDs and account-domain RIDs:
+  S-1-5-32-544 -> BUILTIN\Administrators (Alias), S-1-5-32-545 -> BUILTIN\Users,
+  S-1-1-0 -> Everyone, S-1-5-18 -> NT Authority\SYSTEM, <domainSid>-501 ->
+  LABSRV\nobody, -513 -> LABSRV\None; 500/512 come back unresolved on this
+  standalone server. Exercises array-of-structs NDR both ways (input SID array;
+  output referenced-domain list + translated-names array with enum16 Use + pad).
+  Byte layout taken from an impacket capture; parser covered by a synthetic
+  round-trip test and the live run.
