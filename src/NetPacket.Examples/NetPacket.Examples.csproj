@@ -9,6 +9,7 @@
     <ProjectReference Include="..\NetPacket.Core\NetPacket.Core.csproj" />
     <ProjectReference Include="..\NetPacket.Protocols.Smb\NetPacket.Protocols.Smb.csproj" />
     <ProjectReference Include="..\NetPacket.Protocols.Ntlm\NetPacket.Protocols.Ntlm.csproj" />
+    <ProjectReference Include="..\NetPacket.Protocols.Dcerpc\NetPacket.Protocols.Dcerpc.csproj" />
   </ItemGroup>
 
 </Project>

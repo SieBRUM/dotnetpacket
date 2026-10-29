@@ -37,7 +37,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] Comprehensive flag/enum coverage (`Smb2Flags.cs`, `Smb2CreateConstants.cs`:
       header/session/share flags, access mask, create disposition/options, file attributes)
 - [x] SMB2 CREATE / READ / CLOSE (+ `Smb2Client.ReadFile`), signed
-- [ ] SMB2 WRITE, QUERY_DIRECTORY, QUERY_INFO, IOCTL
+- [x] SMB2 WRITE (`Smb2Client.Write`), signed
+- [x] SMB2 IOCTL + FSCTL_PIPE_TRANSCEIVE (`Smb2Client.Ioctl`), signed; async STATUS_PENDING handled
+- [ ] SMB2 QUERY_DIRECTORY, QUERY_INFO
 - [ ] CREATE contexts (DHnQ / MxAc / QFid) — Windows sends them (realism gap)
 - [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
@@ -54,11 +56,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] NEGOTIATE_KEY_EXCH + sealed GSS signing (realism gap — see REALISM.md / notes below)
 - [ ] NTLM signing/sealing of subsequent SMB2 messages
 
-### DCERPC (`NetPacket.Protocols.Dcerpc` — not created yet)
+### DCERPC (`NetPacket.Protocols.Dcerpc`)
 
-- [ ] MSRPC header — impacket `dcerpc/v5/rpcrt.py` `MSRPCHeader`
-- [ ] Bind / BindAck / Request / Response PDUs
-- [ ] Transport (ncacn_np over SMB, ncacn_ip_tcp)
+- [x] `DcerpcHeader` (16-byte common PDU header) — impacket `rpcrt.MSRPCHeader`
+- [x] `DcerpcBind` / `DcerpcBindAck` (PDU types, presentation context, result)
+- [x] ncacn_np transport (`DcerpcPipe`): open pipe on IPC$, FSCTL_PIPE_TRANSCEIVE
+- [x] Well-known interfaces: srvsvc, wkssvc, lsarpc, samr, svcctl
+- [ ] NDR type system (alignment, pointers/referents, conformant arrays, strings)
+- [ ] REQUEST / RESPONSE PDUs + a first real call (e.g. srvsvc NetrShareEnum)
+- [ ] DCERPC auth (sign/seal via NTLMSSP / gss) for authenticated-RPC realism
+- [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
 ### Kerberos (`NetPacket.Protocols.Krb5` — not created yet)
 
@@ -73,7 +80,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-login <host> <user> <password> [domain] [port]` — live NTLMv2 SESSION_SETUP
 - [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
 - [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
+- [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [ ] Port of `examples/smbclient.py`
+- [ ] Port of `examples/rpcdump.py` / srvsvc share enumeration (needs NDR + REQUEST/RESPONSE)
 - [ ] Port of `examples/rpcdump.py`
 - [ ] (others — add as prioritized by the SOC's detection needs)
 
@@ -126,3 +135,11 @@ captures here (what differs, why, and whether it is detection-relevant).
   - _Realism gap:_ CREATE sends no create contexts; Windows sends DHnQ (durable
     handle), MxAc (maximal access query), and QFid. Adding them is the next step
     toward a Windows-identical open.
+- **2026-10-29 — DCERPC BIND over SMB named pipe validated against Samba.**
+  `dcerpc-bind` connects IPC$, opens the pipe (CREATE), and binds via
+  FSCTL_PIPE_TRANSCEIVE (IOCTL). srvsvc/wkssvc/lsarpc/svcctl all return BIND_ACK
+  with result = acceptance; tshark dissects a clean Bind (abstract syntax +
+  NDR v2 transfer syntax) and Bind_ack. The server answers the transceive with an
+  async STATUS_PENDING interim first, which the client skips before reading the
+  real reply. This is the transport every impacket DCE/RPC example sits on; a
+  real call still needs the NDR layer + REQUEST/RESPONSE PDUs.

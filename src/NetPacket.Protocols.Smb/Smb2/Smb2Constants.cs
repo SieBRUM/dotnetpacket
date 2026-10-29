@@ -85,6 +85,8 @@ public static class Smb2Cipher
 public static class NtStatus
 {
     public const uint Success = 0x00000000;
+    public const uint Pending = 0x00000103;
+    public const uint BufferOverflow = 0x80000005;
     public const uint MoreProcessingRequired = 0xC0000016;
     public const uint LogonFailure = 0xC000006D;
     public const uint AccessDenied = 0xC0000022;
@@ -92,6 +94,8 @@ public static class NtStatus
     public static string Describe(uint status) => status switch
     {
         Success => "STATUS_SUCCESS",
+        Pending => "STATUS_PENDING",
+        BufferOverflow => "STATUS_BUFFER_OVERFLOW",
         MoreProcessingRequired => "STATUS_MORE_PROCESSING_REQUIRED",
         LogonFailure => "STATUS_LOGON_FAILURE",
         AccessDenied => "STATUS_ACCESS_DENIED",

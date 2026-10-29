@@ -77,6 +77,16 @@ public sealed class Smb2ReadResult
     public bool Succeeded => Status == NtStatus.Success;
 }
 
+/// <summary>Outcome of an IOCTL/FSCTL: status plus the output buffer.</summary>
+public sealed class Smb2IoctlResult
+{
+    public required uint Status { get; init; }
+
+    public required byte[] Output { get; init; }
+
+    public bool Succeeded => Status == NtStatus.Success || Status == NtStatus.BufferOverflow;
+}
+
 /// <summary>
 /// A stateful SMB2 client connection: NEGOTIATE, NTLMv2 SESSION_SETUP, then signed
 /// TREE_CONNECT — the realistic opening of an SMB session through reaching a share,
@@ -193,7 +203,7 @@ public sealed class Smb2Client : IDisposable
 
         byte[] request = SignIfKeyed(Assemble(header, body.Pack()));
         _transport.SendMessage(request);
-        byte[] response = _transport.ReceiveMessage();
+        byte[] response = ReceiveFinal();
         _messageId++;
 
         var responseHeader = new Smb2Header();
@@ -237,7 +247,7 @@ public sealed class Smb2Client : IDisposable
 
         byte[] request = SignIfKeyed(Assemble(header, body.ToArray()));
         _transport.SendMessage(request);
-        byte[] response = _transport.ReceiveMessage();
+        byte[] response = ReceiveFinal();
         _messageId++;
 
         var responseHeader = new Smb2Header();
@@ -291,12 +301,48 @@ public sealed class Smb2Client : IDisposable
         return new Smb2ReadResult { Status = header.Status, Data = parsed.Data };
     }
 
+    /// <summary>Writes <paramref name="data"/> at <paramref name="offset"/> to an open FileId; returns bytes written.</summary>
+    public uint Write(uint treeId, byte[] fileId, long offset, byte[] data)
+    {
+        var body = new Smb2WriteRequest { FileId = fileId, Offset = (ulong)offset, Data = data };
+        (byte[] response, Smb2Header header) = Exchange(Smb2Command.Write, treeId, body.Pack());
+        if (header.Status != NtStatus.Success)
+        {
+            return 0;
+        }
+
+        var parsed = new Smb2WriteResponse();
+        parsed.Unpack(response);
+        return parsed.Count;
+    }
+
     /// <summary>Closes an open FileId.</summary>
     public uint Close(uint treeId, byte[] fileId)
     {
         var body = new Smb2CloseRequest { FileId = fileId };
         (_, Smb2Header header) = Exchange(Smb2Command.Close, treeId, body.Pack());
         return header.Status;
+    }
+
+    /// <summary>Issues an FSCTL/IOCTL (e.g. FSCTL_PIPE_TRANSCEIVE for DCERPC) and returns the output buffer.</summary>
+    public Smb2IoctlResult Ioctl(uint treeId, byte[] fileId, uint ctlCode, byte[] input, uint maxOutput = 65536)
+    {
+        var body = new Smb2IoctlRequest
+        {
+            CtlCode = ctlCode,
+            FileId = fileId,
+            Input = input,
+            MaxOutputResponse = maxOutput,
+        };
+
+        (byte[] response, Smb2Header header) = Exchange(Smb2Command.Ioctl, treeId, body.Pack());
+        var parsed = new Smb2IoctlResponse();
+        if (header.Status == NtStatus.Success || header.Status == NtStatus.BufferOverflow)
+        {
+            parsed.Unpack(response);
+        }
+
+        return new Smb2IoctlResult { Status = header.Status, Output = parsed.Output };
     }
 
     /// <summary>Opens a file, reads it in full (looping over READ), and closes it.</summary>
@@ -349,12 +395,31 @@ public sealed class Smb2Client : IDisposable
 
         byte[] request = SignIfKeyed(Assemble(header, body));
         _transport.SendMessage(request);
-        byte[] response = _transport.ReceiveMessage();
+        byte[] response = ReceiveFinal();
         _messageId++;
 
         var responseHeader = new Smb2Header();
         responseHeader.Unpack(response);
         return (response, responseHeader);
+    }
+
+    /// <summary>
+    /// Receives a response, skipping SMB2 async interim replies (STATUS_PENDING):
+    /// the server sends those while it works and follows with the real response
+    /// carrying the same MessageId.
+    /// </summary>
+    private byte[] ReceiveFinal()
+    {
+        while (true)
+        {
+            byte[] response = _transport.ReceiveMessage();
+            var header = new Smb2Header();
+            header.Unpack(response);
+            if (header.Status != NtStatus.Pending)
+            {
+                return response;
+            }
+        }
     }
 
     private (byte[] Request, byte[] Response) SendSessionSetup(byte[] securityBuffer, ulong sessionId)

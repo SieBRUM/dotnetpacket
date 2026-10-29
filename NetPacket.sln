@@ -10,6 +10,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPacket.Protocols.Ntlm", 
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPacket.Transport", "src\NetPacket.Transport\NetPacket.Transport.csproj", "{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPacket.Protocols.Dcerpc", "src\NetPacket.Protocols.Dcerpc\NetPacket.Protocols.Dcerpc.csproj", "{FB004C03-A3F9-4F88-887E-41C9DE296F10}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPacket.Examples", "src\NetPacket.Examples\NetPacket.Examples.csproj", "{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetPacket.Core.Tests", "tests\NetPacket.Core.Tests\NetPacket.Core.Tests.csproj", "{30E93E2B-43DE-44D7-A7AF-8503E0D990EA}"
@@ -36,6 +38,10 @@ Global
 		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Release|Any CPU.Build.0 = Release|Any CPU
 		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Release|Any CPU.ActiveCfg = Release|Any CPU

@@ -1,4 +1,5 @@
 using NetPacket.Core;
+using NetPacket.Protocols.Dcerpc;
 using NetPacket.Protocols.Ntlm;
 using NetPacket.Protocols.Smb;
 
@@ -206,6 +207,62 @@ switch (args[0])
         return 0;
     }
 
+    case "dcerpc-bind":
+    {
+        // NEGOTIATE + SESSION_SETUP + TREE_CONNECT(IPC$) + open pipe + DCERPC BIND.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
+            Console.Error.WriteLine("  interface: srvsvc (default) | wkssvc | lsarpc | samr | svcctl");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string interfaceName = args.Length >= 5 ? args[4] : "srvsvc";
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        DcerpcInterface? iface = DcerpcInterface.ByName(interfaceName);
+        if (iface is null)
+        {
+            Console.Error.WriteLine($"Unknown interface '{interfaceName}'.");
+            return 2;
+        }
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        if (!ipc.Connected)
+        {
+            Console.Error.WriteLine($"IPC$ connect failed: {NtStatus.Describe(ipc.Status)}");
+            return 1;
+        }
+
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, iface.Pipe);
+        DcerpcBindAck ack = pipe.Bind(iface);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Connected to {host}:{port}, IPC$ (signing={(login.Signed ? "on" : "off")})");
+        Console.WriteLine($"  Pipe:         \\PIPE\\{iface.Pipe}");
+        Console.WriteLine($"  Interface:    {iface.Name} {iface.Uuid} v{iface.VersionMajor}.{iface.VersionMinor}");
+        Console.WriteLine($"  BIND reply:   {ack.PduType}");
+        Console.WriteLine($"  Result:       {ack.Result} (reason {ack.Reason})");
+        Console.WriteLine($"  SecondaryAddr: {ack.SecondaryAddress}");
+        Console.WriteLine($"  Bound:        {(ack.Accepted ? "YES" : "NO")}");
+        return ack.Accepted ? 0 : 1;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -234,5 +291,7 @@ static void PrintUsage()
     Console.WriteLine("                   Full session: NEGOTIATE + SESSION_SETUP + signed TREE_CONNECT to a share.");
     Console.WriteLine("  smb2-cat <host> <share> <path> <user> <password> [domain] [port]");
     Console.WriteLine("                   Read a file over SMB2: TREE_CONNECT + CREATE + READ + CLOSE.");
+    Console.WriteLine("  dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
+    Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
     Console.WriteLine("  help             Show this help.");
 }
