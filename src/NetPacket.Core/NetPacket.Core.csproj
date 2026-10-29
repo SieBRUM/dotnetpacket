@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Binary (de)serialization engine for the NetPacket impacket port.</Description>
+  </PropertyGroup>
+
+</Project>

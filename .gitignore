@@ -1,0 +1,32 @@
+# .NET build output
+bin/
+obj/
+out/
+artifacts/
+
+# Rider / VS / VS Code
+.idea/
+.vs/
+*.user
+*.suo
+
+# NuGet
+*.nupkg
+.packages/
+packages/
+
+# Test / coverage
+[Tt]est[Rr]esults/
+*.trx
+coverage*.json
+coverage*.xml
+*.coverage
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Capture artifacts from lab runs (keep these out of git)
+*.pcap
+*.pcapng
+captures/

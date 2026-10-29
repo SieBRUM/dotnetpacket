@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>CLI harness for NetPacket examples (impacket examples/ equivalent).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetPacket.Core\NetPacket.Core.csproj" />
+    <ProjectReference Include="..\NetPacket.Protocols.Smb\NetPacket.Protocols.Smb.csproj" />
+    <ProjectReference Include="..\NetPacket.Protocols.Ntlm\NetPacket.Protocols.Ntlm.csproj" />
+  </ItemGroup>
+
+</Project>
