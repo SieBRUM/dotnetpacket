@@ -13,7 +13,15 @@ public enum Smb2Command : ushort
     Flush = 0x0007,
     Read = 0x0008,
     Write = 0x0009,
+    Lock = 0x000A,
     Ioctl = 0x000B,
+    Cancel = 0x000C,
+    Echo = 0x000D,
+    QueryDirectory = 0x000E,
+    ChangeNotify = 0x000F,
+    QueryInfo = 0x0010,
+    SetInfo = 0x0011,
+    OplockBreak = 0x0012,
 }
 
 /// <summary>SMB2/3 dialect revisions (MS-SMB2 2.2.3).</summary>

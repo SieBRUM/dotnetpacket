@@ -115,6 +115,53 @@ switch (args[0])
         return login.Authenticated ? 0 : 1;
     }
 
+    case "smb2-connect":
+    {
+        // Live NEGOTIATE + NTLMv2 SESSION_SETUP + signed TREE_CONNECT to a share.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: smb2-connect <host> <share> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string share = args[2];
+        string user = args[3];
+        string password = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        Smb2NegotiateResult negotiate = client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        string uncPath = $@"\\{host}\{share}";
+        Smb2TreeConnectResult tree = client.TreeConnect(uncPath);
+
+        Console.WriteLine($"Connected to {host}:{port}");
+        Console.WriteLine($"  Dialect:       0x{(ushort)negotiate.Response.DialectRevision:x4}");
+        Console.WriteLine($"  Authenticated: yes (signing={(login.Signed ? "on" : "off")})");
+        Console.WriteLine($"  TREE_CONNECT:  {NtStatus.Describe(tree.Status)} -> {uncPath}");
+        if (tree.Connected)
+        {
+            Console.WriteLine($"  TreeId:        0x{tree.TreeId:x8}");
+            Console.WriteLine($"  ShareType:     {tree.Response.ShareType}");
+            Console.WriteLine($"  ShareFlags:    {tree.Response.ShareFlags}");
+            Console.WriteLine($"  MaximalAccess: 0x{tree.Response.MaximalAccess:x8}");
+            Console.WriteLine($"  ServerSig OK:  {tree.ServerSignatureValid}");
+            uint disconnect = client.TreeDisconnect(tree.TreeId);
+            Console.WriteLine($"  TREE_DISCONNECT: {NtStatus.Describe(disconnect)}");
+        }
+
+        return tree.Connected ? 0 : 1;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -139,5 +186,7 @@ static void PrintUsage()
     Console.WriteLine("                   Perform a live SMB2 NEGOTIATE against a host and dump both directions.");
     Console.WriteLine("  smb2-login <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP; dump both handshake rounds.");
+    Console.WriteLine("  smb2-connect <host> <share> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Full session: NEGOTIATE + SESSION_SETUP + signed TREE_CONNECT to a share.");
     Console.WriteLine("  help             Show this help.");
 }

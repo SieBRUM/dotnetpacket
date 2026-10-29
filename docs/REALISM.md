@@ -61,6 +61,19 @@ NEGOTIATE request (MS-SMB2 2.2.3.1), 8-byte aligned, in roughly this order:
 three (tracked in `PORTING_STATUS.md`) closes the gap to a real Win10/11 client —
 do it before using the negotiate as a realism baseline for research.
 
+## Authentication & signing realism
+
+- NTLMv2 inside SPNEGO is implemented with a Windows-like flag set, a version
+  block, the server's echoed target info, a message MIC, and the SPNEGO
+  mechListMIC. SMB 3.1.1 message signing (preauth integrity + SP800-108 KDF +
+  AES-CMAC) is implemented and validated against a signing-mandatory server.
+- Remaining auth realism gaps (each a potential discriminator): NTLM
+  `NEGOTIATE_KEY_EXCH` + RC4-sealed GSS signing is not done (dropped to keep the
+  mechListMIC deterministic); the AUTHENTICATE target info omits Windows'
+  `MsvAvChannelBindings` / `MsvAvTargetName` pairs; and Kerberos is not offered
+  (a domain-joined Windows client prefers Kerberos over NTLM — NTLM-only is itself
+  a signal in an AD environment).
+
 ## How to check realism
 
 For any ported exchange, capture it and compare against a real client:

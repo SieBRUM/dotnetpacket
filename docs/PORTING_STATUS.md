@@ -32,8 +32,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `NetBiosSessionHeader` — RFC 1002 (16-bit length simplification)
 - [ ] SMB 3.1.1 negotiate contexts: compression, netname, signing (see REALISM.md) — close the gap to a real client
 - [x] SMB2 SESSION_SETUP request/response + two-round NTLMv2 login (`Smb2Client.Login`)
-- [ ] SMB2 TREE_CONNECT, CREATE, READ, WRITE, CLOSE
-- [ ] SMB2 signing (needed once authenticated)
+- [x] SMB2 signing — 3.1.1 preauth integrity + SP800-108 KDF + AES-CMAC (`Smb2Crypto`)
+- [x] SMB2 TREE_CONNECT / TREE_DISCONNECT, signed (`Smb2Client.TreeConnect`)
+- [x] Comprehensive flag/enum coverage (`Smb2Flags.cs`: header flags, session, share type/flags/caps)
+- [ ] SMB2 CREATE, READ, WRITE, CLOSE, QUERY_DIRECTORY
+- [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
 
 ### NTLM (`NetPacket.Protocols.Ntlm`)
@@ -65,6 +68,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
 - [x] `smb2-negotiate <host> [port]` — live SMB2 NEGOTIATE, dumps both directions
 - [x] `smb2-login <host> <user> <password> [domain] [port]` — live NTLMv2 SESSION_SETUP
+- [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] (others — add as prioritized by the SOC's detection needs)
@@ -99,3 +103,14 @@ captures here (what differs, why, and whether it is detection-relevant).
     discriminator. (2) The AUTHENTICATE target info does not add the
     MsvAvChannelBindings / MsvAvTargetName pairs Windows includes. (3) NTLM
     negotiate flags are a fixed set — confirm against a real client capture.
+- **2026-10-29 — Signed SMB2 TREE_CONNECT validated against Samba (signing
+  mandatory).** With `server signing = mandatory`, `smb2-connect` reaches
+  `\\host\public`: SMB 3.1.1 preauth-integrity hash + SP800-108 KDF
+  (`"SMBSigningKey\0"` + 0x00 separator — the double-NUL form) + AES-CMAC produce
+  a signature Samba accepts (STATUS_SUCCESS), and the client verifies the
+  server's signed responses (ServerSig OK). A wrong key is rejected with
+  STATUS_ACCESS_DENIED ("Bad SMB2 signature" in the server log). tshark shows
+  the Tree Connect as a normal signed SMB2 PDU.
+  - _Implementation note:_ only the SMB 3.1.1 signing path is implemented
+    (AES-CMAC). SMB 2.x (HMAC-SHA256) and 3.0.x (different KDF label/context)
+    are not yet covered.
