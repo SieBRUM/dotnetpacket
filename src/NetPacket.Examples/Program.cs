@@ -306,6 +306,82 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-svcctl":
+    {
+        // Lab-only: generate the remote service-creation ("psexec") wire signature
+        // via svcctl. Opens the SCM, attempts to create a BENIGN marker service,
+        // and reports exactly what the server returns. Nothing destructive.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-svcctl <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Svcctl.Pipe);
+        pipe.Bind(DcerpcInterface.Svcctl);
+
+        Console.WriteLine($"svcctl on {host} (lab service-control demo):");
+
+        // Try the access psexec requests; fall back to a modest access to still get a handle.
+        ScHandleResult scm = Svcctl.OpenScManager(pipe, null, ScManagerAccess.AllAccess);
+        Console.WriteLine($"  OpenSCManager(ALL_ACCESS):  {Svcctl.DescribeWin32(scm.ReturnCode)}");
+        if (!scm.Success)
+        {
+            scm = Svcctl.OpenScManager(pipe, null, ScManagerAccess.Connect | ScManagerAccess.EnumerateService);
+            Console.WriteLine($"  OpenSCManager(CONNECT):     {Svcctl.DescribeWin32(scm.ReturnCode)}");
+        }
+
+        if (scm.Success)
+        {
+            const string serviceName = "NetPacketLab";
+            const string binaryPath = @"%SystemRoot%\System32\cmd.exe /c echo netpacket-lab-marker";
+            try
+            {
+                ScHandleResult created = Svcctl.CreateService(
+                    pipe, scm.Handle, serviceName, "NetPacket Lab Marker", binaryPath);
+                Console.WriteLine($"  CreateService(\"{serviceName}\"): {Svcctl.DescribeWin32(created.ReturnCode)}");
+
+                if (created.Success)
+                {
+                    // Clean up immediately — do not leave a service behind.
+                    uint del = Svcctl.DeleteService(pipe, created.Handle);
+                    Console.WriteLine($"  DeleteService (cleanup):    {Svcctl.DescribeWin32(del)}");
+                    Svcctl.CloseServiceHandle(pipe, created.Handle);
+                }
+            }
+            catch (DcerpcFaultException fault)
+            {
+                // e.g. Samba answers CreateServiceW with nca_op_rng_error (unimplemented) —
+                // the request still went on the wire; that is the signature of interest.
+                Console.WriteLine($"  CreateService(\"{serviceName}\"): DCERPC fault 0x{fault.Status:X8} (rejected/unsupported by server)");
+            }
+
+            uint closed = Svcctl.CloseServiceHandle(pipe, scm.Handle);
+            Console.WriteLine($"  CloseServiceHandle:         {Svcctl.DescribeWin32(closed)}");
+        }
+
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -338,5 +414,7 @@ static void PrintUsage()
     Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
     Console.WriteLine("  rpc-shares <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
+    Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  help             Show this help.");
 }

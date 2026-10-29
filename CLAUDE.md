@@ -91,8 +91,9 @@ src/
     DcerpcHeader.cs                #   16-byte common PDU header
     DcerpcBind.cs / DcerpcBindAck.cs #  BIND / BIND_ACK
     DcerpcRequest.cs               #   REQUEST / RESPONSE / FAULT PDUs
-    Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, strings)
+    Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, handles, strings)
     Srvsvc.cs                      #   srvsvc NetrShareEnum (share enumeration)
+    Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
     DcerpcPipe.cs                  #   ncacn_np transport (open pipe on IPC$, transceive, bind, call)
   NetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
@@ -129,6 +130,7 @@ dotnet run --project src/NetPacket.Examples -- smb2-connect <lab-host> <share> <
 dotnet run --project src/NetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

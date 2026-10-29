@@ -47,6 +47,22 @@ public sealed class NdrReader
     /// <summary>Reads a referent id (0 = NULL pointer).</summary>
     public uint ReadReferent() => ReadUInt32();
 
+    /// <summary>Reads <paramref name="count"/> raw bytes.</summary>
+    public byte[] ReadBytes(int count)
+    {
+        var result = new byte[count];
+        Array.Copy(_data, _position, result, 0, count);
+        _position += count;
+        return result;
+    }
+
+    /// <summary>Reads a 20-byte RPC context handle (attributes + 16-byte UUID).</summary>
+    public byte[] ReadContextHandle()
+    {
+        Align(4);
+        return ReadBytes(20);
+    }
+
     /// <summary>Reads a conformant-varying wide string and trims the NDR null terminator.</summary>
     public string ReadConformantVaryingString()
     {

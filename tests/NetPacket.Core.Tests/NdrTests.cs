@@ -44,6 +44,40 @@ public class NdrTests
         Assert.Equal(0u, BitConverter.ToUInt32(bytes, 0));
         Assert.Equal(NdrWriter.NonNullReferent, BitConverter.ToUInt32(bytes, 4));
     }
+
+    [Fact]
+    public void ContextHandle_RoundTrips()
+    {
+        var handle = new byte[20];
+        handle[0] = 0x01;
+        handle[4] = 0xDE;
+        handle[19] = 0xFF;
+
+        var writer = new NdrWriter();
+        writer.WriteContextHandle(handle);
+
+        var reader = new NdrReader(writer.ToArray());
+        Assert.Equal(handle, reader.ReadContextHandle());
+    }
+
+    [Fact]
+    public void UniqueString_NullWritesOnlyReferent()
+    {
+        var writer = new NdrWriter();
+        writer.WriteUniqueString(null);
+        Assert.Equal(new byte[] { 0, 0, 0, 0 }, writer.ToArray());
+    }
+
+    [Fact]
+    public void UniqueString_PresentWritesReferentThenString()
+    {
+        var writer = new NdrWriter();
+        writer.WriteUniqueString("ab");
+        byte[] bytes = writer.ToArray();
+
+        Assert.Equal(NdrWriter.NonNullReferent, BitConverter.ToUInt32(bytes, 0)); // referent
+        Assert.Equal(3u, BitConverter.ToUInt32(bytes, 4));                        // MaxCount incl. NUL
+    }
 }
 
 public class SrvsvcParseTests

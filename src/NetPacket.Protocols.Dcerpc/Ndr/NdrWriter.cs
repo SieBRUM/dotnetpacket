@@ -47,6 +47,32 @@ public sealed class NdrWriter
     /// <summary>Writes a unique pointer referent id (0 for NULL, else a non-null id).</summary>
     public void WriteReferent(bool present) => WriteUInt32(present ? NonNullReferent : 0);
 
+    /// <summary>Writes raw bytes verbatim (already-aligned payloads such as handles).</summary>
+    public void WriteBytes(byte[] value) => _buffer.AddRange(value);
+
+    /// <summary>Writes a 20-byte RPC context handle (attributes + 16-byte UUID).</summary>
+    public void WriteContextHandle(byte[] handle)
+    {
+        Align(4);
+        _buffer.AddRange(handle.Length == 20 ? handle : new byte[20]);
+    }
+
+    /// <summary>Writes a top-level [ref,string] wide string (the pointee directly, no referent).</summary>
+    public void WriteReferencedString(string value) => WriteConformantVaryingString(value);
+
+    /// <summary>Writes a top-level [unique,string] wide string (referent, then pointee if present).</summary>
+    public void WriteUniqueString(string? value)
+    {
+        if (value is null)
+        {
+            WriteReferent(false);
+            return;
+        }
+
+        WriteReferent(true);
+        WriteConformantVaryingString(value);
+    }
+
     /// <summary>Writes a conformant-varying wide string (max/offset/actual + UTF-16LE incl. terminator).</summary>
     public void WriteConformantVaryingString(string value)
     {

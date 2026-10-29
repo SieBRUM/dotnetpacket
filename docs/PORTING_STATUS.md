@@ -66,9 +66,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR encode/decode basics (`NdrWriter` / `NdrReader`): alignment, unique
       referents, conformant-varying strings
 - [x] srvsvc `NetrShareEnum` level 1 (share enumeration) — `Srvsvc.NetrShareEnum`
+- [x] NDR context handles (20-byte) + top-level [ref]/[unique] strings (`NdrWriter`/`NdrReader`)
+- [x] svcctl (`Svcctl`): OpenSCManagerW, OpenServiceW, CreateServiceW, StartServiceW,
+      DeleteService, CloseServiceHandle — the psexec service-control surface
 - [ ] Fuller NDR: structs, conformant arrays of scalars, embedded unions, non-string pointers
 - [ ] More calls: srvsvc NetrServerGetInfo, wkssvc NetrWkstaGetInfo, lsarpc/samr enum
-- [ ] svcctl OpenSCManager/CreateService/StartService (the psexec service behavior)
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -87,6 +89,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
+- [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -157,3 +160,18 @@ captures here (what differs, why, and whether it is detection-relevant).
   This is the first end-to-end impacket-style RPC call. NDR coverage is still
   minimal (referents + conformant-varying strings); richer calls need structs,
   scalar arrays, and non-string pointers.
+- **2026-10-29 — svcctl service-control (psexec signature) exercised against Samba.**
+  `rpc-svcctl` binds svcctl, opens the SCM (ALL_ACCESS -> ERROR_ACCESS_DENIED for a
+  non-admin user; CONNECT -> ERROR_SUCCESS, a valid 20-byte context handle), then
+  issues a benign CreateServiceW (cmd.exe echoing a lab marker) and closes the
+  handle. tshark shows OpenSCManagerW / CreateServiceW / CloseServiceHandle with
+  the service name + binary path intact. Context-handle in/out is validated by the
+  SCM open+close round-trip.
+  - _Behavioral artifact:_ Samba answers CreateServiceW (opnum 12) with DCERPC
+    fault `nca_op_rng_error` (0x1c010002) — it does not implement remote service
+    creation. impacket hits the same wall, confirming our stub is well-formed; the
+    request-side signature matches a real psexec create. Against real Windows the
+    call would instead proceed or return ERROR_ACCESS_DENIED — a server-type
+    discriminator worth recording.
+  - _Scope:_ lab/benign only. The example never leaves a service behind (it deletes
+    on the success path, which Samba never reaches).
