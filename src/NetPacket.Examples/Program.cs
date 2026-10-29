@@ -58,7 +58,9 @@ switch (args[0])
         string host = args[1];
         int port = args.Length >= 3 ? int.Parse(args[2]) : 445;
 
-        Smb2NegotiateResult result = new Smb2Client().Negotiate(host, port);
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        Smb2NegotiateResult result = client.Negotiate();
         Smb2NegotiateResponse response = result.Response;
 
         Console.WriteLine($"Connected to {host}:{port}");
@@ -73,6 +75,44 @@ switch (args[0])
         Console.WriteLine($"<-- NEGOTIATE response ({result.ResponseBytes.Length} bytes):");
         Console.Write(Hex.Dump(result.ResponseBytes));
         return 0;
+    }
+
+    case "smb2-login":
+    {
+        // Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP against a lab host.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: smb2-login <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        Smb2NegotiateResult negotiate = client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+
+        Console.WriteLine($"Connected to {host}:{port}");
+        Console.WriteLine($"  Dialect:   0x{(ushort)negotiate.Response.DialectRevision:x4} ({negotiate.Response.DialectRevision})");
+        Console.WriteLine($"  SessionId: 0x{login.SessionId:x16}");
+        Console.WriteLine($"  Round 1:   {NtStatus.Describe(login.Round1Status)}");
+        Console.WriteLine($"  Round 2:   {NtStatus.Describe(login.Round2Status)}");
+        Console.WriteLine($"  Result:    {(login.Authenticated ? "AUTHENTICATED" : "FAILED")}");
+        Console.WriteLine();
+        Console.WriteLine($"--> SESSION_SETUP #1 ({login.Round1Request.Length} bytes):");
+        Console.Write(Hex.Dump(login.Round1Request));
+        Console.WriteLine($"<-- SESSION_SETUP #1 response ({login.Round1Response.Length} bytes):");
+        Console.Write(Hex.Dump(login.Round1Response));
+        Console.WriteLine($"--> SESSION_SETUP #2 ({login.Round2Request.Length} bytes):");
+        Console.Write(Hex.Dump(login.Round2Request));
+        Console.WriteLine($"<-- SESSION_SETUP #2 response ({login.Round2Response.Length} bytes):");
+        Console.Write(Hex.Dump(login.Round2Response));
+        return login.Authenticated ? 0 : 1;
     }
 
     case "-h":
@@ -97,5 +137,7 @@ static void PrintUsage()
     Console.WriteLine("  ntlm-negotiate   Build a sample NTLMSSP NEGOTIATE message and hex-dump its bytes.");
     Console.WriteLine("  smb2-negotiate <host> [port]");
     Console.WriteLine("                   Perform a live SMB2 NEGOTIATE against a host and dump both directions.");
+    Console.WriteLine("  smb2-login <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP; dump both handshake rounds.");
     Console.WriteLine("  help             Show this help.");
 }

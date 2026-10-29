@@ -76,11 +76,17 @@ src/
     Smb2/Smb2Header.cs             #   SMB2 64-byte header (declarative)
     Smb2/Smb2NegotiateRequest.cs   #   SMB2 NEGOTIATE + 3.1.1 contexts (realistic)
     Smb2/Smb2NegotiateResponse.cs  #   SMB2 NEGOTIATE response parser
-    Smb2/Smb2Client.cs             #   live NEGOTIATE exchange
-  NetPacket.Protocols.Ntlm/        # REFERENCE PORT (manual-override pattern)
-    Ntlm.cs                        #   NTLMSSP constants
+    Smb2/Smb2SessionSetup.cs       #   SMB2 SESSION_SETUP request/response
+    Smb2/Smb2Client.cs             #   live NEGOTIATE + NTLMv2 SESSION_SETUP
+  NetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
+    Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
-    NtlmNegotiate.cs               #   NTLMSSP NEGOTIATE (impacket ntlm.NTLMAuthNegotiate)
+    NtlmNegotiate.cs               #   NTLMSSP NEGOTIATE (reference structure)
+    NtlmChallenge.cs               #   NTLMSSP CHALLENGE (Type 2) parser
+    AvPairs.cs                     #   target-info AV_PAIR list
+    NtlmCrypto.cs                  #   MD4/HMAC-MD5/RC4/NTOWFv2/NTLMv2/GSS signing
+    NtlmClient.cs                  #   Type 1 / Type 3 builder (NTLMv2 + MIC)
+    Spnego.cs                      #   GSS/SPNEGO wrapping (System.Formats.Asn1)
   NetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
 tests/
@@ -94,15 +100,15 @@ docs/
 ## Build & test
 
 > Requires the .NET 8 SDK and (first build) NuGet access. The build, the test
-> suite, and the live `smb2-negotiate` against a Samba server have all been
-> verified; see `docs/PORTING_STATUS.md` for the validation record.
+> suite, and the live `smb2-negotiate` / `smb2-login` (NTLMv2) against a Samba
+> server have all been verified; see `docs/PORTING_STATUS.md` for the record.
 
 ```bash
 dotnet restore
 dotnet build -c Release
 dotnet test
-dotnet run --project src/NetPacket.Examples -- smb-header
 dotnet run --project src/NetPacket.Examples -- smb2-negotiate <lab-host>
+dotnet run --project src/NetPacket.Examples -- smb2-login <lab-host> <user> <password> [domain]
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

@@ -72,3 +72,21 @@ public static class Smb2Cipher
     public const ushort Aes256Ccm = 0x0003;
     public const ushort Aes256Gcm = 0x0004;
 }
+
+/// <summary>The handful of NTSTATUS codes the session-setup handshake cares about.</summary>
+public static class NtStatus
+{
+    public const uint Success = 0x00000000;
+    public const uint MoreProcessingRequired = 0xC0000016;
+    public const uint LogonFailure = 0xC000006D;
+    public const uint AccessDenied = 0xC0000022;
+
+    public static string Describe(uint status) => status switch
+    {
+        Success => "STATUS_SUCCESS",
+        MoreProcessingRequired => "STATUS_MORE_PROCESSING_REQUIRED",
+        LogonFailure => "STATUS_LOGON_FAILURE",
+        AccessDenied => "STATUS_ACCESS_DENIED",
+        _ => $"0x{status:X8}",
+    };
+}
