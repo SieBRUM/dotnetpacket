@@ -1,0 +1,63 @@
+using System.Buffers.Binary;
+using System.Text;
+
+namespace NetPacket.Protocols.Dcerpc;
+
+/// <summary>
+/// Minimal NDR (Network Data Representation, DCE 1.1) encoder for little-endian
+/// marshalling of RPC request stubs: primitives with natural alignment, unique
+/// referent pointers, and conformant-varying strings. Enough for the calls ported
+/// so far; the full NDR type system is a work in progress (see PORTING_STATUS).
+/// </summary>
+public sealed class NdrWriter
+{
+    private readonly List<byte> _buffer = new();
+
+    /// <summary>A conventional non-null referent id for unique pointers.</summary>
+    public const uint NonNullReferent = 0x00020000;
+
+    public int Length => _buffer.Count;
+
+    public void Align(int boundary)
+    {
+        while (_buffer.Count % boundary != 0)
+        {
+            _buffer.Add(0);
+        }
+    }
+
+    public void WriteUInt32(uint value)
+    {
+        Align(4);
+        Span<byte> tmp = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(tmp, value);
+        foreach (byte b in tmp)
+        {
+            _buffer.Add(b);
+        }
+    }
+
+    public void WriteUInt16(ushort value)
+    {
+        Align(2);
+        _buffer.Add((byte)value);
+        _buffer.Add((byte)(value >> 8));
+    }
+
+    /// <summary>Writes a unique pointer referent id (0 for NULL, else a non-null id).</summary>
+    public void WriteReferent(bool present) => WriteUInt32(present ? NonNullReferent : 0);
+
+    /// <summary>Writes a conformant-varying wide string (max/offset/actual + UTF-16LE incl. terminator).</summary>
+    public void WriteConformantVaryingString(string value)
+    {
+        string terminated = value + "\0";
+        uint count = (uint)terminated.Length;
+        WriteUInt32(count); // MaxCount
+        WriteUInt32(0);     // Offset
+        WriteUInt32(count); // ActualCount
+        _buffer.AddRange(Encoding.Unicode.GetBytes(terminated));
+        Align(4);
+    }
+
+    public byte[] ToArray() => _buffer.ToArray();
+}

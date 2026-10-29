@@ -69,6 +69,14 @@ public sealed class DcerpcPipe
         return DcerpcBindAck.Parse(Transceive(bind.Pack()));
     }
 
+    /// <summary>Invokes an opnum with an NDR request stub and returns the NDR response stub (throws on FAULT).</summary>
+    public byte[] Call(ushort opnum, byte[] stub)
+    {
+        var request = new DcerpcRequest { Opnum = opnum, Stub = stub, CallId = _callId++ };
+        byte[] responsePdu = Transceive(request.Pack());
+        return DcerpcResponse.Parse(responsePdu).Stub;
+    }
+
     /// <summary>Closes the pipe handle.</summary>
     public void Close() => _client.Close(_treeId, _fileId);
 }

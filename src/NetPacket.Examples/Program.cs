@@ -263,6 +263,49 @@ switch (args[0])
         return ack.Accepted ? 0 : 1;
     }
 
+    case "rpc-shares":
+    {
+        // Remote share enumeration via srvsvc NetrShareEnum (DCERPC over IPC$).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-shares <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Srvsvc.Pipe);
+        pipe.Bind(DcerpcInterface.Srvsvc);
+        IReadOnlyList<ShareInfo1> shares = Srvsvc.NetrShareEnum(pipe);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Shares on {host} (via srvsvc NetrShareEnum, {shares.Count}):");
+        Console.WriteLine($"  {"NAME",-16} {"TYPE",-10} REMARK");
+        foreach (ShareInfo1 share in shares)
+        {
+            string type = share.Type + (share.IsSpecial ? "*" : string.Empty);
+            Console.WriteLine($"  {share.Name,-16} {type,-10} {share.Remark}");
+        }
+
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -293,5 +336,7 @@ static void PrintUsage()
     Console.WriteLine("                   Read a file over SMB2: TREE_CONNECT + CREATE + READ + CLOSE.");
     Console.WriteLine("  dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
     Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
+    Console.WriteLine("  rpc-shares <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
     Console.WriteLine("  help             Show this help.");
 }

@@ -62,9 +62,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `DcerpcBind` / `DcerpcBindAck` (PDU types, presentation context, result)
 - [x] ncacn_np transport (`DcerpcPipe`): open pipe on IPC$, FSCTL_PIPE_TRANSCEIVE
 - [x] Well-known interfaces: srvsvc, wkssvc, lsarpc, samr, svcctl
-- [ ] NDR type system (alignment, pointers/referents, conformant arrays, strings)
-- [ ] REQUEST / RESPONSE PDUs + a first real call (e.g. srvsvc NetrShareEnum)
-- [ ] DCERPC auth (sign/seal via NTLMSSP / gss) for authenticated-RPC realism
+- [x] REQUEST / RESPONSE / FAULT PDUs (`DcerpcRequest` / `DcerpcResponse`, `DcerpcPipe.Call`)
+- [x] NDR encode/decode basics (`NdrWriter` / `NdrReader`): alignment, unique
+      referents, conformant-varying strings
+- [x] srvsvc `NetrShareEnum` level 1 (share enumeration) — `Srvsvc.NetrShareEnum`
+- [ ] Fuller NDR: structs, conformant arrays of scalars, embedded unions, non-string pointers
+- [ ] More calls: srvsvc NetrServerGetInfo, wkssvc NetrWkstaGetInfo, lsarpc/samr enum
+- [ ] svcctl OpenSCManager/CreateService/StartService (the psexec service behavior)
+- [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
 ### Kerberos (`NetPacket.Protocols.Krb5` — not created yet)
@@ -81,8 +86,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
 - [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
+- [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [ ] Port of `examples/smbclient.py`
-- [ ] Port of `examples/rpcdump.py` / srvsvc share enumeration (needs NDR + REQUEST/RESPONSE)
+- [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] (others — add as prioritized by the SOC's detection needs)
 
@@ -143,3 +149,11 @@ captures here (what differs, why, and whether it is detection-relevant).
   async STATUS_PENDING interim first, which the client skips before reading the
   real reply. This is the transport every impacket DCE/RPC example sits on; a
   real call still needs the NDR layer + REQUEST/RESPONSE PDUs.
+- **2026-10-29 — srvsvc NetrShareEnum (share recon) validated against Samba.**
+  `rpc-shares` binds srvsvc and calls NetrShareEnum (opnum 15, level 1) with an
+  NDR REQUEST stub, parses the NDR RESPONSE, and lists the real shares: `public`
+  (DiskTree) and `IPC$` (Ipc, special, remark "IPC Service (NetPacket Lab)").
+  tshark dissects it as `Operation: NetShareEnumAll (15)`, Level 1, TotalEntries 2.
+  This is the first end-to-end impacket-style RPC call. NDR coverage is still
+  minimal (referents + conformant-varying strings); richer calls need structs,
+  scalar arrays, and non-string pointers.
