@@ -81,6 +81,7 @@ src/
     Smb2/Smb2Create.cs             #   SMB2 CREATE request/response (open a file)
     Smb2/Smb2ReadClose.cs          #   SMB2 READ + CLOSE request/response
     Smb2/Smb2QueryDirectory.cs     #   SMB2 QUERY_DIRECTORY (dir listing)
+    Smb2/Smb2QueryInfo.cs          #   SMB2 QUERY_INFO (file / filesystem metadata)
     Smb2/Smb2Write.cs              #   SMB2 WRITE request/response
     Smb2/Smb2Ioctl.cs              #   SMB2 IOCTL + FSCTL codes (pipe transceive)
     Smb2/Smb2Flags.cs              #   header/session/share flag + enum coverage
@@ -137,6 +138,7 @@ dotnet run --project src/NetPacket.Examples -- smb2-login <lab-host> <user> <pas
 dotnet run --project src/NetPacket.Examples -- smb2-connect <lab-host> <share> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- smb2-ls <lab-host> <share> <user> <password> [path] [domain]
+dotnet run --project src/NetPacket.Examples -- smb2-info <lab-host> <share> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]

@@ -40,7 +40,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] SMB2 WRITE (`Smb2Client.Write`), signed
 - [x] SMB2 IOCTL + FSCTL_PIPE_TRANSCEIVE (`Smb2Client.Ioctl`), signed; async STATUS_PENDING handled
 - [x] SMB2 QUERY_DIRECTORY (`Smb2Client.ListDirectory`) — the dir/ls behavior
-- [ ] SMB2 QUERY_INFO
+- [x] SMB2 QUERY_INFO (`Smb2Client.QueryFileSystemInfo`) — volume label/serial, disk size
 - [ ] CREATE contexts (DHnQ / MxAc / QFid) — Windows sends them (realism gap)
 - [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
@@ -98,6 +98,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
 - [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
 - [x] `smb2-ls <host> <share> <user> <password> [path] [domain] [port]` — directory listing (QUERY_DIRECTORY)
+- [x] `smb2-info <host> <share> <user> <password> [domain] [port]` — filesystem info (QUERY_INFO)
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
@@ -245,3 +246,8 @@ captures here (what differs, why, and whether it is detection-relevant).
   Windows-like .NET client breaks — the brittleness the project studies. A real
   Windows capture is still needed as the third column to confirm NetPacket matches
   Windows (not just differs from impacket).
+- **2026-10-30 — SMB2 QUERY_DIRECTORY + QUERY_INFO validated against Samba.**
+  `smb2-ls` lists \\host\public (., .., readme.txt 59B); `smb2-info` reads the
+  file-system volume label (public), serial, and size via QUERY_INFO
+  (FileFsVolumeInformation + FileFsSizeInformation). Completes the SMB2 verb set
+  (CREATE/READ/WRITE/CLOSE/QUERY_DIRECTORY/QUERY_INFO/IOCTL).

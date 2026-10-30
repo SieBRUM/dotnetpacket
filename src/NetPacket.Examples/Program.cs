@@ -702,6 +702,44 @@ switch (args[0])
         return 0;
     }
 
+    case "smb2-info":
+    {
+        // File-system info over SMB2: CREATE(root) + QUERY_INFO (volume + size).
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: smb2-info <host> <share> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string share = args[2];
+        string user = args[3];
+        string password = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult tree = client.TreeConnect($@"\\{host}\{share}");
+        (Smb2VolumeInfo volume, Smb2FsSizeInfo size) = client.QueryFileSystemInfo(tree.TreeId);
+        client.TreeDisconnect(tree.TreeId);
+
+        Console.WriteLine($@"Filesystem info for \\{host}\{share}:");
+        Console.WriteLine($"  Volume label:  {(string.IsNullOrEmpty(volume.Label) ? "(none)" : volume.Label)}");
+        Console.WriteLine($"  Volume serial: 0x{volume.SerialNumber:x8}");
+        Console.WriteLine($"  Total space:   {size.TotalBytes / (1024 * 1024)} MiB");
+        Console.WriteLine($"  Free space:    {size.AvailableBytes / (1024 * 1024)} MiB");
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -732,6 +770,8 @@ static void PrintUsage()
     Console.WriteLine("                   Read a file over SMB2: TREE_CONNECT + CREATE + READ + CLOSE.");
     Console.WriteLine("  smb2-ls <host> <share> <user> <password> [path] [domain] [port]");
     Console.WriteLine("                   List a directory over SMB2: CREATE(dir) + QUERY_DIRECTORY.");
+    Console.WriteLine("  smb2-info <host> <share> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Filesystem info over SMB2: QUERY_INFO (volume label/serial, size).");
     Console.WriteLine("  dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
     Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
     Console.WriteLine("  rpc-shares <host> <user> <password> [domain] [port]");

@@ -344,6 +344,41 @@ public sealed class Smb2Client : IDisposable
         }
     }
 
+    /// <summary>Queries file-system volume info (serial + label) and size info for a connected tree.</summary>
+    public (Smb2VolumeInfo Volume, Smb2FsSizeInfo Size) QueryFileSystemInfo(uint treeId)
+    {
+        Smb2CreateResult root = Create(
+            treeId, string.Empty, Smb2AccessMask.FileGenericRead, Smb2CreateDisposition.Open, Smb2CreateOptions.DirectoryFile);
+        if (!root.Succeeded)
+        {
+            throw new IOException($"Could not open share root: {NtStatus.Describe(root.Status)}");
+        }
+
+        try
+        {
+            byte[] volume = QueryInfo(treeId, root.Response.FileId, Smb2InfoType.FileSystem, (byte)Smb2FsInfoType.VolumeInformation);
+            byte[] size = QueryInfo(treeId, root.Response.FileId, Smb2InfoType.FileSystem, (byte)Smb2FsInfoType.SizeInformation);
+            return (Smb2QueryInfoResponse.ParseVolumeInfo(volume), Smb2QueryInfoResponse.ParseFsSizeInfo(size));
+        }
+        finally
+        {
+            Close(treeId, root.Response.FileId);
+        }
+    }
+
+    /// <summary>Issues a QUERY_INFO on an open handle and returns the output buffer.</summary>
+    public byte[] QueryInfo(uint treeId, byte[] fileId, Smb2InfoType infoType, byte infoClass)
+    {
+        var body = new Smb2QueryInfoRequest { InfoType = infoType, FileInfoClass = infoClass, FileId = fileId };
+        (byte[] response, Smb2Header header) = Exchange(Smb2Command.QueryInfo, treeId, body.Pack());
+        if (header.Status != NtStatus.Success)
+        {
+            throw new IOException($"QUERY_INFO failed: {NtStatus.Describe(header.Status)}");
+        }
+
+        return Smb2QueryInfoResponse.ExtractOutput(response);
+    }
+
     /// <summary>Writes <paramref name="data"/> at <paramref name="offset"/> to an open FileId; returns bytes written.</summary>
     public uint Write(uint treeId, byte[] fileId, long offset, byte[] data)
     {
