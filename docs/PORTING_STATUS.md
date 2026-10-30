@@ -93,7 +93,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       `DcerpcPipe.BindAuthenticated`
 - [x] mgmt `rpc_mgmt_inq_if_ids` (`Mgmt`): enumerate the interface ids registered on an endpoint (rpcdump)
 - [ ] Fragmented request/response reassembly for signed/sealed PDUs over MaxXmitFrag
-- [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
+- [x] ncacn_ip_tcp transport (DCERPC directly over TCP/135) — `IDcerpcTransport` +
+      `TcpDcerpcTransport` (+ `SmbPipeTransport` for ncacn_np); bind/call/sign-seal is
+      transport-agnostic in `DcerpcPipe`
+- [ ] epmapper `ept_lookup` / `ept_map` (full endpoint enumeration + dynamic-port
+      resolution via protocol towers) over ncacn_ip_tcp
 
 ### Kerberos (`NetPacket.Protocols.Krb5` — not created yet)
 
@@ -113,7 +117,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [x] `rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]` — NetrShareEnum over NTLMSSP sign/seal
-- [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump)
+- [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump, over SMB)
+- [x] `rpc-dump-tcp <host> [port]` — same over ncacn_ip_tcp to the endpoint mapper (DCERPC over TCP, no SMB)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -316,3 +321,14 @@ captures here (what differs, why, and whether it is detection-relevant).
   is pinned by a known-bytes test. srvsvc NetrSessionEnum and wkssvc NetrWkstaUserEnum
   were also probed but need admin on Samba (rpc_s_access_denied for a plain user), so
   they were left unported.
+- **2026-10-30 — Samba AD DC lab stood up; DCERPC over ncacn_ip_tcp validated.**
+  Standalone `smbd` serves no TCP/135, so to validate DCERPC-over-TCP a Samba Active
+  Directory DC was provisioned in the lab (realm LAB.LOCAL; `samba` daemon bound to
+  127.0.0.1, IPv4-only, winbind installed), which listens on 135 (epmapper), 445,
+  389, 88 and 464. `rpc-dump-tcp` connects to 127.0.0.1:135 over raw TCP (no SMB),
+  binds the mgmt interface anonymously, and calls inq_if_ids — returning the epm
+  (e1af8308-…) and mgmt interfaces, matching an impacket ncacn_ip_tcp bind. The
+  transport is now abstracted behind `IDcerpcTransport` (`SmbPipeTransport` for
+  ncacn_np, `TcpDcerpcTransport` for ncacn_ip_tcp) so the bind/sign-seal/call logic is
+  shared. Next over TCP: epmapper `ept_lookup` (full endpoint + dynamic-port
+  enumeration via protocol towers).

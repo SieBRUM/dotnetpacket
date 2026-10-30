@@ -5,68 +5,38 @@ using NetPacket.Protocols.Smb;
 namespace NetPacket.Protocols.Dcerpc;
 
 /// <summary>
-/// DCERPC transport over an SMB2 named pipe (ncacn_np): opens a pipe on the IPC$
-/// tree, then exchanges PDUs with SMB2 WRITE + READ. This is how impacket's
-/// DCE/RPC examples reach srvsvc/lsarpc/svcctl/samr and friends. Supports an
-/// unauthenticated bind and an NTLMSSP-authenticated bind with per-PDU packet
-/// integrity or privacy (sign/seal).
+/// Drives the DCERPC protocol (bind, per-PDU sign/seal, call) over an
+/// <see cref="IDcerpcTransport"/> — either an SMB2 named pipe (ncacn_np) or a direct
+/// TCP connection (ncacn_ip_tcp). This is how impacket's DCE/RPC examples reach
+/// srvsvc/lsarpc/svcctl/samr and the endpoint mapper. Supports an unauthenticated
+/// bind and an NTLMSSP-authenticated bind with per-PDU packet integrity or privacy.
 /// </summary>
 public sealed class DcerpcPipe
 {
-    // A named-pipe open: read + write + the usual attribute/control bits (matches
-    // the access a Windows client requests for an RPC pipe).
-    private const Smb2AccessMask PipeAccess = (Smb2AccessMask)0x0012019F;
-
-    private readonly Smb2Client _client;
-    private readonly uint _treeId;
-    private readonly byte[] _fileId;
+    private readonly IDcerpcTransport _transport;
     private uint _callId = 1;
 
     private NtlmSecurityContext? _security;
     private DcerpcAuthLevel _authLevel = DcerpcAuthLevel.None;
     private uint _authContextId;
 
-    private DcerpcPipe(Smb2Client client, uint treeId, byte[] fileId)
-    {
-        _client = client;
-        _treeId = treeId;
-        _fileId = fileId;
-    }
+    public DcerpcPipe(IDcerpcTransport transport) => _transport = transport;
 
-    /// <summary>Opens <paramref name="pipeName"/> (e.g. "srvsvc") on an already-connected IPC$ tree.</summary>
-    public static DcerpcPipe Open(Smb2Client client, uint ipcTreeId, string pipeName)
-    {
-        Smb2CreateResult create = client.Create(
-            ipcTreeId,
-            pipeName,
-            PipeAccess,
-            Smb2CreateDisposition.Open,
-            Smb2CreateOptions.NonDirectoryFile);
+    /// <summary>Opens <paramref name="pipeName"/> on an IPC$ tree and wraps it as a pipe (ncacn_np).</summary>
+    public static DcerpcPipe Open(Smb2Client client, uint ipcTreeId, string pipeName) =>
+        new(SmbPipeTransport.Open(client, ipcTreeId, pipeName));
 
-        if (!create.Succeeded)
-        {
-            throw new IOException($"Could not open pipe '{pipeName}': {NtStatus.Describe(create.Status)}");
-        }
+    /// <summary>Connects to a DCERPC endpoint directly over TCP (ncacn_ip_tcp), e.g. the mapper on 135.</summary>
+    public static DcerpcPipe OverTcp(string host, int port = 135) =>
+        new(new TcpDcerpcTransport(host, port));
 
-        return new DcerpcPipe(client, ipcTreeId, create.Response.FileId);
-    }
+    /// <summary>Sends one PDU and reads the reply.</summary>
+    public byte[] Transceive(byte[] pdu) => _transport.Transceive(pdu);
 
-    /// <summary>Sends one PDU and reads the reply via FSCTL_PIPE_TRANSCEIVE (one atomic round-trip).</summary>
-    public byte[] Transceive(byte[] pdu)
-    {
-        Smb2IoctlResult result = _client.Ioctl(_treeId, _fileId, Fsctl.PipeTransceive, pdu);
-        if (!result.Succeeded)
-        {
-            throw new IOException($"Pipe transceive failed: {NtStatus.Describe(result.Status)}");
-        }
+    /// <summary>Sends one PDU with no reply expected (used for AUTH3).</summary>
+    public void Send(byte[] pdu) => _transport.Send(pdu);
 
-        return result.Output;
-    }
-
-    /// <summary>Writes one PDU to the pipe with no reply expected (used for AUTH3).</summary>
-    public void Send(byte[] pdu) => _client.Write(_treeId, _fileId, 0, pdu);
-
-    /// <summary>Binds the pipe to an interface and returns the parsed BIND_ACK.</summary>
+    /// <summary>Binds to an interface and returns the parsed BIND_ACK.</summary>
     public DcerpcBindAck Bind(DcerpcInterface iface)
     {
         var bind = new DcerpcBind
@@ -77,11 +47,11 @@ public sealed class DcerpcPipe
             CallId = _callId++,
         };
 
-        return DcerpcBindAck.Parse(Transceive(bind.Pack()));
+        return DcerpcBindAck.Parse(_transport.Transceive(bind.Pack()));
     }
 
     /// <summary>
-    /// Binds the pipe with NTLMSSP authentication and establishes per-PDU protection at
+    /// Binds with NTLMSSP authentication and establishes per-PDU protection at
     /// <paramref name="level"/> (packet integrity or privacy): BIND (+Type1) → BIND_ACK
     /// (Type2) → AUTH3 (Type3). After this, <see cref="Call"/> signs and, at privacy
     /// level, seals every request. Mirrors a modern Windows RPC client's sign/seal bind.
@@ -110,7 +80,7 @@ public sealed class DcerpcPipe
             AuthToken = type1,
         };
 
-        DcerpcBindAck ack = DcerpcBindAck.Parse(Transceive(bind.Pack()));
+        DcerpcBindAck ack = DcerpcBindAck.Parse(_transport.Transceive(bind.Pack()));
         if (!ack.Accepted || ack.AuthValue.Length == 0)
         {
             return ack;
@@ -123,7 +93,7 @@ public sealed class DcerpcPipe
             AuthTrailer = new DcerpcSecTrailer { AuthLevel = (byte)level, AuthContextId = _authContextId },
             AuthToken = auth.Message,
         };
-        Send(auth3.Pack());
+        _transport.Send(auth3.Pack());
 
         _security = new NtlmSecurityContext(auth.SessionKey);
         return ack;
@@ -136,13 +106,13 @@ public sealed class DcerpcPipe
 
         if (_security is null)
         {
-            return DcerpcResponse.Parse(Transceive(request.Pack())).Stub;
+            return DcerpcResponse.Parse(_transport.Transceive(request.Pack())).Stub;
         }
 
         byte[] pdu = request.PackAuthenticated(_security, _authLevel, _authContextId);
-        return DcerpcResponse.Parse(Transceive(pdu), _security, _authLevel).Stub;
+        return DcerpcResponse.Parse(_transport.Transceive(pdu), _security, _authLevel).Stub;
     }
 
-    /// <summary>Closes the pipe handle.</summary>
-    public void Close() => _client.Close(_treeId, _fileId);
+    /// <summary>Closes the underlying transport.</summary>
+    public void Close() => _transport.Close();
 }

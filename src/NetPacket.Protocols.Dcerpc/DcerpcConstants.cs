@@ -90,6 +90,13 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
     public static readonly DcerpcInterface Mgmt =
         new("mgmt", new Guid("afa8bd80-7d8a-11c9-bef4-08002b102989"), 1, 0, "srvsvc");
 
+    /// <summary>
+    /// The endpoint mapper (EPM / MS-RPCE). Reached over ncacn_ip_tcp on port 135; it
+    /// maps interface UUIDs to the dynamic ports their services listen on.
+    /// </summary>
+    public static readonly DcerpcInterface Epm =
+        new("epm", new Guid("e1af8308-5d1f-11c9-91a4-08002b14a0fa"), 3, 0, "epmapper");
+
     public static readonly IReadOnlyList<DcerpcInterface> WellKnown =
         new[] { Srvsvc, Wkssvc, Lsarpc, Samr, Svcctl, Winreg };
 
@@ -117,6 +124,11 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
             }
         }
 
-        return uuid == Mgmt.Uuid ? Mgmt.Name : null;
+        if (uuid == Mgmt.Uuid)
+        {
+            return Mgmt.Name;
+        }
+
+        return uuid == Epm.Uuid ? Epm.Name : null;
     }
 }

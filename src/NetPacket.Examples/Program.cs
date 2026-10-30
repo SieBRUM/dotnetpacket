@@ -403,6 +403,41 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-dump-tcp":
+    {
+        // DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper on 135 —
+        // no SMB, anonymous bind — then enumerate the endpoint's interfaces via
+        // mgmt inq_if_ids. Demonstrates the TCP transport the rpcdump.py / epmapper
+        // path uses.
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: rpc-dump-tcp <host> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        int port = args.Length >= 3 ? int.Parse(args[2]) : 135;
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, port);
+        DcerpcBindAck ack = pipe.Bind(DcerpcInterface.Mgmt);
+        if (!ack.Accepted)
+        {
+            Console.Error.WriteLine($"Bind rejected (result {ack.Result}, reason {ack.Reason}).");
+            return 1;
+        }
+
+        IReadOnlyList<DcerpcInterfaceId> ifaces = Mgmt.InquireInterfaceIds(pipe);
+        pipe.Close();
+
+        Console.WriteLine($"RPC interfaces on {host}:{port} over ncacn_ip_tcp (mgmt inq_if_ids, {ifaces.Count}):");
+        foreach (DcerpcInterfaceId iface in ifaces)
+        {
+            Console.WriteLine($"  {iface}");
+        }
+
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -1048,7 +1083,9 @@ static void PrintUsage()
     Console.WriteLine("  rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump).");
+    Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
+    Console.WriteLine("  rpc-dump-tcp <host> [port]");
+    Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");

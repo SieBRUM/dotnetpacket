@@ -48,10 +48,11 @@ NTLMv2 + SPNEGO, AES-CMAC signing — validated end-to-end against Samba.
 AES-CMAC) · `TREE_CONNECT` · `CREATE` · `READ` · `WRITE` · `CLOSE` · `QUERY_DIRECTORY` ·
 `QUERY_INFO` · `IOCTL`
 
-### DCERPC over named pipes (ncacn_np)
-A `BIND` + NDR engine, with an **NTLMSSP-authenticated bind** offering per-PDU packet
-integrity (sign) and privacy (seal) — the signed/sealed channel a modern Windows RPC
-client negotiates by default — and these interfaces:
+### DCERPC over named pipes (ncacn_np) and TCP (ncacn_ip_tcp)
+A `BIND` + NDR engine that runs over either an SMB2 named pipe or a direct TCP
+connection (e.g. the endpoint mapper on port 135), with an **NTLMSSP-authenticated
+bind** offering per-PDU packet integrity (sign) and privacy (seal) — the signed/sealed
+channel a modern Windows RPC client negotiates by default — and these interfaces:
 
 | Interface | Calls | Behavior |
 | --- | --- | --- |
