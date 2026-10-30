@@ -89,6 +89,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       integrity + privacy with NTLM key exchange — `NtlmSecurityContext`, `Rc4State`,
       `DcerpcAuth3`, `DcerpcSecTrailer`, `DcerpcRequest.PackAuthenticated` /
       `DcerpcPipe.BindAuthenticated`
+- [x] mgmt `rpc_mgmt_inq_if_ids` (`Mgmt`): enumerate the interface ids registered on an endpoint (rpcdump)
 - [ ] Fragmented request/response reassembly for signed/sealed PDUs over MaxXmitFrag
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -110,6 +111,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [x] `rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]` — NetrShareEnum over NTLMSSP sign/seal
+- [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -283,3 +285,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   stub), while only the stub is sealed; and the DCERPC AUTHENTICATE omits the MIC and
   version block that the SMB/SPNEGO path carries. This lets every ported RPC call ride
   the signed/sealed channel a modern Windows client negotiates by default.
+- **2026-10-30 — mgmt rpc_mgmt_inq_if_ids (rpcdump) validated against Samba.**
+  `rpc-dump` binds the mgmt interface over the srvsvc pipe and calls inq_if_ids
+  (opnum 0); Samba returns srvsvc 3.0 and mgmt 1.0, matching stock impacket's
+  rpcdump output. The response NDR — a unique pointer to a conformant
+  rpc_if_id_vector_t (max_count, count, a unique pointer per entry), the deferred
+  rpc_if_id_t structs (uuid + major + minor), then error_status — is pinned by a
+  known-bytes test. mgmt has no pipe of its own; it is bound over an existing
+  endpoint, so it is reached via DcerpcInterface.Mgmt.Pipe (srvsvc) rather than
+  listed in WellKnown.

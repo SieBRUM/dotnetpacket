@@ -361,6 +361,48 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-dump":
+    {
+        // Enumerate the RPC interfaces registered on an endpoint via the mgmt
+        // interface (rpc_mgmt_inq_if_ids) — the impacket rpcdump.py recon behavior.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-dump <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Mgmt.Pipe);
+        pipe.Bind(DcerpcInterface.Mgmt);
+        IReadOnlyList<DcerpcInterfaceId> ifaces = Mgmt.InquireInterfaceIds(pipe);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"RPC interfaces registered on {host} (via mgmt inq_if_ids, {ifaces.Count}):");
+        foreach (DcerpcInterfaceId iface in ifaces)
+        {
+            Console.WriteLine($"  {iface}");
+        }
+
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -887,6 +929,8 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
     Console.WriteLine("  rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
+    Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump).");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");

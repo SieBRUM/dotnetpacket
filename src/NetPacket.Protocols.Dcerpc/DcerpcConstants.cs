@@ -82,6 +82,14 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
     public static readonly DcerpcInterface Winreg =
         new("winreg", new Guid("338cd001-2244-31f1-aaaa-900038001003"), 1, 0, "winreg");
 
+    /// <summary>
+    /// The DCE remote-management interface (rpc_mgmt). It has no pipe of its own —
+    /// it is bound over an existing endpoint (here the srvsvc pipe) — so it is not in
+    /// <see cref="WellKnown"/>; its <c>Pipe</c> names the transport pipe to reach it.
+    /// </summary>
+    public static readonly DcerpcInterface Mgmt =
+        new("mgmt", new Guid("afa8bd80-7d8a-11c9-bef4-08002b102989"), 1, 0, "srvsvc");
+
     public static readonly IReadOnlyList<DcerpcInterface> WellKnown =
         new[] { Srvsvc, Wkssvc, Lsarpc, Samr, Svcctl, Winreg };
 
@@ -96,5 +104,19 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
         }
 
         return null;
+    }
+
+    /// <summary>Resolves a known interface name from its abstract-syntax UUID, or null if unknown.</summary>
+    public static string? NameOf(Guid uuid)
+    {
+        foreach (DcerpcInterface iface in WellKnown)
+        {
+            if (iface.Uuid == uuid)
+            {
+                return iface.Name;
+            }
+        }
+
+        return uuid == Mgmt.Uuid ? Mgmt.Name : null;
     }
 }
