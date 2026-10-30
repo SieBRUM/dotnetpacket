@@ -98,7 +98,7 @@ src/
     Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, handles, strings)
     Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
-    Lsarpc.cs                      #   lsarpc policy open + account domain/SID (RPC_UNICODE_STRING, RPC_SID)
+    Lsarpc.cs                      #   lsarpc policy open + account domain/SID + privilege enumeration
     Lsat.cs                        #   lsat LsarLookupSids (SID->name) + LsarLookupNames (name->SID)
     Samr.cs                        #   samr connect/enum/lookup/open + per-user QueryInfo + domain password policy (samrdump)
     Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
@@ -151,6 +151,7 @@ dotnet run --project src/NetPacket.Examples -- rpc-shares-sealed <lab-host> <use
 dotnet run --project src/NetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- rpc-privs <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-passpol <lab-host> <user> <password> [domain]

@@ -576,6 +576,57 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-privs":
+    {
+        // Enumerate the privileges the LSA knows via lsarpc LsarEnumeratePrivileges
+        // (the enum4linux privilege-enumeration recon).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-privs <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        if (!policy.Success)
+        {
+            Console.Error.WriteLine($"OpenPolicy2 failed: 0x{policy.ReturnCode:X8}");
+            return 1;
+        }
+
+        IReadOnlyList<LsaPrivilege> privs = Lsarpc.EnumeratePrivileges(pipe, policy.Handle);
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"LSA privileges on {host} (via LsarEnumeratePrivileges, {privs.Count}):");
+        foreach (LsaPrivilege p in privs)
+        {
+            Console.WriteLine($"  LUID {p.LuidHigh}:{p.LuidLow,-4} {p.Name}");
+        }
+
+        return 0;
+    }
+
     case "rpc-lookupsid":
     {
         // SID->name recon via lsat LsarLookupSids (the lookupsid behavior).
@@ -1004,6 +1055,8 @@ static void PrintUsage()
     Console.WriteLine("                   Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.");
     Console.WriteLine("  rpc-lsa <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");
+    Console.WriteLine("  rpc-privs <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Enumerate LSA privileges via lsarpc LsarEnumeratePrivileges.");
     Console.WriteLine("  rpc-lookupsid <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");

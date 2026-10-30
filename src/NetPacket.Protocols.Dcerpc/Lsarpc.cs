@@ -8,6 +8,9 @@ public sealed record LsaAccountDomain(string Name, string Sid, uint Status)
     public bool Success => Status == 0;
 }
 
+/// <summary>An LSA privilege definition (MS-LSAD LSAPR_POLICY_PRIVILEGE_DEF): name + LUID.</summary>
+public sealed record LsaPrivilege(string Name, uint LuidLow, int LuidHigh);
+
 /// <summary>
 /// Minimal lsarpc client (MS-LSAD). Port of the parts of impacket's
 /// <c>dcerpc.v5.lsad</c> used for domain recon: open the LSA policy and read the
@@ -17,6 +20,7 @@ public sealed record LsaAccountDomain(string Name, string Sid, uint Status)
 public static class Lsarpc
 {
     private const ushort OpnumLsarClose = 0;
+    private const ushort OpnumLsarEnumeratePrivileges = 2;
     private const ushort OpnumLsarQueryInformationPolicy = 7;
     private const ushort OpnumLsarOpenPolicy2 = 44;
 
@@ -52,6 +56,64 @@ public static class Lsarpc
         ndr.WriteUInt16(PolicyAccountDomainInformation); // InformationClass (enum16)
         byte[] stub = pipe.Call(OpnumLsarQueryInformationPolicy, ndr.ToArray());
         return ParseAccountDomain(stub);
+    }
+
+    /// <summary>
+    /// LsarEnumeratePrivileges (opnum 2): list the privileges the LSA knows about.
+    /// Request is PolicyHandle + an in/out EnumerationContext + PreferedMaximumLength;
+    /// a single call with a large maximum returns them all here. The enum4linux
+    /// privilege-enumeration recon behavior.
+    /// </summary>
+    public static IReadOnlyList<LsaPrivilege> EnumeratePrivileges(DcerpcPipe pipe, byte[] policyHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle); // PolicyHandle [in]
+        ndr.WriteUInt32(0);                   // EnumerationContext [in,out] — start at 0
+        ndr.WriteUInt32(0xFFFFFFFF);          // PreferedMaximumLength — "give me everything"
+        return ParsePrivileges(pipe.Call(OpnumLsarEnumeratePrivileges, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses an LsarEnumeratePrivileges response: EnumerationContext, then an
+    /// LSAPR_PRIVILEGE_ENUM_BUFFER (count + a conformant array of
+    /// LSAPR_POLICY_PRIVILEGE_DEF, each an RPC_UNICODE_STRING name header + LUID, with
+    /// the name buffers deferred). Exposed for tests / offline analysis.
+    /// </summary>
+    public static IReadOnlyList<LsaPrivilege> ParsePrivileges(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        reader.ReadUInt32();                  // EnumerationContext (out)
+        uint entries = reader.ReadUInt32();   // Entries
+        if (reader.ReadReferent() == 0)       // Privileges array pointer
+        {
+            return Array.Empty<LsaPrivilege>();
+        }
+
+        reader.ReadUInt32();                  // conformant max_count
+
+        // Inline struct headers first: Name {Length, MaxLength, Buffer referent} + LUID.
+        var lengths = new ushort[entries];
+        var bufRefs = new uint[entries];
+        var luidLow = new uint[entries];
+        var luidHigh = new int[entries];
+        for (uint i = 0; i < entries; i++)
+        {
+            lengths[i] = reader.ReadUInt16();         // Name.Length (bytes)
+            reader.ReadUInt16();                      // Name.MaximumLength
+            bufRefs[i] = reader.ReadReferent();       // Name.Buffer pointer
+            luidLow[i] = reader.ReadUInt32();         // LUID.LowPart
+            luidHigh[i] = (int)reader.ReadUInt32();   // LUID.HighPart
+        }
+
+        // Then the deferred conformant-varying name buffers, in order.
+        var result = new List<LsaPrivilege>((int)entries);
+        for (uint i = 0; i < entries; i++)
+        {
+            string name = bufRefs[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+            result.Add(new LsaPrivilege(name, luidLow[i], luidHigh[i]));
+        }
+
+        return result;
     }
 
     /// <summary>LsarClose (opnum 0): release a policy handle.</summary>

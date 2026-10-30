@@ -74,6 +74,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
+- [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
 - [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
 - [x] lsat `LsarLookupSids` (SID -> domain\name) + `LsarLookupNames` (name -> SID) — `Lsat`
 - [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
@@ -116,6 +117,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
+- [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
@@ -304,3 +306,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   level struct, with NT relative-time LARGE_INTEGERs for the age/duration fields) is
   pinned by known-bytes tests; `Samr.RelativeTimeToDays` converts the ages (null for
   the never sentinel). This is the enum4linux / samrdump password-policy dump.
+- **2026-10-30 — lsarpc LsarEnumeratePrivileges validated against Samba.**
+  `rpc-privs` opens the LSA policy and enumerates privileges (opnum 2); Samba
+  returns 9 (SeMachineAccountPrivilege, SeTakeOwnershipPrivilege, SeBackupPrivilege,
+  SeRestorePrivilege, SeRemoteShutdownPrivilege, SePrintOperatorPrivilege,
+  SeAddUsersPrivilege, SeDiskOperatorPrivilege, SeSecurityPrivilege) with their
+  LUIDs. The response — EnumerationContext, an LSAPR_PRIVILEGE_ENUM_BUFFER (count +
+  conformant array of RPC_UNICODE_STRING-header + LUID, with deferred name buffers) —
+  is pinned by a known-bytes test. srvsvc NetrSessionEnum and wkssvc NetrWkstaUserEnum
+  were also probed but need admin on Samba (rpc_s_access_denied for a plain user), so
+  they were left unported.

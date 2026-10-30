@@ -57,7 +57,7 @@ client negotiates by default — and these interfaces:
 | --- | --- | --- |
 | **srvsvc** | NetrShareEnum, NetrServerGetInfo | share + server recon |
 | **wkssvc** | NetrWkstaGetInfo | host / OS recon |
-| **lsarpc** | LsarOpenPolicy2, LsarQueryInformationPolicy | domain name + SID |
+| **lsarpc** | LsarOpenPolicy2, LsarQueryInformationPolicy, LsarEnumeratePrivileges | domain name + SID + privilege list |
 | **lsat** | LsarLookupSids, LsarLookupNames | SID ↔ name resolution |
 | **samr** | Connect, Enumerate\*, LookupDomain, OpenDomain/User, QueryInformationUser2, QueryInformationDomain | `samrdump` user enum + detail + password policy |
 | **svcctl** | OpenSCManager, CreateService, … | service-control (`psexec`) signature — lab/benign |
