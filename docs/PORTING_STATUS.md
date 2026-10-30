@@ -62,7 +62,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `DcerpcHeader` (16-byte common PDU header) — impacket `rpcrt.MSRPCHeader`
 - [x] `DcerpcBind` / `DcerpcBindAck` (PDU types, presentation context, result)
 - [x] ncacn_np transport (`DcerpcPipe`): open pipe on IPC$, FSCTL_PIPE_TRANSCEIVE
-- [x] Well-known interfaces: srvsvc, wkssvc, lsarpc, samr, svcctl
+- [x] Well-known interfaces: srvsvc, wkssvc, lsarpc, samr, svcctl, winreg
 - [x] REQUEST / RESPONSE / FAULT PDUs (`DcerpcRequest` / `DcerpcResponse`, `DcerpcPipe.Call`)
 - [x] NDR encode/decode basics (`NdrWriter` / `NdrReader`): alignment, unique
       referents, conformant-varying strings
@@ -79,8 +79,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
       EnumerateUsersInDomain, OpenUser, QueryInformationUser2 (general info), CloseHandle
       — the full samrdump behavior (enumerate + per-user attributes)
+- [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
+- [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
+      BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
 - [ ] More calls: samr group/alias enum (empty on standalone Samba), QueryInfoUser level 21
+- [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -107,6 +111,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
+- [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -251,3 +256,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   file-system volume label (public), serial, and size via QUERY_INFO
   (FileFsVolumeInformation + FileFsSizeInformation). Completes the SMB2 verb set
   (CREATE/READ/WRITE/CLOSE/QUERY_DIRECTORY/QUERY_INFO/IOCTL).
+- **2026-10-30 — winreg / remote registry (MS-RRP) validated against Samba.**
+  `rpc-reg` binds winreg, OpenHKLM (opnum 2) -> HKEY, BaseRegGetVersion (opnum 26)
+  -> 5, BaseRegOpenKey (opnum 15) "SOFTWARE\Microsoft\Windows NT\CurrentVersion" ->
+  OK, then BaseRegCloseKey (opnum 5) on both handles. Wireshark's winreg dissector
+  parses every PDU cleanly. The input strings are RRP_UNICODE_STRINGs (NUL counted
+  in Length/MaxLength and the conformant buffer — unlike the RPC_UNICODE_STRINGs
+  used by lsarpc/samr), encoded by `NdrWriter.WriteRrpUnicodeString` and pinned by a
+  known-bytes test. dwOptions is sent as 0 (REG_OPTION_NON_VOLATILE, what Windows
+  sends) rather than impacket's 1 — a candidate fingerprint for the WIRE_DIFF column.
+  BaseRegEnumKey/QueryInfoKey left unported (QueryInfoKey faults on standalone Samba).

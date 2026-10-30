@@ -106,6 +106,24 @@ public sealed class NdrWriter
         Align(4);
     }
 
+    /// <summary>
+    /// Writes an RRP_UNICODE_STRING (MS-RRP) passed as an input argument: a
+    /// NUL-terminated wide string where Length == MaximumLength count the NUL,
+    /// followed inline by its conformant-varying buffer (also NUL-terminated).
+    /// </summary>
+    public void WriteRrpUnicodeString(string value)
+    {
+        uint count = (uint)(value.Length + 1); // characters incl. the NUL terminator
+        WriteUInt16((ushort)(count * 2));       // Length (bytes)
+        WriteUInt16((ushort)(count * 2));       // MaximumLength (bytes)
+        WriteReferent(true);                     // Buffer pointer
+        WriteUInt32(count);                      // MaxCount
+        WriteUInt32(0);                          // Offset
+        WriteUInt32(count);                      // ActualCount
+        _buffer.AddRange(Encoding.Unicode.GetBytes(value + "\0"));
+        Align(4);
+    }
+
     /// <summary>Writes a conformant-varying wide string (max/offset/actual + UTF-16LE incl. terminator).</summary>
     public void WriteConformantVaryingString(string value)
     {

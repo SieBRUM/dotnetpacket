@@ -60,8 +60,11 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
     public static readonly DcerpcInterface Svcctl =
         new("svcctl", new Guid("367abb81-9844-35f1-ad32-98f038001003"), 2, 0, "svcctl");
 
+    public static readonly DcerpcInterface Winreg =
+        new("winreg", new Guid("338cd001-2244-31f1-aaaa-900038001003"), 1, 0, "winreg");
+
     public static readonly IReadOnlyList<DcerpcInterface> WellKnown =
-        new[] { Srvsvc, Wkssvc, Lsarpc, Samr, Svcctl };
+        new[] { Srvsvc, Wkssvc, Lsarpc, Samr, Svcctl, Winreg };
 
     public static DcerpcInterface? ByName(string name)
     {

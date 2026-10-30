@@ -37,6 +37,7 @@ interfaces/calls:
 | lsat | LsarLookupSids, LsarLookupNames | SID ↔ name resolution |
 | samr | Connect, Enumerate*, LookupDomain, OpenDomain/User, QueryInformationUser2 | `samrdump` user enumeration + detail |
 | svcctl | OpenSCManager, CreateService, … | service-control (`psexec`) signature — lab/benign |
+| winreg | OpenHKLM, BaseRegGetVersion, BaseRegOpenKey, BaseRegCloseKey | remote-registry (`reg.py`) recon |
 
 ## Quick start
 

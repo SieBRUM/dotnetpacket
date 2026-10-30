@@ -655,6 +655,60 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-reg":
+    {
+        // Remote-registry recon via winreg (MS-RRP): open HKLM, read its version,
+        // open a subkey, then release the handles. The impacket reg.py surface.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-reg <host> <user> <password> [subkey] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string subKey = args.Length >= 5 ? args[4] : @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Winreg.Pipe);
+        pipe.Bind(DcerpcInterface.Winreg);
+
+        Console.WriteLine($"Remote registry on {host}:");
+        ScHandleResult hklm = Winreg.OpenHklm(pipe);
+        Console.WriteLine($"  OpenHKLM:   {(hklm.Success ? "OK" : $"0x{hklm.ReturnCode:X8}")}");
+        if (hklm.Success)
+        {
+            (uint version, uint vStatus) = Winreg.GetVersion(pipe, hklm.Handle);
+            Console.WriteLine($"  GetVersion: {(vStatus == 0 ? version.ToString() : $"0x{vStatus:X8}")}");
+
+            ScHandleResult key = Winreg.OpenKey(pipe, hklm.Handle, subKey);
+            Console.WriteLine($"  OpenKey {subKey}: {(key.Success ? "OK" : $"0x{key.ReturnCode:X8}")}");
+            if (key.Success)
+            {
+                Winreg.CloseKey(pipe, key.Handle);
+            }
+
+            Winreg.CloseKey(pipe, hklm.Handle);
+        }
+
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "smb2-ls":
     {
         // Directory listing over SMB2: TREE_CONNECT + CREATE(dir) + QUERY_DIRECTORY + CLOSE.
@@ -788,5 +842,7 @@ static void PrintUsage()
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
     Console.WriteLine("                   Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).");
+    Console.WriteLine("  rpc-reg <host> <user> <password> [subkey] [domain] [port]");
+    Console.WriteLine("                   Remote-registry recon via winreg (MS-RRP): OpenHKLM + GetVersion + OpenKey.");
     Console.WriteLine("  help             Show this help.");
 }
