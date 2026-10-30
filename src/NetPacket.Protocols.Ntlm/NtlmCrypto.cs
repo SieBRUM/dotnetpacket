@@ -68,9 +68,27 @@ public static class NtlmCrypto
     /// Client-to-server signing key (MS-NLMP 3.4.5.2): MD5(sessionKey + magic constant).
     /// Used to sign the SPNEGO mechListMIC.
     /// </summary>
-    public static byte[] ClientSigningKey(byte[] exportedSessionKey)
+    public static byte[] ClientSigningKey(byte[] exportedSessionKey) => SignKey(exportedSessionKey, clientToServer: true);
+
+    /// <summary>
+    /// SIGNKEY (MS-NLMP 3.4.5.2) for extended session security: MD5(sessionKey + the
+    /// directional magic constant). <paramref name="clientToServer"/> picks the direction.
+    /// </summary>
+    public static byte[] SignKey(byte[] exportedSessionKey, bool clientToServer)
     {
-        byte[] magic = Encoding.ASCII.GetBytes("session key to client-to-server signing key magic constant\0");
+        string who = clientToServer ? "client-to-server" : "server-to-client";
+        byte[] magic = Encoding.ASCII.GetBytes($"session key to {who} signing key magic constant\0");
+        return MD5.HashData(Concat(exportedSessionKey, magic));
+    }
+
+    /// <summary>
+    /// SEALKEY (MS-NLMP 3.4.5.3) for extended session security with a 128-bit key:
+    /// MD5(sessionKey + the directional sealing magic constant).
+    /// </summary>
+    public static byte[] SealKey(byte[] exportedSessionKey, bool clientToServer)
+    {
+        string who = clientToServer ? "client-to-server" : "server-to-client";
+        byte[] magic = Encoding.ASCII.GetBytes($"session key to {who} sealing key magic constant\0");
         return MD5.HashData(Concat(exportedSessionKey, magic));
     }
 

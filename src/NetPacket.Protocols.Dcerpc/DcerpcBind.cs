@@ -25,7 +25,13 @@ public sealed class DcerpcBind
 
     public uint CallId { get; set; } = 1;
 
-    /// <summary>Serializes the full BIND PDU (header + body).</summary>
+    /// <summary>Optional authentication: the sec_trailer describing the token, if any.</summary>
+    public DcerpcSecTrailer? AuthTrailer { get; set; }
+
+    /// <summary>Optional authentication token (e.g. an NTLMSSP NEGOTIATE) carried after the sec_trailer.</summary>
+    public byte[]? AuthToken { get; set; }
+
+    /// <summary>Serializes the full BIND PDU (header + body + optional auth trailer/token).</summary>
     public byte[] Pack()
     {
         var body = new ByteWriter(ByteOrder.Little);
@@ -53,17 +59,28 @@ public sealed class DcerpcBind
         body.WriteUInt16(Dcerpc.NdrVersionMinor);
 
         byte[] bodyBytes = body.ToArray();
+        byte[] token = AuthToken ?? Array.Empty<byte>();
+        bool authenticated = AuthTrailer is not null && token.Length > 0;
+        int authLength = authenticated ? token.Length : 0;
+        int trailerLength = authenticated ? DcerpcSecTrailer.Size : 0;
 
         var header = new DcerpcHeader
         {
             PduType = (byte)DcerpcPduType.Bind,
             CallId = CallId,
-            FragLength = (ushort)(DcerpcHeader.Size + bodyBytes.Length),
+            FragLength = (ushort)(DcerpcHeader.Size + bodyBytes.Length + trailerLength + authLength),
+            AuthLength = (ushort)authLength,
         };
 
         var writer = new ByteWriter(ByteOrder.Little);
         writer.WriteBytes(header.Pack());
         writer.WriteBytes(bodyBytes);
+        if (authenticated)
+        {
+            writer.WriteBytes(AuthTrailer!.Pack());
+            writer.WriteBytes(token);
+        }
+
         return writer.ToArray();
     }
 }

@@ -85,7 +85,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
 - [ ] More calls: samr group/alias enum (empty on standalone Samba), QueryInfoUser level 21
 - [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
-- [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
+- [x] DCERPC auth (NTLMSSP sign/seal): authenticated BIND + AUTH3, per-PDU packet
+      integrity + privacy with NTLM key exchange — `NtlmSecurityContext`, `Rc4State`,
+      `DcerpcAuth3`, `DcerpcSecTrailer`, `DcerpcRequest.PackAuthenticated` /
+      `DcerpcPipe.BindAuthenticated`
+- [ ] Fragmented request/response reassembly for signed/sealed PDUs over MaxXmitFrag
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
 ### Kerberos (`NetPacket.Protocols.Krb5` — not created yet)
@@ -105,6 +109,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-info <host> <share> <user> <password> [domain] [port]` — filesystem info (QUERY_INFO)
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
+- [x] `rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]` — NetrShareEnum over NTLMSSP sign/seal
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -266,3 +271,15 @@ captures here (what differs, why, and whether it is detection-relevant).
   known-bytes test. dwOptions is sent as 0 (REG_OPTION_NON_VOLATILE, what Windows
   sends) rather than impacket's 1 — a candidate fingerprint for the WIRE_DIFF column.
   BaseRegEnumKey/QueryInfoKey left unported (QueryInfoKey faults on standalone Samba).
+- **2026-10-30 — DCERPC NTLMSSP sign/seal validated against Samba.**
+  `rpc-shares-sealed` performs an authenticated bind (BIND + NTLMSSP NEGOTIATE →
+  BIND_ACK + CHALLENGE → AUTH3 + AUTHENTICATE) with NTLM key exchange, then runs
+  srvsvc NetrShareEnum at both RPC_C_AUTHN_LEVEL_PKT_INTEGRITY (sign) and
+  _PKT_PRIVACY (seal); Samba (mandatory signing) accepts both and the responses
+  verify. The GSS sign/seal math is pinned to impacket byte-for-byte by golden
+  vectors (`DcerpcAuthTests`): SIGNKEY/SEALKEY derivation, the RC4-encrypted 8-byte
+  checksum, and the body-then-checksum keystream order. Two NTLM2 DCERPC quirks were
+  essential: the signature covers the whole PDU minus the verifier (not just the
+  stub), while only the stub is sealed; and the DCERPC AUTHENTICATE omits the MIC and
+  version block that the SMB/SPNEGO path carries. This lets every ported RPC call ride
+  the signed/sealed channel a modern Windows client negotiates by default.

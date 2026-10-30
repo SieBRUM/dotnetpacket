@@ -91,8 +91,10 @@ src/
   NetPacket.Protocols.Dcerpc/      # DCERPC (MS-RPCE) over SMB named pipes
     DcerpcConstants.cs             #   PDU types, flags, NDR syntax, well-known interfaces
     DcerpcHeader.cs                #   16-byte common PDU header
-    DcerpcBind.cs / DcerpcBindAck.cs #  BIND / BIND_ACK
-    DcerpcRequest.cs               #   REQUEST / RESPONSE / FAULT PDUs
+    DcerpcBind.cs / DcerpcBindAck.cs #  BIND / BIND_ACK (+ optional NTLMSSP auth trailer)
+    DcerpcAuth3.cs                 #   AUTH3 PDU (third leg of an authenticated bind)
+    DcerpcSecTrailer.cs            #   8-byte auth verifier header (sec_trailer)
+    DcerpcRequest.cs               #   REQUEST / RESPONSE / FAULT PDUs (+ sign/seal path)
     Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, handles, strings)
     Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
@@ -108,8 +110,10 @@ src/
     NtlmNegotiate.cs               #   NTLMSSP NEGOTIATE (reference structure)
     NtlmChallenge.cs               #   NTLMSSP CHALLENGE (Type 2) parser
     AvPairs.cs                     #   target-info AV_PAIR list
-    NtlmCrypto.cs                  #   MD4/HMAC-MD5/RC4/NTOWFv2/NTLMv2/GSS signing
-    NtlmClient.cs                  #   Type 1 / Type 3 builder (NTLMv2 + MIC)
+    NtlmCrypto.cs                  #   MD4/HMAC-MD5/RC4/NTOWFv2/NTLMv2/GSS sign+seal keys
+    NtlmClient.cs                  #   Type 1 / Type 3 builder (NTLMv2 + MIC + optional key exchange)
+    Rc4State.cs                    #   stateful RC4 keystream (continuous sign/seal handle)
+    NtlmSecurityContext.cs         #   GSS per-message sign/seal (MS-NLMP 3.4) for DCERPC
     Spnego.cs                      #   GSS/SPNEGO wrapping (System.Formats.Asn1)
   NetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
@@ -142,6 +146,7 @@ dotnet run --project src/NetPacket.Examples -- smb2-ls <lab-host> <share> <user>
 dotnet run --project src/NetPacket.Examples -- smb2-info <lab-host> <share> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- rpc-shares-sealed <lab-host> <user> <password> [seal|sign] [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]

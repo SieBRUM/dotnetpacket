@@ -39,6 +39,25 @@ public static class Dcerpc
     public static readonly Guid NdrTransferSyntax = new("8a885d04-1ceb-11c9-9fe8-08002b104860");
     public const ushort NdrVersionMajor = 2;
     public const ushort NdrVersionMinor = 0;
+
+    /// <summary>Authentication service id: NTLMSSP (MS-RPCE 2.2.1.1.7, RPC_C_AUTHN_WINNT).</summary>
+    public const byte AuthTypeNtlm = 0x0A;
+}
+
+/// <summary>DCERPC authentication level (MS-RPCE 2.2.1.1.8 / RPC_C_AUTHN_LEVEL_*).</summary>
+public enum DcerpcAuthLevel : byte
+{
+    /// <summary>No per-PDU protection (the default for the unauthenticated bind path).</summary>
+    None = 0,
+
+    /// <summary>Connect: authenticate at bind only.</summary>
+    Connect = 2,
+
+    /// <summary>Packet integrity: every PDU carries a signature (RPC_C_AUTHN_LEVEL_PKT_INTEGRITY).</summary>
+    PacketIntegrity = 5,
+
+    /// <summary>Packet privacy: every PDU stub is sealed and signed (RPC_C_AUTHN_LEVEL_PKT_PRIVACY).</summary>
+    PacketPrivacy = 6,
 }
 
 /// <summary>A DCERPC interface: its abstract-syntax UUID, version, and default named pipe.</summary>

@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NetPacket.Core\NetPacket.Core.csproj" />
     <ProjectReference Include="..\NetPacket.Protocols.Smb\NetPacket.Protocols.Smb.csproj" />
+    <ProjectReference Include="..\NetPacket.Protocols.Ntlm\NetPacket.Protocols.Ntlm.csproj" />
   </ItemGroup>
 
 </Project>

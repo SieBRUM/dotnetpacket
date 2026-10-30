@@ -31,6 +31,9 @@ public sealed class DcerpcBindAck
 
     public ushort Reason { get; private set; }
 
+    /// <summary>The authentication token (e.g. an NTLMSSP CHALLENGE) from the trailing auth verifier, if any.</summary>
+    public byte[] AuthValue { get; private set; } = Array.Empty<byte>();
+
     public bool Accepted => PduType == DcerpcPduType.BindAck && Result == ContextResult.Acceptance;
 
     public static DcerpcBindAck Parse(byte[] pdu)
@@ -41,6 +44,16 @@ public sealed class DcerpcBindAck
         header.Unpack(reader); // consumes the 16-byte header
 
         var ack = new DcerpcBindAck { PduType = (DcerpcPduType)header.PduType };
+
+        // The auth token, when present, is the trailing AuthLength bytes of the PDU
+        // (the sec_trailer sits just before it); extract it independently of the
+        // context-list parsing below.
+        if (header.AuthLength > 0 && header.FragLength <= pdu.Length)
+        {
+            int tokenStart = header.FragLength - header.AuthLength;
+            ack.AuthValue = pdu[tokenStart..header.FragLength];
+        }
+
         if (ack.PduType != DcerpcPduType.BindAck)
         {
             return ack; // BIND_NAK or unexpected — nothing more to parse reliably

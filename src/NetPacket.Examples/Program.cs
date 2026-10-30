@@ -306,6 +306,61 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-shares-sealed":
+    {
+        // Same srvsvc NetrShareEnum, but over an NTLMSSP-authenticated bind with
+        // per-PDU packet privacy (seal) or integrity (sign) — the sign/seal RPC a
+        // modern Windows client speaks. Lets the SOC capture signed/sealed DCERPC.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        DcerpcAuthLevel level = args.Length >= 5 && args[4].Equals("sign", StringComparison.OrdinalIgnoreCase)
+            ? DcerpcAuthLevel.PacketIntegrity
+            : DcerpcAuthLevel.PacketPrivacy;
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Srvsvc.Pipe);
+        DcerpcBindAck ack = pipe.BindAuthenticated(DcerpcInterface.Srvsvc, domain, user, password, level);
+        if (!ack.Accepted)
+        {
+            Console.Error.WriteLine($"Authenticated bind rejected (result {ack.Result}, reason {ack.Reason}).");
+            return 1;
+        }
+
+        IReadOnlyList<ShareInfo1> shares = Srvsvc.NetrShareEnum(pipe);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        string levelName = level == DcerpcAuthLevel.PacketPrivacy ? "PKT_PRIVACY (seal)" : "PKT_INTEGRITY (sign)";
+        Console.WriteLine($"Shares on {host} (srvsvc NetrShareEnum over NTLMSSP {levelName}, {shares.Count}):");
+        Console.WriteLine($"  {"NAME",-16} {"TYPE",-10} REMARK");
+        foreach (ShareInfo1 share in shares)
+        {
+            string type = share.Type + (share.IsSpecial ? "*" : string.Empty);
+            Console.WriteLine($"  {share.Name,-16} {type,-10} {share.Remark}");
+        }
+
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -830,6 +885,8 @@ static void PrintUsage()
     Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
     Console.WriteLine("  rpc-shares <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
+    Console.WriteLine("  rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
+    Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");

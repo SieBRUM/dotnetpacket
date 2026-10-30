@@ -49,7 +49,9 @@ AES-CMAC) · `TREE_CONNECT` · `CREATE` · `READ` · `WRITE` · `CLOSE` · `QUER
 `QUERY_INFO` · `IOCTL`
 
 ### DCERPC over named pipes (ncacn_np)
-A `BIND` + NDR engine with these interfaces:
+A `BIND` + NDR engine, with an **NTLMSSP-authenticated bind** offering per-PDU packet
+integrity (sign) and privacy (seal) — the signed/sealed channel a modern Windows RPC
+client negotiates by default — and these interfaces:
 
 | Interface | Calls | Behavior |
 | --- | --- | --- |

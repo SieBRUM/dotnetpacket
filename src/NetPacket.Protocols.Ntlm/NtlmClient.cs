@@ -38,11 +38,31 @@ public sealed class NtlmClient
 
     public string Workstation { get; set; } = Environment.MachineName;
 
+    /// <summary>
+    /// Enables NTLMSSP key exchange: the client picks a random exported session key,
+    /// sends it RC4-wrapped under the NTLMv2 key-exchange key, and adds NEGOTIATE_SEAL.
+    /// This is what a Windows client does for DCERPC sign/seal; leave it off for the
+    /// SMB/SPNEGO path, whose MIC stays deterministic without it.
+    /// </summary>
+    public bool KeyExchange { get; set; }
+
+    /// <summary>
+    /// Whether to include an NTLM message-integrity code (MIC) in the AUTHENTICATE and
+    /// signal it via MsvAvFlags. The SMB/SPNEGO path needs it; the DCERPC sign/seal path
+    /// (like impacket) omits it, so the server does not expect a MIC over the raw tokens.
+    /// </summary>
+    public bool IncludeMic { get; set; } = true;
+
     private byte[] _negotiateMessage = Array.Empty<byte>();
 
     /// <summary>Builds the NTLMSSP NEGOTIATE (Type 1) message and remembers it for the MIC.</summary>
     public byte[] CreateNegotiate()
     {
+        if (KeyExchange)
+        {
+            Flags |= NtlmNegotiateFlags.NegotiateSeal | NtlmNegotiateFlags.NegotiateKeyExchange;
+        }
+
         var writer = new ByteWriter(ByteOrder.Little);
         writer.WriteBytes(Ntlm.Signature);
         writer.WriteUInt32(Ntlm.NegotiateMessage);
@@ -67,29 +87,48 @@ public sealed class NtlmClient
         byte[] timestamp = targetInfo.Get(NtlmAvId.Timestamp) ?? NtlmCrypto.FileTime(DateTime.UtcNow);
 
         // Signal that a MIC is present (MsvAvFlags bit 0x2), like a real client.
-        byte[] existingFlags = targetInfo.Get(NtlmAvId.Flags) ?? new byte[4];
-        uint avFlags = BitConverter.ToUInt32(existingFlags, 0) | 0x00000002;
-        targetInfo.Set(NtlmAvId.Flags, BitConverter.GetBytes(avFlags));
+        if (IncludeMic)
+        {
+            byte[] existingFlags = targetInfo.Get(NtlmAvId.Flags) ?? new byte[4];
+            uint avFlags = BitConverter.ToUInt32(existingFlags, 0) | 0x00000002;
+            targetInfo.Set(NtlmAvId.Flags, BitConverter.GetBytes(avFlags));
+        }
+
         byte[] targetInfoBytes = targetInfo.ToArray();
 
         byte[] ntowf = NtlmCrypto.NtowfV2(password, user, domain);
         NtlmCrypto.NtlmV2Response v2 = NtlmCrypto.ComputeV2(
             ntowf, challenge.ServerChallenge, clientChallenge, timestamp, targetInfoBytes);
 
-        // No key exchange (NEGOTIATE_KEY_EXCH is not set), so the exported session
-        // key is the NTLMv2 base key and the encrypted-key field is empty. This
-        // keeps the GSS signing key deterministic for the SPNEGO mechListMIC.
-        byte[] exportedSessionKey = v2.SessionBaseKey;
-        byte[] encryptedSessionKey = Array.Empty<byte>();
+        // Without key exchange the exported session key is the NTLMv2 base key and the
+        // encrypted-key field is empty — this keeps the SPNEGO mechListMIC deterministic.
+        // With key exchange (the DCERPC sign/seal path) the client picks a random
+        // exported session key and ships it RC4-wrapped under the key-exchange key
+        // (= the NTLMv2 session base key); the MIC and GSS keys then derive from it.
+        byte[] exportedSessionKey;
+        byte[] encryptedSessionKey;
+        if (KeyExchange)
+        {
+            exportedSessionKey = RandomNumberGenerator.GetBytes(16);
+            encryptedSessionKey = NtlmCrypto.Rc4(v2.SessionBaseKey, exportedSessionKey);
+        }
+        else
+        {
+            exportedSessionKey = v2.SessionBaseKey;
+            encryptedSessionKey = Array.Empty<byte>();
+        }
 
         byte[] authenticate = BuildType3(
             v2.LmChallengeResponse, v2.NtChallengeResponse, domain, user, Workstation, encryptedSessionKey);
 
         // MIC = HMAC-MD5(exportedSessionKey, NEGOTIATE || CHALLENGE || AUTHENTICATE[mic=0]).
-        byte[] mic = NtlmCrypto.HmacMd5(
-            exportedSessionKey,
-            Concat(_negotiateMessage, challenge.Raw, authenticate));
-        Array.Copy(mic, 0, authenticate, Type3MicOffset, 16);
+        if (IncludeMic)
+        {
+            byte[] mic = NtlmCrypto.HmacMd5(
+                exportedSessionKey,
+                Concat(_negotiateMessage, challenge.Raw, authenticate));
+            Array.Copy(mic, 0, authenticate, Type3MicOffset, 16);
+        }
 
         return new NtlmAuthResult(authenticate, exportedSessionKey);
     }
