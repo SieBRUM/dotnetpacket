@@ -15,6 +15,24 @@ public sealed record SamrEnumResult(IReadOnlyList<SamrRidEntry> Entries, uint Re
 /// <summary>SAMPR_USER_GENERAL_INFORMATION (MS-SAMR 2.2.6.5): basic account attributes.</summary>
 public sealed record SamrUserGeneral(string UserName, string FullName, uint PrimaryGroupId, string AdminComment, string UserComment);
 
+/// <summary>
+/// DOMAIN_PASSWORD_INFORMATION (MS-SAMR 2.2.3.5): the domain password policy. Age
+/// values are NT relative times (negative 100ns intervals); <see cref="RelativeTimeToDays"/>
+/// converts them, returning null for "never expires".
+/// </summary>
+public sealed record SamrPasswordPolicy(
+    ushort MinPasswordLength,
+    ushort PasswordHistoryLength,
+    uint PasswordProperties,
+    long MaxPasswordAge,
+    long MinPasswordAge);
+
+/// <summary>DOMAIN_LOCKOUT_INFORMATION (MS-SAMR 2.2.3.14): the account-lockout policy.</summary>
+public sealed record SamrLockoutPolicy(
+    long LockoutDuration,
+    long LockoutObservationWindow,
+    ushort LockoutThreshold);
+
 /// <summary>A parsed RPC_SID in component form (so it can be re-marshalled and displayed).</summary>
 public sealed record SamrSid(byte Revision, byte[] IdentifierAuthority, uint[] SubAuthorities)
 {
@@ -34,6 +52,7 @@ public static class Samr
     private const ushort OpnumLookupDomain = 5;
     private const ushort OpnumEnumerateDomains = 6;
     private const ushort OpnumOpenDomain = 7;
+    private const ushort OpnumQueryInformationDomain = 8;
     private const ushort OpnumEnumerateUsers = 13;
     private const ushort OpnumOpenUser = 34;
     private const ushort OpnumQueryInformationUser2 = 47;
@@ -41,6 +60,8 @@ public static class Samr
     private const uint MaximumAllowed = 0x02000000;
     private const uint UserNormalAccount = 0x00000010;
     private const ushort UserGeneralInformation = 1;
+    private const ushort DomainPasswordInformation = 1;
+    private const ushort DomainLockoutInformation = 12;
 
     /// <summary>SamrConnect (opnum 0): connect to the SAM server and get a server handle.</summary>
     public static SamrHandleResult Connect(DcerpcPipe pipe, uint desiredAccess = MaximumAllowed)
@@ -157,6 +178,66 @@ public static class Samr
         string userComment = userCommentRef != 0 ? ReadConformantVaryingString(reader) : string.Empty;
 
         return new SamrUserGeneral(userName, fullName, primaryGroupId, adminComment, userComment);
+    }
+
+    /// <summary>SamrQueryInformationDomain (opnum 8), class DomainPasswordInformation (level 1).</summary>
+    public static SamrPasswordPolicy QueryPasswordPolicy(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt16(DomainPasswordInformation);
+        return ParsePasswordPolicy(pipe.Call(OpnumQueryInformationDomain, ndr.ToArray()));
+    }
+
+    /// <summary>SamrQueryInformationDomain (opnum 8), class DomainLockoutInformation (level 12).</summary>
+    public static SamrLockoutPolicy QueryLockoutPolicy(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt16(DomainLockoutInformation);
+        return ParseLockoutPolicy(pipe.Call(OpnumQueryInformationDomain, ndr.ToArray()));
+    }
+
+    /// <summary>Parses a DomainPasswordInformation response buffer (referent + union tag + struct).</summary>
+    public static SamrPasswordPolicy ParsePasswordPolicy(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        reader.ReadReferent();          // Buffer pointer
+        reader.ReadUInt32();            // union discriminant (== level 1)
+
+        ushort minLength = reader.ReadUInt16();
+        ushort history = reader.ReadUInt16();
+        uint properties = reader.ReadUInt32();
+        long maxAge = reader.ReadInt64();
+        long minAge = reader.ReadInt64();
+        return new SamrPasswordPolicy(minLength, history, properties, maxAge, minAge);
+    }
+
+    /// <summary>Parses a DomainLockoutInformation response buffer (referent + union tag + struct).</summary>
+    public static SamrLockoutPolicy ParseLockoutPolicy(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        reader.ReadReferent();          // Buffer pointer
+        reader.ReadUInt32();            // union discriminant (== level 12)
+
+        long duration = reader.ReadInt64();
+        long window = reader.ReadInt64();
+        ushort threshold = reader.ReadUInt16();
+        return new SamrLockoutPolicy(duration, window, threshold);
+    }
+
+    /// <summary>
+    /// Converts an NT relative-time value (negative 100ns intervals, as used by the SAM
+    /// age/duration fields) to whole days, or null for the "never" sentinel.
+    /// </summary>
+    public static double? RelativeTimeToDays(long relativeTime)
+    {
+        if (relativeTime == 0 || relativeTime == long.MinValue)
+        {
+            return null; // 0 or 0x8000000000000000 => no limit / never
+        }
+
+        return -relativeTime / 1e7 / 86400.0;
     }
 
     /// <summary>SamrCloseHandle (opnum 1): release a server/domain handle.</summary>

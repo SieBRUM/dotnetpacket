@@ -79,6 +79,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
       EnumerateUsersInDomain, OpenUser, QueryInformationUser2 (general info), CloseHandle
       — the full samrdump behavior (enumerate + per-user attributes)
+- [x] samr `SamrQueryInformationDomain` levels 1 (password info) + 12 (lockout info) — domain password policy
 - [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
@@ -118,6 +119,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
+- [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -294,3 +296,11 @@ captures here (what differs, why, and whether it is detection-relevant).
   known-bytes test. mgmt has no pipe of its own; it is bound over an existing
   endpoint, so it is reached via DcerpcInterface.Mgmt.Pipe (srvsvc) rather than
   listed in WellKnown.
+- **2026-10-30 — samr domain password policy (SamrQueryInformationDomain) validated against Samba.**
+  `rpc-passpol` connects/enumerates/opens the account domain, then queries
+  DomainPasswordInformation (level 1) and DomainLockoutInformation (level 12): Samba
+  returns min password length 5, history 0, no complexity, no lockout threshold —
+  matching its smb.conf. The union buffer (unique referent + 4-byte discriminant +
+  level struct, with NT relative-time LARGE_INTEGERs for the age/duration fields) is
+  pinned by known-bytes tests; `Samr.RelativeTimeToDays` converts the ages (null for
+  the never sentinel). This is the enum4linux / samrdump password-policy dump.

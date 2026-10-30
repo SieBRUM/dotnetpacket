@@ -706,6 +706,73 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-passpol":
+    {
+        // Domain password + lockout policy via samr SamrQueryInformationDomain
+        // (the enum4linux / samrdump password-policy dump).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-passpol <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+
+        if (sid is not null)
+        {
+            SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+            SamrPasswordPolicy pw = Samr.QueryPasswordPolicy(pipe, dom.Handle);
+            SamrLockoutPolicy lk = Samr.QueryLockoutPolicy(pipe, dom.Handle);
+
+            static string Days(double? d) => d is null ? "none" : $"{d.Value:0.##} days";
+            bool complex = (pw.PasswordProperties & 0x1) != 0; // DOMAIN_PASSWORD_COMPLEX
+
+            Console.WriteLine($"Password policy for {accountDomain} ({sid}) on {host}:");
+            Console.WriteLine($"  Minimum password length: {pw.MinPasswordLength}");
+            Console.WriteLine($"  Password history length: {pw.PasswordHistoryLength}");
+            Console.WriteLine($"  Maximum password age:    {Days(Samr.RelativeTimeToDays(pw.MaxPasswordAge))}");
+            Console.WriteLine($"  Minimum password age:    {Days(Samr.RelativeTimeToDays(pw.MinPasswordAge))}");
+            Console.WriteLine($"  Complexity required:     {complex} (properties 0x{pw.PasswordProperties:x8})");
+            Console.WriteLine($"  Lockout threshold:       {(lk.LockoutThreshold == 0 ? "none" : lk.LockoutThreshold.ToString())}");
+            Console.WriteLine($"  Lockout duration:        {Days(Samr.RelativeTimeToDays(lk.LockoutDuration))}");
+            Console.WriteLine($"  Lockout observation:     {Days(Samr.RelativeTimeToDays(lk.LockoutObservationWindow))}");
+
+            Samr.CloseHandle(pipe, dom.Handle);
+        }
+        else
+        {
+            Console.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+        }
+
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "rpc-lookupnames":
     {
         // Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).
@@ -941,6 +1008,8 @@ static void PrintUsage()
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
+    Console.WriteLine("  rpc-passpol <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Domain password + lockout policy via samr SamrQueryInformationDomain.");
     Console.WriteLine("  rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
     Console.WriteLine("                   Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).");
     Console.WriteLine("  rpc-reg <host> <user> <password> [subkey] [domain] [port]");

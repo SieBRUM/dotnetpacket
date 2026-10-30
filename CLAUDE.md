@@ -100,7 +100,7 @@ src/
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID (RPC_UNICODE_STRING, RPC_SID)
     Lsat.cs                        #   lsat LsarLookupSids (SID->name) + LsarLookupNames (name->SID)
-    Samr.cs                        #   samr connect/enum/lookup/open + per-user QueryInfo (samrdump)
+    Samr.cs                        #   samr connect/enum/lookup/open + per-user QueryInfo + domain password policy (samrdump)
     Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/Close
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
@@ -153,6 +153,7 @@ dotnet run --project src/NetPacket.Examples -- rpc-hostinfo <lab-host> <user> <p
 dotnet run --project src/NetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
+dotnet run --project src/NetPacket.Examples -- rpc-passpol <lab-host> <user> <password> [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-lookupnames <lab-host> <user> <password> [names]
 dotnet run --project src/NetPacket.Examples -- rpc-reg <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/NetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]

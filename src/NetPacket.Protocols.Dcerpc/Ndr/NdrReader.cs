@@ -44,6 +44,15 @@ public sealed class NdrReader
         return value;
     }
 
+    /// <summary>Reads a signed 64-bit integer (e.g. an NT relative-time LARGE_INTEGER).</summary>
+    public long ReadInt64()
+    {
+        Align(8);
+        long value = BinaryPrimitives.ReadInt64LittleEndian(_data.AsSpan(_position));
+        _position += 8;
+        return value;
+    }
+
     public byte ReadByte() => _data[_position++];
 
     /// <summary>Reads a conformant-varying wide string with an explicit character count (no NUL trim).</summary>

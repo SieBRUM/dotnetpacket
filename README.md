@@ -59,7 +59,7 @@ client negotiates by default — and these interfaces:
 | **wkssvc** | NetrWkstaGetInfo | host / OS recon |
 | **lsarpc** | LsarOpenPolicy2, LsarQueryInformationPolicy | domain name + SID |
 | **lsat** | LsarLookupSids, LsarLookupNames | SID ↔ name resolution |
-| **samr** | Connect, Enumerate\*, LookupDomain, OpenDomain/User, QueryInformationUser2 | `samrdump` user enumeration + detail |
+| **samr** | Connect, Enumerate\*, LookupDomain, OpenDomain/User, QueryInformationUser2, QueryInformationDomain | `samrdump` user enum + detail + password policy |
 | **svcctl** | OpenSCManager, CreateService, … | service-control (`psexec`) signature — lab/benign |
 | **winreg** | OpenHKLM, BaseRegGetVersion, BaseRegOpenKey, BaseRegCloseKey | remote-registry (`reg.py`) recon |
 | **mgmt** | rpc\_mgmt\_inq\_if\_ids | registered-interface enumeration (`rpcdump`) |
