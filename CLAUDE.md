@@ -131,7 +131,18 @@ docs/
   WIRE_DIFF.md                     # DotNetPacket vs impacket fingerprint diff (the research output)
 tools/
   fingerprint.sh                   # extract SMB2/NTLM fingerprint fields from a capture (for diffing)
+  lab-addc.sh                      # stand up a throwaway Samba AD DC lab (epmapper/135, admin, dynamic ports)
 ```
+
+## Lab setup
+
+Most examples validate against a Samba server. A **standalone file server** is
+enough for the SMB2 and ncacn_np (named-pipe) RPC examples; a **Samba Active
+Directory Domain Controller** is needed for the TCP paths (`rpc-dump-tcp`,
+`rpc-epm-map`) because only a DC runs the endpoint mapper on TCP/135 and
+dynamic-port services. `tools/lab-addc.sh` provisions and runs such a DC
+(loopback-bound, ephemeral) — `up` / `down` / `status` / `destroy`. It prints
+the `Administrator` credentials to use. Lab use only; see the Scope section.
 
 ## Build & test
 

@@ -328,7 +328,9 @@ captures here (what differs, why, and whether it is detection-relevant).
   Standalone `smbd` serves no TCP/135, so to validate DCERPC-over-TCP a Samba Active
   Directory DC was provisioned in the lab (realm LAB.LOCAL; `samba` daemon bound to
   127.0.0.1, IPv4-only, winbind installed), which listens on 135 (epmapper), 445,
-  389, 88 and 464. `rpc-dump-tcp` connects to 127.0.0.1:135 over raw TCP (no SMB),
+  389, 88 and 464. This setup is scripted and reproducible via `tools/lab-addc.sh`
+  (`up` / `down` / `status` / `destroy`); the provisioned DC is ephemeral (lives under
+  /tmp), so re-run it after a container reset. `rpc-dump-tcp` connects to 127.0.0.1:135 over raw TCP (no SMB),
   binds the mgmt interface anonymously, and calls inq_if_ids — returning the epm
   (e1af8308-…) and mgmt interfaces, matching an impacket ncacn_ip_tcp bind. The
   transport is now abstracted behind `IDcerpcTransport` (`SmbPipeTransport` for
