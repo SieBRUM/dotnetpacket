@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Network transports for DotNetPacket (SMB Direct TCP / NetBIOS framing).</Description>
+  </PropertyGroup>
+
+</Project>

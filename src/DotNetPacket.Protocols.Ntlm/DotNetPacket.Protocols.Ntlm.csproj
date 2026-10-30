@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NTLMSSP protocol structures (DotNetPacket impacket port).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
+  </ItemGroup>
+
+</Project>

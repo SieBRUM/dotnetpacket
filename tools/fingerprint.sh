@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # fingerprint.sh — extract the SMB2 / NTLMSSP fields a SOC commonly fingerprints
-# on, from a capture file. Run it over captures of different clients (NetPacket,
+# on, from a capture file. Run it over captures of different clients (DotNetPacket,
 # stock impacket, a real Windows host) and diff the outputs to see which fields
 # a fingerprint-based detection is actually keying on.
 #

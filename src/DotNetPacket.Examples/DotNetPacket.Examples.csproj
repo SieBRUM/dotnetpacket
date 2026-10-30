@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>CLI harness for DotNetPacket examples (impacket examples/ equivalent).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Smb\DotNetPacket.Protocols.Smb.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Dcerpc\DotNetPacket.Protocols.Dcerpc.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>SMB / NetBIOS protocol structures (DotNetPacket impacket port).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Transport\DotNetPacket.Transport.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
+  </ItemGroup>
+
+</Project>

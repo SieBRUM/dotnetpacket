@@ -1,11 +1,11 @@
 # Porting status
 
-Tracker for the impacket → NetPacket port. Tick items as they land, add rows as
+Tracker for the impacket → DotNetPacket port. Tick items as they land, add rows as
 you discover more. Keep it honest: "done" means ported **and** tested.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
-## Foundation (`NetPacket.Core`)
+## Foundation (`DotNetPacket.Core`)
 
 - [x] `ByteOrder`
 - [x] `ByteReader` / `ByteWriter` (ints, blobs, ASCIIZ/UnicodeZ, seekable)
@@ -15,14 +15,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Bit-field support (impacket `'B=...'` bit packing) — add when first needed
 - [ ] NDR primitives for DCERPC (alignment, referents) — large; design before porting
 
-## Transport (`NetPacket.Transport`)
+## Transport (`DotNetPacket.Transport`)
 
 - [x] `DirectTcpTransport` — SMB Direct TCP / NetBIOS 4-byte message framing
 - [ ] Async variants / cancellation (add if a scenario needs it)
 
 ## Protocol structures
 
-### SMB / NetBIOS (`NetPacket.Protocols.Smb`)
+### SMB / NetBIOS (`DotNetPacket.Protocols.Smb`)
 
 - [x] `Smb2Header` (SMB2/3, 64-byte) — impacket `smb3structs.SMB2Packet`
 - [x] `Smb2NegotiateRequest` (+ 3.1.1 preauth & encryption contexts) — realistic Win10/11 defaults
@@ -45,7 +45,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
 
-### NTLM (`NetPacket.Protocols.Ntlm`)
+### NTLM (`DotNetPacket.Protocols.Ntlm`)
 
 - [x] `Ntlm` constants, `SecurityBuffer`, `NtlmNegotiateFlags`, `NtlmAvId`
 - [x] `NtlmNegotiate` (reference structure) — impacket `ntlm.NTLMAuthNegotiate`
@@ -57,7 +57,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] NEGOTIATE_KEY_EXCH + sealed GSS signing (realism gap — see REALISM.md / notes below)
 - [ ] NTLM signing/sealing of subsequent SMB2 messages
 
-### DCERPC (`NetPacket.Protocols.Dcerpc`)
+### DCERPC (`DotNetPacket.Protocols.Dcerpc`)
 
 - [x] `DcerpcHeader` (16-byte common PDU header) — impacket `rpcrt.MSRPCHeader`
 - [x] `DcerpcBind` / `DcerpcBindAck` (PDU types, presentation context, result)
@@ -99,12 +99,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] epmapper `ept_lookup` / `ept_map` (full endpoint enumeration + dynamic-port
       resolution via protocol towers) over ncacn_ip_tcp
 
-### Kerberos (`NetPacket.Protocols.Krb5` — not created yet)
+### Kerberos (`DotNetPacket.Protocols.Krb5` — not created yet)
 
 - [ ] ASN.1 helper strategy (decide: library vs. hand-rolled) before porting
 - [ ] AS-REQ / AS-REP, TGS-REQ / TGS-REP
 
-## Examples (`NetPacket.Examples`)
+## Examples (`DotNetPacket.Examples`)
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
@@ -135,7 +135,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
 ## Wire-compatibility notes
 
-Record notable differences found when diffing NetPacket vs. stock impacket
+Record notable differences found when diffing DotNetPacket vs. stock impacket
 captures here (what differs, why, and whether it is detection-relevant).
 
 - **2026-10-29 — SMB2 NEGOTIATE validated against Samba 4.19 (SMB2-only).**
@@ -193,7 +193,7 @@ captures here (what differs, why, and whether it is detection-relevant).
 - **2026-10-29 — srvsvc NetrShareEnum (share recon) validated against Samba.**
   `rpc-shares` binds srvsvc and calls NetrShareEnum (opnum 15, level 1) with an
   NDR REQUEST stub, parses the NDR RESPONSE, and lists the real shares: `public`
-  (DiskTree) and `IPC$` (Ipc, special, remark "IPC Service (NetPacket Lab)").
+  (DiskTree) and `IPC$` (Ipc, special, remark "IPC Service (DotNetPacket Lab)").
   tshark dissects it as `Operation: NetShareEnumAll (15)`, Level 1, TotalEntries 2.
   This is the first end-to-end impacket-style RPC call. NDR coverage is still
   minimal (referents + conformant-varying strings); richer calls need structs,
@@ -216,7 +216,7 @@ captures here (what differs, why, and whether it is detection-relevant).
 - **2026-10-29 — Host/OS recon (wkssvc + srvsvc GetInfo) validated against Samba.**
   `rpc-hostinfo` reads wkssvc NetrWkstaGetInfo(100) -> ComputerName LABSRV,
   Domain WORKGROUP, OS 6.1 (platform 500), and srvsvc NetrServerGetInfo(101) ->
-  Name LABSRV, type 0x00809a03, comment "NetPacket Lab" — all matching the lab
+  Name LABSRV, type 0x00809a03, comment "DotNetPacket Lab" — all matching the lab
   server config. Exercises the level-union -> struct -> deferred unique-string NDR
   decode path. (Samba reports itself as OS 6.1; real Windows reports its true
   build — an OS-version recon signal the SOC can diff.)
@@ -259,13 +259,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   union (UserName, FullName, PrimaryGroupId, AdminComment, UserComment) has empty-but-
   allocated string buffers (non-null referent, actual=0), handled by the parser.
   Byte layout from an impacket capture; parser covered by a synthetic round-trip test.
-- **2026-10-30 — First NetPacket-vs-impacket wire diff recorded (docs/WIRE_DIFF.md).**
+- **2026-10-30 — First DotNetPacket-vs-impacket wire diff recorded (docs/WIRE_DIFF.md).**
   Using `tools/fingerprint.sh` on captures of both clients against the same Samba
-  host: SMB2 NEGOTIATE Capabilities 0x6f (NetPacket) vs 0x40 (impacket), ciphers
+  host: SMB2 NEGOTIATE Capabilities 0x6f (DotNetPacket) vs 0x40 (impacket), ciphers
   GCM+CCM vs CCM-only, and NTLM Type1/Type3 carry a 10.0.19041 Version block
-  (NetPacket) vs none (impacket). These are concrete impacket fingerprints that a
+  (DotNetPacket) vs none (impacket). These are concrete impacket fingerprints that a
   Windows-like .NET client breaks — the brittleness the project studies. A real
-  Windows capture is still needed as the third column to confirm NetPacket matches
+  Windows capture is still needed as the third column to confirm DotNetPacket matches
   Windows (not just differs from impacket).
 - **2026-10-30 — SMB2 QUERY_DIRECTORY + QUERY_INFO validated against Samba.**
   `smb2-ls` lists \\host\public (., .., readme.txt 59B); `smb2-info` reads the

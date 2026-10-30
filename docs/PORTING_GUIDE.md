@@ -1,4 +1,4 @@
-# Porting guide: impacket (Python) → NetPacket (.NET)
+# Porting guide: impacket (Python) → DotNetPacket (.NET)
 
 This is the mechanical recipe for porting impacket structures and examples. It
 assumes you have the impacket source open alongside this repo. Read
@@ -67,8 +67,8 @@ pointers), use the manual-override pattern instead — see `NtlmNegotiate`.
 ## Step-by-step: porting a structure
 
 1. **Locate** the impacket class (e.g. `impacket/smb.py` → `class SMBHeader`).
-2. **Create** `src/NetPacket.Protocols.<Area>/<Name>.cs`, one type per file,
-   namespace `NetPacket.Protocols.<Area>`.
+2. **Create** `src/DotNetPacket.Protocols.<Area>/<Name>.cs`, one type per file,
+   namespace `DotNetPacket.Protocols.<Area>`.
 3. **Choose a pattern** from the table above.
 4. **Map the fields** in order using the format table. Keep impacket's field
    names (PascalCase them). Give each `[Field]` a unique ascending `Order`.
@@ -83,7 +83,7 @@ pointers), use the manual-override pattern instead — see `NtlmNegotiate`.
 ## Step-by-step: porting an example (impacket `examples/`)
 
 1. Read the impacket example (e.g. `examples/smbclient.py`).
-2. Add a command to `src/NetPacket.Examples/Program.cs` (a `case`, or a dedicated
+2. Add a command to `src/DotNetPacket.Examples/Program.cs` (a `case`, or a dedicated
    class as it grows). Cite the impacket filename in a comment.
 3. Keep behavior observable: print what is sent/received; offer a hex-dump mode;
    target lab hosts only. Do **not** add evasion/obfuscation (see `CLAUDE.md`).
@@ -92,7 +92,7 @@ pointers), use the manual-override pattern instead — see `NtlmNegotiate`.
 
 ## Idiom cheatsheet (Python → C#)
 
-| impacket / Python | NetPacket / C# |
+| impacket / Python | DotNetPacket / C# |
 | --- | --- |
 | `s = SMBHeader()` | `var s = new SmbHeader();` |
 | `s['Command'] = 0x72` | `s.Command = 0x72;` |
@@ -111,7 +111,7 @@ The whole point is matching bytes. For each port:
 - **Round-trip**: `Unpack(Pack())` reproduces the field values.
 - **Known-bytes**: assert `Pack()` equals bytes captured from a real exchange or
   produced by stock impacket.
-- **Capture diff**: run the NetPacket example and the impacket original against
+- **Capture diff**: run the DotNetPacket example and the impacket original against
   the same lab host; capture both with `tcpdump`/`tshark`; diff the payloads.
   Record notable differences in `PORTING_STATUS.md` — those differences are the
   behavior-analysis output this project exists to produce.

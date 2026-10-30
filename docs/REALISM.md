@@ -1,6 +1,6 @@
 # Realism doctrine
 
-The research goal of NetPacket is to emit traffic that looks like a **legitimate,
+The research goal of DotNetPacket is to emit traffic that looks like a **legitimate,
 modern Windows / .NET client** performing the same operation — *not* like impacket,
 and *not* like a minimal protocol demo. Detections built against realistic traffic
 generalize; detections built against tool quirks are brittle (that brittleness is
@@ -19,7 +19,7 @@ Treat this as a hard requirement when porting anything that goes on the wire.
 2. **Populate client fields the way Windows does, not with library defaults.**
    impacket and other tools ship recognizable constant values (client GUIDs,
    capability flags, workstation names). Fill these to match a real client:
-   - **ClientGuid**: real clients use a *stable per-machine* GUID. NetPacket
+   - **ClientGuid**: real clients use a *stable per-machine* GUID. DotNetPacket
      defaults to a random 16 bytes per connection, which is fine for isolated
      lab runs but is itself a (weak) signal. For sustained realism, set a stable
      GUID per simulated host and reuse it.
@@ -49,7 +49,7 @@ Treat this as a hard requirement when porting anything that goes on the wire.
 A current Windows 10/11 client sends these negotiate contexts on the SMB2
 NEGOTIATE request (MS-SMB2 2.2.3.1), 8-byte aligned, in roughly this order:
 
-| Context | Type | Notes | In NetPacket |
+| Context | Type | Notes | In DotNetPacket |
 | --- | --- | --- | --- |
 | Preauth Integrity Capabilities | 0x0001 | SHA-512, 32-byte random salt | **implemented** |
 | Encryption Capabilities | 0x0002 | AES-128-GCM, AES-128-CCM (Win11 adds AES-256) | **implemented** |

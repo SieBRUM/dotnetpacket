@@ -1,11 +1,11 @@
-# CLAUDE.md — NetPacket
+# CLAUDE.md — DotNetPacket
 
 Guidance for Claude (and humans) working in this repository. Read this before
 making changes.
 
 ## What this project is
 
-**NetPacket** is a .NET 8 port of [impacket](https://github.com/fortra/impacket)
+**DotNetPacket** is a .NET 8 port of [impacket](https://github.com/fortra/impacket)
 — its protocol structures, client implementations, and `examples/` scripts —
 built so that a **Security Operations Center (SOC)** can study the *behavior* of
 these protocols on the wire from a non-Python runtime.
@@ -56,10 +56,10 @@ Practical consequences for how we build it:
 ## Repository layout
 
 ```
-NetPacket.sln
+DotNetPacket.sln
 Directory.Build.props              # shared TFM / lang / nullable settings
 src/
-  NetPacket.Core/                  # FOUNDATION: binary (de)serialization engine
+  DotNetPacket.Core/                  # FOUNDATION: binary (de)serialization engine
     ByteOrder.cs                   #   endianness enum
     Buffers/ByteReader.cs          #   cursor-based reader (LE/BE, strings, blobs)
     Buffers/ByteWriter.cs          #   growable writer (LE/BE, strings, blobs)
@@ -67,9 +67,9 @@ src/
     Structure/FieldAttribute.cs    #   declarative field metadata
     Structure/NetStructure.cs      #   base class: declarative pack/unpack + override hook
     Hex.cs                         #   hex-dump helper for lab output
-  NetPacket.Transport/             # sockets: SMB Direct TCP / NetBIOS framing
+  DotNetPacket.Transport/             # sockets: SMB Direct TCP / NetBIOS framing
     DirectTcpTransport.cs          #   4-byte length-framed messages over TCP
-  NetPacket.Protocols.Smb/         # SMB1 (legacy) + SMB2/3 (realistic transport)
+  DotNetPacket.Protocols.Smb/         # SMB1 (legacy) + SMB2/3 (realistic transport)
     SmbHeader.cs                   #   SMBv1 header  (impacket smb.SMB.SMBHeader)
     NetBiosSessionHeader.cs        #   NBSS header   (big-endian example)
     Smb2/Smb2Constants.cs          #   SMB2 commands, dialects, caps, context types
@@ -88,7 +88,7 @@ src/
     Smb2/Smb2CreateConstants.cs    #   access mask, disposition, options, file attributes
     Smb2/Smb2Crypto.cs             #   preauth integrity, SP800-108 KDF, AES-CMAC signing
     Smb2/Smb2Client.cs             #   full session: NEGOTIATE..SESSION_SETUP..TREE_CONNECT..READ/WRITE/IOCTL
-  NetPacket.Protocols.Dcerpc/      # DCERPC (MS-RPCE) over SMB named pipes
+  DotNetPacket.Protocols.Dcerpc/      # DCERPC (MS-RPCE) over SMB named pipes
     DcerpcConstants.cs             #   PDU types, flags, NDR syntax, well-known interfaces
     DcerpcHeader.cs                #   16-byte common PDU header
     DcerpcBind.cs / DcerpcBindAck.cs #  BIND / BIND_ACK (+ optional NTLMSSP auth trailer)
@@ -108,7 +108,7 @@ src/
     SmbPipeTransport.cs            #   ncacn_np: PDUs over an SMB2 named pipe (IPC$)
     TcpDcerpcTransport.cs          #   ncacn_ip_tcp: PDUs framed directly on a TCP socket (e.g. epmapper:135)
     DcerpcPipe.cs                  #   drives bind/sign-seal/call over an IDcerpcTransport
-  NetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
+  DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
     NtlmNegotiate.cs               #   NTLMSSP NEGOTIATE (reference structure)
@@ -119,15 +119,15 @@ src/
     Rc4State.cs                    #   stateful RC4 keystream (continuous sign/seal handle)
     NtlmSecurityContext.cs         #   GSS per-message sign/seal (MS-NLMP 3.4) for DCERPC
     Spnego.cs                      #   GSS/SPNEGO wrapping (System.Formats.Asn1)
-  NetPacket.Examples/              # CLI, the impacket examples/ equivalent
+  DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
 tests/
-  NetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
+  DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
 docs/
   REALISM.md                       # REQUIRED READING: make traffic look like a real client
   PORTING_GUIDE.md                 # the mechanical impacket -> .NET recipe
   PORTING_STATUS.md                # tracker: what's ported, what's next
-  WIRE_DIFF.md                     # NetPacket vs impacket fingerprint diff (the research output)
+  WIRE_DIFF.md                     # DotNetPacket vs impacket fingerprint diff (the research output)
 tools/
   fingerprint.sh                   # extract SMB2/NTLM fingerprint fields from a capture (for diffing)
 ```
@@ -142,26 +142,26 @@ tools/
 dotnet restore
 dotnet build -c Release
 dotnet test
-dotnet run --project src/NetPacket.Examples -- smb2-negotiate <lab-host>
-dotnet run --project src/NetPacket.Examples -- smb2-login <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- smb2-connect <lab-host> <share> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- smb2-ls <lab-host> <share> <user> <password> [path] [domain]
-dotnet run --project src/NetPacket.Examples -- smb2-info <lab-host> <share> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-shares-sealed <lab-host> <user> <password> [seal|sign] [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-privs <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-passpol <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-lookupnames <lab-host> <user> <password> [names]
-dotnet run --project src/NetPacket.Examples -- rpc-reg <lab-host> <user> <password> [subkey] [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
-dotnet run --project src/NetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
+dotnet run --project src/DotNetPacket.Examples -- smb2-negotiate <lab-host>
+dotnet run --project src/DotNetPacket.Examples -- smb2-login <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- smb2-connect <lab-host> <share> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- smb2-ls <lab-host> <share> <user> <password> [path] [domain]
+dotnet run --project src/DotNetPacket.Examples -- smb2-info <lab-host> <share> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-shares-sealed <lab-host> <user> <password> [seal|sign] [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-privs <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-passpol <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupnames <lab-host> <user> <password> [names]
+dotnet run --project src/DotNetPacket.Examples -- rpc-reg <lab-host> <user> <password> [subkey] [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from
@@ -170,7 +170,7 @@ pulls xUnit from NuGet, so the first build needs network access to nuget.org.
 
 ## Architecture: the (de)serialization engine
 
-Everything hangs off `NetPacket.Core`. Two building blocks and two porting
+Everything hangs off `DotNetPacket.Core`. Two building blocks and two porting
 patterns — learn these and the rest of the port is mechanical.
 
 ### `ByteReader` / `ByteWriter`
@@ -220,7 +220,7 @@ endianness across multi-byte fields, use the manual-override pattern.
 
 1. Open the impacket source for the structure (e.g. `impacket/smb.py`,
    `impacket/dcerpc/v5/*`). Keep the Python `structure = (...)` tuple in view.
-2. Create `src/NetPacket.Protocols.<Area>/<Name>.cs`, one structure per file.
+2. Create `src/DotNetPacket.Protocols.<Area>/<Name>.cs`, one structure per file.
 3. If the layout is sequential, use the **declarative** pattern; map each
    impacket field to a `[Field]` property using the table in
    `docs/PORTING_GUIDE.md`. If it is offset/pointer-based, use **manual override**.
@@ -231,7 +231,7 @@ endianness across multi-byte fields, use the manual-override pattern.
 
 ## How to port an example (impacket `examples/`)
 
-Each impacket example becomes a command in `NetPacket.Examples` (a `case` in
+Each impacket example becomes a command in `DotNetPacket.Examples` (a `case` in
 `Program.cs`, or its own class as they grow). Keep output observable: print what
 is sent/received, offer a hex-dump / pcap-friendly mode. Cite the impacket
 example filename in a comment.
@@ -250,7 +250,7 @@ A port is only useful if its bytes match what the protocol requires. Verify by:
 ## Conventions
 
 - One structure/class per file; filename matches the type.
-- Namespaces follow folders: `NetPacket.Protocols.<Area>`.
+- Namespaces follow folders: `DotNetPacket.Protocols.<Area>`.
 - `Nullable` is enabled; initialize byte-array/string fields (`= new byte[n]`,
   `= string.Empty`) so packing never NREs.
 - Favor `byte[]`/`ReadOnlySpan<byte>` over streams for structures.

@@ -1,0 +1,57 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Core", "src\DotNetPacket.Core\DotNetPacket.Core.csproj", "{B5468BA6-C68D-4693-860C-8AB8559B8253}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Protocols.Smb", "src\DotNetPacket.Protocols.Smb\DotNetPacket.Protocols.Smb.csproj", "{0ABF99EB-93BA-47D3-BC02-93847BA50F0A}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Protocols.Ntlm", "src\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj", "{739D8C04-299F-4872-9938-B4D3A07C7EC0}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Transport", "src\DotNetPacket.Transport\DotNetPacket.Transport.csproj", "{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Protocols.Dcerpc", "src\DotNetPacket.Protocols.Dcerpc\DotNetPacket.Protocols.Dcerpc.csproj", "{FB004C03-A3F9-4F88-887E-41C9DE296F10}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Examples", "src\DotNetPacket.Examples\DotNetPacket.Examples.csproj", "{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DotNetPacket.Core.Tests", "tests\DotNetPacket.Core.Tests\DotNetPacket.Core.Tests.csproj", "{30E93E2B-43DE-44D7-A7AF-8503E0D990EA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B5468BA6-C68D-4693-860C-8AB8559B8253}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B5468BA6-C68D-4693-860C-8AB8559B8253}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B5468BA6-C68D-4693-860C-8AB8559B8253}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B5468BA6-C68D-4693-860C-8AB8559B8253}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0ABF99EB-93BA-47D3-BC02-93847BA50F0A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0ABF99EB-93BA-47D3-BC02-93847BA50F0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0ABF99EB-93BA-47D3-BC02-93847BA50F0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0ABF99EB-93BA-47D3-BC02-93847BA50F0A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{739D8C04-299F-4872-9938-B4D3A07C7EC0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{739D8C04-299F-4872-9938-B4D3A07C7EC0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{739D8C04-299F-4872-9938-B4D3A07C7EC0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{739D8C04-299F-4872-9938-B4D3A07C7EC0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D7730BC-C833-4EA1-AC1E-E43CECA6E386}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB004C03-A3F9-4F88-887E-41C9DE296F10}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3F3C95AE-F2A4-4307-B0D9-F93E798BF8D2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{30E93E2B-43DE-44D7-A7AF-8503E0D990EA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{30E93E2B-43DE-44D7-A7AF-8503E0D990EA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{30E93E2B-43DE-44D7-A7AF-8503E0D990EA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{30E93E2B-43DE-44D7-A7AF-8503E0D990EA}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

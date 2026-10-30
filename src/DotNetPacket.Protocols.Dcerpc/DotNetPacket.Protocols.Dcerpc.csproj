@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>DCERPC (MS-RPCE) over SMB named pipes (DotNetPacket impacket port).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Smb\DotNetPacket.Protocols.Smb.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
+  </ItemGroup>
+
+</Project>
