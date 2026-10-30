@@ -76,9 +76,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
 - [x] lsat `LsarLookupSids` (SID -> domain\name) + `LsarLookupNames` (name -> SID) — `Lsat`
 - [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
-      EnumerateUsersInDomain, CloseHandle — the samrdump / enumdomusers behavior
+      EnumerateUsersInDomain, OpenUser, QueryInformationUser2 (general info), CloseHandle
+      — the full samrdump behavior (enumerate + per-user attributes)
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
-- [ ] More calls: samr group/alias enum, SamrQueryInformationUser
+- [ ] More calls: samr group/alias enum (empty on standalone Samba), QueryInfoUser level 21
 - [ ] DCERPC auth (sign/seal via NTLMSSP) for authenticated-RPC realism
 - [ ] ncacn_ip_tcp transport (DCERPC directly over TCP/135 + dynamic ports)
 
@@ -227,3 +228,10 @@ captures here (what differs, why, and whether it is detection-relevant).
   Byte layout from an impacket capture; parser covered by a synthetic round-trip test.
   Samba groups/aliases enumeration (samr opnums 11/15) was also confirmed to work but
   returns empty on this standalone server, so it was left unported for now.
+- **2026-10-30 — samr per-user detail query validated against Samba.**
+  `rpc-enumusers` now opens each enumerated user (SamrOpenUser, opnum 34) and queries
+  SamrQueryInformationUser2 (opnum 47, UserGeneralInformation / level 1): labuser ->
+  PrimaryGroupId 513, FullName/comments empty. The SAMPR_USER_GENERAL_INFORMATION
+  union (UserName, FullName, PrimaryGroupId, AdminComment, UserComment) has empty-but-
+  allocated string buffers (non-null referent, actual=0), handled by the parser.
+  Byte layout from an impacket capture; parser covered by a synthetic round-trip test.

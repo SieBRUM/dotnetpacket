@@ -12,6 +12,9 @@ public sealed record SamrHandleResult(byte[] Handle, uint ReturnCode)
 /// <summary>Result of an enumerate call: the entries plus the server's return status.</summary>
 public sealed record SamrEnumResult(IReadOnlyList<SamrRidEntry> Entries, uint ReturnCode);
 
+/// <summary>SAMPR_USER_GENERAL_INFORMATION (MS-SAMR 2.2.6.5): basic account attributes.</summary>
+public sealed record SamrUserGeneral(string UserName, string FullName, uint PrimaryGroupId, string AdminComment, string UserComment);
+
 /// <summary>A parsed RPC_SID in component form (so it can be re-marshalled and displayed).</summary>
 public sealed record SamrSid(byte Revision, byte[] IdentifierAuthority, uint[] SubAuthorities)
 {
@@ -32,9 +35,12 @@ public static class Samr
     private const ushort OpnumEnumerateDomains = 6;
     private const ushort OpnumOpenDomain = 7;
     private const ushort OpnumEnumerateUsers = 13;
+    private const ushort OpnumOpenUser = 34;
+    private const ushort OpnumQueryInformationUser2 = 47;
 
     private const uint MaximumAllowed = 0x02000000;
     private const uint UserNormalAccount = 0x00000010;
+    private const ushort UserGeneralInformation = 1;
 
     /// <summary>SamrConnect (opnum 0): connect to the SAM server and get a server handle.</summary>
     public static SamrHandleResult Connect(DcerpcPipe pipe, uint desiredAccess = MaximumAllowed)
@@ -103,6 +109,56 @@ public static class Samr
         return ParseRidEnumeration(stub);
     }
 
+    /// <summary>SamrOpenUser (opnum 34): open a user account by RID and get a user handle.</summary>
+    public static SamrHandleResult OpenUser(DcerpcPipe pipe, byte[] domainHandle, uint rid, uint desiredAccess = MaximumAllowed)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt32(desiredAccess);
+        ndr.WriteUInt32(rid);
+        byte[] stub = pipe.Call(OpnumOpenUser, ndr.ToArray());
+
+        var reader = new NdrReader(stub);
+        byte[] handle = reader.ReadContextHandle();
+        return new SamrHandleResult(handle, reader.ReadUInt32());
+    }
+
+    /// <summary>SamrQueryInformationUser2 (opnum 47), class UserGeneralInformation (level 1).</summary>
+    public static SamrUserGeneral QueryUserGeneralInfo(DcerpcPipe pipe, byte[] userHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(userHandle);
+        ndr.WriteUInt16(UserGeneralInformation);
+        byte[] stub = pipe.Call(OpnumQueryInformationUser2, ndr.ToArray());
+        return ParseUserGeneral(stub);
+    }
+
+    /// <summary>Parses a UserGeneralInformation response buffer (exposed for tests / offline analysis).</summary>
+    public static SamrUserGeneral ParseUserGeneral(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint bufferReferent = reader.ReadReferent();
+        if (bufferReferent == 0)
+        {
+            return new SamrUserGeneral(string.Empty, string.Empty, 0, string.Empty, string.Empty);
+        }
+
+        reader.ReadUInt32(); // union discriminant (level == 1)
+
+        uint userNameRef = ReadUnicodeStringHeader(reader);
+        uint fullNameRef = ReadUnicodeStringHeader(reader);
+        uint primaryGroupId = reader.ReadUInt32();
+        uint adminCommentRef = ReadUnicodeStringHeader(reader);
+        uint userCommentRef = ReadUnicodeStringHeader(reader);
+
+        string userName = userNameRef != 0 ? ReadConformantVaryingString(reader) : string.Empty;
+        string fullName = fullNameRef != 0 ? ReadConformantVaryingString(reader) : string.Empty;
+        string adminComment = adminCommentRef != 0 ? ReadConformantVaryingString(reader) : string.Empty;
+        string userComment = userCommentRef != 0 ? ReadConformantVaryingString(reader) : string.Empty;
+
+        return new SamrUserGeneral(userName, fullName, primaryGroupId, adminComment, userComment);
+    }
+
     /// <summary>SamrCloseHandle (opnum 1): release a server/domain handle.</summary>
     public static uint CloseHandle(DcerpcPipe pipe, byte[] handle)
     {
@@ -156,6 +212,13 @@ public static class Samr
         reader.ReadUInt32();                 // CountReturned
         uint status = reader.ReadUInt32();
         return new SamrEnumResult(entries, status);
+    }
+
+    private static uint ReadUnicodeStringHeader(NdrReader reader)
+    {
+        reader.ReadUInt16();         // Length
+        reader.ReadUInt16();         // MaximumLength
+        return reader.ReadReferent(); // Buffer pointer
     }
 
     private static string ReadConformantVaryingString(NdrReader reader)

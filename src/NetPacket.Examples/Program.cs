@@ -582,7 +582,18 @@ switch (args[0])
             Console.WriteLine($"Users in {accountDomain} ({sid}), {users.Entries.Count}:");
             foreach (SamrRidEntry u in users.Entries)
             {
-                Console.WriteLine($"  RID {u.Rid,-6} {u.Name}");
+                SamrHandleResult uh = Samr.OpenUser(pipe, dom.Handle, u.Rid);
+                if (uh.Success)
+                {
+                    SamrUserGeneral info = Samr.QueryUserGeneralInfo(pipe, uh.Handle);
+                    string full = string.IsNullOrEmpty(info.FullName) ? "" : $" ({info.FullName})";
+                    Console.WriteLine($"  RID {u.Rid,-6} {u.Name}{full}  primaryGroup={info.PrimaryGroupId}");
+                    Samr.CloseHandle(pipe, uh.Handle);
+                }
+                else
+                {
+                    Console.WriteLine($"  RID {u.Rid,-6} {u.Name}");
+                }
             }
 
             Samr.CloseHandle(pipe, dom.Handle);

@@ -96,7 +96,7 @@ src/
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID (RPC_UNICODE_STRING, RPC_SID)
     Lsat.cs                        #   lsat LsarLookupSids (SID->name) + LsarLookupNames (name->SID)
-    Samr.cs                        #   samr connect/enum domains/lookup/open/enum users (samrdump)
+    Samr.cs                        #   samr connect/enum/lookup/open + per-user QueryInfo (samrdump)
     Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
     DcerpcPipe.cs                  #   ncacn_np transport (open pipe on IPC$, transceive, bind, call)
   NetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
