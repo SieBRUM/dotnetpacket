@@ -116,6 +116,9 @@ docs/
   REALISM.md                       # REQUIRED READING: make traffic look like a real client
   PORTING_GUIDE.md                 # the mechanical impacket -> .NET recipe
   PORTING_STATUS.md                # tracker: what's ported, what's next
+  WIRE_DIFF.md                     # NetPacket vs impacket fingerprint diff (the research output)
+tools/
+  fingerprint.sh                   # extract SMB2/NTLM fingerprint fields from a capture (for diffing)
 ```
 
 ## Build & test

@@ -235,3 +235,11 @@ captures here (what differs, why, and whether it is detection-relevant).
   union (UserName, FullName, PrimaryGroupId, AdminComment, UserComment) has empty-but-
   allocated string buffers (non-null referent, actual=0), handled by the parser.
   Byte layout from an impacket capture; parser covered by a synthetic round-trip test.
+- **2026-10-30 — First NetPacket-vs-impacket wire diff recorded (docs/WIRE_DIFF.md).**
+  Using `tools/fingerprint.sh` on captures of both clients against the same Samba
+  host: SMB2 NEGOTIATE Capabilities 0x6f (NetPacket) vs 0x40 (impacket), ciphers
+  GCM+CCM vs CCM-only, and NTLM Type1/Type3 carry a 10.0.19041 Version block
+  (NetPacket) vs none (impacket). These are concrete impacket fingerprints that a
+  Windows-like .NET client breaks — the brittleness the project studies. A real
+  Windows capture is still needed as the third column to confirm NetPacket matches
+  Windows (not just differs from impacket).
