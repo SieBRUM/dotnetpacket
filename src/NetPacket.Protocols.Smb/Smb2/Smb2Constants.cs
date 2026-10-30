@@ -87,6 +87,7 @@ public static class NtStatus
     public const uint Success = 0x00000000;
     public const uint Pending = 0x00000103;
     public const uint BufferOverflow = 0x80000005;
+    public const uint NoMoreFiles = 0x80000006;
     public const uint MoreProcessingRequired = 0xC0000016;
     public const uint LogonFailure = 0xC000006D;
     public const uint AccessDenied = 0xC0000022;

@@ -39,7 +39,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] SMB2 CREATE / READ / CLOSE (+ `Smb2Client.ReadFile`), signed
 - [x] SMB2 WRITE (`Smb2Client.Write`), signed
 - [x] SMB2 IOCTL + FSCTL_PIPE_TRANSCEIVE (`Smb2Client.Ioctl`), signed; async STATUS_PENDING handled
-- [ ] SMB2 QUERY_DIRECTORY, QUERY_INFO
+- [x] SMB2 QUERY_DIRECTORY (`Smb2Client.ListDirectory`) — the dir/ls behavior
+- [ ] SMB2 QUERY_INFO
 - [ ] CREATE contexts (DHnQ / MxAc / QFid) — Windows sends them (realism gap)
 - [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
@@ -96,6 +97,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `smb2-login <host> <user> <password> [domain] [port]` — live NTLMv2 SESSION_SETUP
 - [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
 - [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
+- [x] `smb2-ls <host> <share> <user> <password> [path] [domain] [port]` — directory listing (QUERY_DIRECTORY)
 - [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
 - [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)

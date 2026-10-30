@@ -301,6 +301,49 @@ public sealed class Smb2Client : IDisposable
         return new Smb2ReadResult { Status = header.Status, Data = parsed.Data };
     }
 
+    /// <summary>Opens a directory and enumerates its entries (the dir/ls behavior).</summary>
+    public IReadOnlyList<Smb2DirectoryEntry> ListDirectory(uint treeId, string path = "", string pattern = "*")
+    {
+        Smb2CreateResult dir = Create(
+            treeId,
+            path,
+            Smb2AccessMask.FileGenericRead,
+            Smb2CreateDisposition.Open,
+            Smb2CreateOptions.DirectoryFile);
+        if (!dir.Succeeded)
+        {
+            throw new IOException($"Could not open directory '{path}': {NtStatus.Describe(dir.Status)}");
+        }
+
+        try
+        {
+            var all = new List<Smb2DirectoryEntry>();
+            // The scan continues across calls on the same handle until NO_MORE_FILES.
+            for (int round = 0; round < 1024; round++)
+            {
+                var body = new Smb2QueryDirectoryRequest { FileId = dir.Response.FileId, SearchPattern = pattern };
+                (byte[] response, Smb2Header header) = Exchange(Smb2Command.QueryDirectory, treeId, body.Pack());
+                if (header.Status == NtStatus.NoMoreFiles)
+                {
+                    break;
+                }
+
+                if (header.Status != NtStatus.Success)
+                {
+                    throw new IOException($"QUERY_DIRECTORY failed: {NtStatus.Describe(header.Status)}");
+                }
+
+                all.AddRange(Smb2QueryDirectoryResponse.Parse(response));
+            }
+
+            return all;
+        }
+        finally
+        {
+            Close(treeId, dir.Response.FileId);
+        }
+    }
+
     /// <summary>Writes <paramref name="data"/> at <paramref name="offset"/> to an open FileId; returns bytes written.</summary>
     public uint Write(uint treeId, byte[] fileId, long offset, byte[] data)
     {

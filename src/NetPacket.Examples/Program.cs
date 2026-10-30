@@ -655,6 +655,53 @@ switch (args[0])
         return 0;
     }
 
+    case "smb2-ls":
+    {
+        // Directory listing over SMB2: TREE_CONNECT + CREATE(dir) + QUERY_DIRECTORY + CLOSE.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: smb2-ls <host> <share> <user> <password> [path] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string share = args[2];
+        string user = args[3];
+        string password = args[4];
+        string path = args.Length >= 6 ? args[5] : string.Empty;
+        string domain = args.Length >= 7 ? args[6] : string.Empty;
+        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult tree = client.TreeConnect($@"\\{host}\{share}");
+        if (!tree.Connected)
+        {
+            Console.Error.WriteLine($"Tree connect failed: {NtStatus.Describe(tree.Status)}");
+            return 1;
+        }
+
+        IReadOnlyList<Smb2DirectoryEntry> entries = client.ListDirectory(tree.TreeId, path);
+        client.TreeDisconnect(tree.TreeId);
+
+        string display = string.IsNullOrEmpty(path) ? $@"\\{host}\{share}" : $@"\\{host}\{share}\{path}";
+        Console.WriteLine($"Listing {display} ({entries.Count} entries):");
+        foreach (Smb2DirectoryEntry e in entries)
+        {
+            Console.WriteLine($"  {(e.IsDirectory ? "<DIR>" : "     ")} {e.EndOfFile,12} {e.Name}");
+        }
+
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -683,6 +730,8 @@ static void PrintUsage()
     Console.WriteLine("                   Full session: NEGOTIATE + SESSION_SETUP + signed TREE_CONNECT to a share.");
     Console.WriteLine("  smb2-cat <host> <share> <path> <user> <password> [domain] [port]");
     Console.WriteLine("                   Read a file over SMB2: TREE_CONNECT + CREATE + READ + CLOSE.");
+    Console.WriteLine("  smb2-ls <host> <share> <user> <password> [path] [domain] [port]");
+    Console.WriteLine("                   List a directory over SMB2: CREATE(dir) + QUERY_DIRECTORY.");
     Console.WriteLine("  dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
     Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
     Console.WriteLine("  rpc-shares <host> <user> <password> [domain] [port]");
