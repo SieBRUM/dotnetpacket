@@ -64,6 +64,7 @@ channel a modern Windows RPC client negotiates by default — and these interfac
 | **svcctl** | OpenSCManager, CreateService, … | service-control (`psexec`) signature — lab/benign |
 | **winreg** | OpenHKLM, BaseRegGetVersion, BaseRegOpenKey, BaseRegCloseKey | remote-registry (`reg.py`) recon |
 | **mgmt** | rpc\_mgmt\_inq\_if\_ids | registered-interface enumeration (`rpcdump`) |
+| **epm** | ept\_map | resolve an interface to its dynamic TCP port (over port 135) |
 
 ## Quick start
 

@@ -104,6 +104,7 @@ src/
     Svcctl.cs                      #   svcctl SCM/service control (psexec surface, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/Close
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
+    Epm.cs                         #   endpoint mapper ept_map (resolve an interface to its TCP port)
     IDcerpcTransport.cs            #   transport abstraction (ncacn_np vs ncacn_ip_tcp)
     SmbPipeTransport.cs            #   ncacn_np: PDUs over an SMB2 named pipe (IPC$)
     TcpDcerpcTransport.cs          #   ncacn_ip_tcp: PDUs framed directly on a TCP socket (e.g. epmapper:135)
@@ -162,6 +163,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-lookupnames <lab-host> <us
 dotnet run --project src/DotNetPacket.Examples -- rpc-reg <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
+dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interface] [port]  # endpoint mapper ept_map
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

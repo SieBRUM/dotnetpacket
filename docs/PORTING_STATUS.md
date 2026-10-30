@@ -96,8 +96,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] ncacn_ip_tcp transport (DCERPC directly over TCP/135) — `IDcerpcTransport` +
       `TcpDcerpcTransport` (+ `SmbPipeTransport` for ncacn_np); bind/call/sign-seal is
       transport-agnostic in `DcerpcPipe`
-- [ ] epmapper `ept_lookup` / `ept_map` (full endpoint enumeration + dynamic-port
-      resolution via protocol towers) over ncacn_ip_tcp
+- [x] epmapper `ept_map` (`Epm`): resolve an interface to its ncacn_ip_tcp dynamic port
+      via DCE protocol towers (build request tower, parse the returned port)
+- [ ] epmapper `ept_lookup` (enumerate ALL endpoints) — Samba returns ept_s_not_registered
+      for the blanket query, so unvalidatable on this lab (needs a Windows host)
 
 ### Kerberos (`DotNetPacket.Protocols.Krb5` — not created yet)
 
@@ -119,6 +121,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]` — NetrShareEnum over NTLMSSP sign/seal
 - [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump, over SMB)
 - [x] `rpc-dump-tcp <host> [port]` — same over ncacn_ip_tcp to the endpoint mapper (DCERPC over TCP, no SMB)
+- [x] `rpc-epm-map <host> [interface] [port]` — resolve an interface's dynamic TCP port via epm ept_map
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -332,3 +335,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   ncacn_np, `TcpDcerpcTransport` for ncacn_ip_tcp) so the bind/sign-seal/call logic is
   shared. Next over TCP: epmapper `ept_lookup` (full endpoint + dynamic-port
   enumeration via protocol towers).
+- **2026-10-30 — epmapper ept_map validated against the Samba AD DC.**
+  `rpc-epm-map` binds the epm interface over ncacn_ip_tcp:135 and calls ept_map
+  (opnum 3) with a 5-floor request tower (interface UUID, NDR, RPC-CO, TCP, IP);
+  the DC returns samr → 49154 and lsarpc → 49153, matching impacket's hept_map. The
+  request-tower encoding and the returned-tower parse (port read big-endian from the
+  TCP floor) are pinned by a known-bytes test. Note a fingerprint: Samba's returned
+  host floor is 0.0.0.0, where Windows returns the server's actual address.
+  `ept_lookup` (enumerate all endpoints) is not ported — Samba answers the blanket
+  query with ept_s_not_registered (impacket hits the same wall), so it can't be
+  validated here.

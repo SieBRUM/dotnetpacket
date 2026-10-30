@@ -438,6 +438,51 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-epm-map":
+    {
+        // Ask the endpoint mapper (TCP/135) which dynamic ncacn_ip_tcp port an
+        // interface listens on — the ept_map call a Windows RPC client makes before
+        // connecting to a TCP-bound service (drsuapi, samr, lsarpc, ...).
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: rpc-epm-map <host> [interface=samr] [port=135]");
+            Console.Error.WriteLine("       interfaces: srvsvc wkssvc lsarpc samr svcctl winreg");
+            return 2;
+        }
+
+        string host = args[1];
+        string ifaceName = args.Length >= 3 ? args[2] : "samr";
+        int port = args.Length >= 4 ? int.Parse(args[3]) : 135;
+
+        DcerpcInterface? target = DcerpcInterface.ByName(ifaceName);
+        if (target is null)
+        {
+            Console.Error.WriteLine($"Unknown interface '{ifaceName}'. Known: srvsvc wkssvc lsarpc samr svcctl winreg.");
+            return 2;
+        }
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, port);
+        DcerpcBindAck ack = pipe.Bind(DcerpcInterface.Epm);
+        if (!ack.Accepted)
+        {
+            Console.Error.WriteLine($"Bind to endpoint mapper rejected (result {ack.Result}, reason {ack.Reason}).");
+            return 1;
+        }
+
+        EpmMapResult? mapped = Epm.MapTcp(pipe, target);
+        pipe.Close();
+
+        if (mapped is null)
+        {
+            Console.WriteLine($"{host}: endpoint mapper has no ncacn_ip_tcp binding for {ifaceName}.");
+            return 0;
+        }
+
+        Console.WriteLine($"{ifaceName} ({target.Uuid} v{target.VersionMajor}.{target.VersionMinor}) on {host}:");
+        Console.WriteLine($"  {mapped}");
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -1086,6 +1131,8 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
+    Console.WriteLine("  rpc-epm-map <host> [interface=samr] [port]");
+    Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
