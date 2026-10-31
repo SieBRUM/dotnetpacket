@@ -71,6 +71,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] svcctl (`Svcctl`): OpenSCManagerW, OpenServiceW, CreateServiceW, StartServiceW,
       DeleteService, CloseServiceHandle — the psexec service-control surface
 - [x] svcctl `REnumServicesStatusW` (services.py list): two-call buffer sizing + offset-packed ENUM_SERVICE_STATUSW parse
+- [x] svcctl `RQueryServiceConfigW` (services.py per-service): binary path, start type, logon account (two-call sizing)
 - [x] Level-union → struct → deferred unique-string-pointer NDR (host-info parsers)
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
@@ -127,6 +128,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-epm-map <host> [interface] [port]` — resolve an interface's dynamic TCP port via epm ept_map
 - [x] `rpc-samr-tcp <host> <user> <password> [domain]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
 - [x] `rpc-services <host> <user> <password> [domain] [port]` — svcctl service enumeration (services.py list)
+- [x] `rpc-svcconfig <host> <user> <password> <service> [domain] [port]` — svcctl per-service config (QueryServiceConfigW)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -386,3 +388,14 @@ captures here (what differs, why, and whether it is detection-relevant).
   captured buffer; tshark shows OpenSCManager -> EnumServicesStatusW (WERR_MORE_DATA) ->
   EnumServicesStatusW (data) -> Close. Needs admin: a non-admin Samba user gets access
   denied, so this is DC/admin-validated.
+- **2026-10-31 — svcctl per-service config (QueryServiceConfigW) validated against the DC.**
+  `rpc-svcconfig <service>` opens the service and calls RQueryServiceConfigW (opnum 17),
+  again a two-call sizing dance (first returns WERR_INSUFFICIENT_BUFFER + pcbBytesNeeded).
+  The QUERY_SERVICE_CONFIGW response is ordinary NDR (unlike the enum buffer): three
+  DWORDs, five deferred string pointers and a tag DWORD, then the strings in field order.
+  Against the DC it reports Spooler's binary path (/usr/.../samba/svcctl/smbd), start type
+  DEMAND_START, and account LocalSystem — matching impacket's services.py; tshark shows
+  OpenSCManager -> OpenService -> QueryServiceConfigW (WERR_INSUFFICIENT_BUFFER) ->
+  QueryServiceConfigW (data) -> Close. Parser pinned by a known-bytes test. A nice
+  fingerprint falls out: Samba reports a Unix smbd path where Windows reports a
+  %SystemRoot% .exe.

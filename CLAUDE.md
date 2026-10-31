@@ -101,7 +101,7 @@ src/
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID + privilege enumeration
     Lsat.cs                        #   lsat LsarLookupSids (SID->name) + LsarLookupNames (name->SID)
     Samr.cs                        #   samr connect/enum/lookup/open + per-user QueryInfo + domain password policy (samrdump)
-    Svcctl.cs                      #   svcctl SCM: service enumeration (services.py) + control (psexec surface, lab-only)
+    Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config (services.py) + control (psexec, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/Close
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
     Epm.cs                         #   endpoint mapper ept_map (resolve an interface to its TCP port)
@@ -164,6 +164,7 @@ dotnet run --project src/DotNetPacket.Examples -- dcerpc-bind <lab-host> <user> 
 dotnet run --project src/DotNetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-shares-sealed <lab-host> <user> <password> [seal|sign] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-services <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-svcconfig <lab-host> <user> <password> <service> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]

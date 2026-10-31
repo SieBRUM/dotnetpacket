@@ -51,6 +51,30 @@ public sealed record ScHandleResult(byte[] Handle, uint ReturnCode)
     public bool Success => ReturnCode == 0;
 }
 
+/// <summary>A service's configuration (MS-SCMR 2.2.15 QUERY_SERVICE_CONFIGW).</summary>
+public sealed record ServiceConfig(
+    uint ServiceType,
+    uint StartType,
+    uint ErrorControl,
+    uint TagId,
+    string BinaryPath,
+    string LoadOrderGroup,
+    string Dependencies,
+    string StartName,
+    string DisplayName)
+{
+    /// <summary>The dwStartType value as a readable name (MS-SCMR 2.2.15).</summary>
+    public string StartTypeName => StartType switch
+    {
+        0 => "BOOT_START",
+        1 => "SYSTEM_START",
+        2 => "AUTO_START",
+        3 => "DEMAND_START",
+        4 => "DISABLED",
+        _ => $"0x{StartType:X}",
+    };
+}
+
 /// <summary>One ENUM_SERVICE_STATUSW entry (MS-SCMR 2.2.10): a service's names + status.</summary>
 public sealed record ServiceStatusEntry(string Name, string DisplayName, uint ServiceType, uint CurrentState)
 {
@@ -82,6 +106,7 @@ public static class Svcctl
     private const ushort OpnumEnumServicesStatusW = 14;
     private const ushort OpnumOpenSCManagerW = 15;
     private const ushort OpnumOpenServiceW = 16;
+    private const ushort OpnumQueryServiceConfigW = 17;
     private const ushort OpnumStartServiceW = 19;
 
     /// <summary>Service type filter: SERVICE_WIN32 (own + share process).</summary>
@@ -198,6 +223,61 @@ public static class Svcctl
         }
 
         return System.Text.Encoding.Unicode.GetString(buffer, offset, end - offset);
+    }
+
+    /// <summary>
+    /// RQueryServiceConfigW (opnum 17): read a service's configuration — binary path,
+    /// start type, and logon account (the per-service detail services.py shows). Like
+    /// the enumerate call it sizes the out buffer with a zero-size probe first, then
+    /// re-queries with the required size. The handle needs SERVICE_QUERY_CONFIG access.
+    /// </summary>
+    public static ServiceConfig QueryServiceConfig(DcerpcPipe pipe, byte[] serviceHandle)
+    {
+        (ServiceConfig config, uint needed, _) = QueryConfigCall(pipe, serviceHandle, 0);
+        return needed == 0 ? config : QueryConfigCall(pipe, serviceHandle, needed).Config;
+    }
+
+    private static (ServiceConfig Config, uint Needed, uint ReturnCode) QueryConfigCall(
+        DcerpcPipe pipe, byte[] serviceHandle, uint bufferSize)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(serviceHandle); // hService [in]
+        ndr.WriteUInt32(bufferSize);           // cbBufSize
+        byte[] stub = pipe.Call(OpnumQueryServiceConfigW, ndr.ToArray());
+        return ParseServiceConfig(stub);
+    }
+
+    /// <summary>
+    /// Parses a QUERY_SERVICE_CONFIGW response: nine fixed fields (three DWORDs, five
+    /// deferred string pointers, a tag DWORD), the deferred strings in field order, then
+    /// pcbBytesNeeded and the return code. Exposed for tests / offline analysis.
+    /// </summary>
+    public static (ServiceConfig Config, uint Needed, uint ReturnCode) ParseServiceConfig(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint type = reader.ReadUInt32();
+        uint startType = reader.ReadUInt32();
+        uint errorControl = reader.ReadUInt32();
+        uint binRef = reader.ReadReferent();
+        uint loadRef = reader.ReadReferent();
+        uint tagId = reader.ReadUInt32();
+        uint depRef = reader.ReadReferent();
+        uint startNameRef = reader.ReadReferent();
+        uint displayRef = reader.ReadReferent();
+
+        // Deferred conformant-varying strings, in field order for the non-null pointers.
+        string binary = binRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string loadOrder = loadRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string dependencies = depRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string startName = startNameRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string display = displayRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+
+        uint needed = reader.ReadUInt32();     // pcbBytesNeeded
+        uint returnCode = reader.ReadUInt32(); // return (0, or ERROR_INSUFFICIENT_BUFFER 0x7A)
+
+        var config = new ServiceConfig(
+            type, startType, errorControl, tagId, binary, loadOrder, dependencies, startName, display);
+        return (config, needed, returnCode);
     }
 
     /// <summary>
