@@ -53,7 +53,9 @@ public static class Samr
     private const ushort OpnumEnumerateDomains = 6;
     private const ushort OpnumOpenDomain = 7;
     private const ushort OpnumQueryInformationDomain = 8;
+    private const ushort OpnumEnumerateGroups = 11;
     private const ushort OpnumEnumerateUsers = 13;
+    private const ushort OpnumEnumerateAliases = 15;
     private const ushort OpnumOpenUser = 34;
     private const ushort OpnumQueryInformationUser2 = 47;
 
@@ -127,6 +129,28 @@ public static class Samr
         ndr.WriteUInt32(userAccountControl);
         ndr.WriteUInt32(0xFFFFFFFF);        // PreferedMaximumLength
         byte[] stub = pipe.Call(OpnumEnumerateUsers, ndr.ToArray());
+        return ParseRidEnumeration(stub);
+    }
+
+    /// <summary>SamrEnumerateGroupsInDomain (opnum 11): list domain groups (RID + name).</summary>
+    public static SamrEnumResult EnumerateGroups(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt32(0);                 // EnumerationContext
+        ndr.WriteUInt32(0xFFFFFFFF);        // PreferedMaximumLength
+        byte[] stub = pipe.Call(OpnumEnumerateGroups, ndr.ToArray());
+        return ParseRidEnumeration(stub);
+    }
+
+    /// <summary>SamrEnumerateAliasesInDomain (opnum 15): list domain aliases/local groups (RID + name).</summary>
+    public static SamrEnumResult EnumerateAliases(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt32(0);                 // EnumerationContext
+        ndr.WriteUInt32(0xFFFFFFFF);        // PreferedMaximumLength
+        byte[] stub = pipe.Call(OpnumEnumerateAliases, ndr.ToArray());
         return ParseRidEnumeration(stub);
     }
 

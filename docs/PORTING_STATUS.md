@@ -83,11 +83,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       EnumerateUsersInDomain, OpenUser, QueryInformationUser2 (general info), CloseHandle
       — the full samrdump behavior (enumerate + per-user attributes)
 - [x] samr `SamrQueryInformationDomain` levels 1 (password info) + 12 (lockout info) — domain password policy
+- [x] samr `SamrEnumerateGroupsInDomain` (opnum 11) + `SamrEnumerateAliasesInDomain` (opnum 15) — group/alias enum (reuses the RID-enumeration parser)
 - [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
-- [ ] More calls: samr group/alias enum (empty on standalone Samba), QueryInfoUser level 21
+- [ ] More calls: samr QueryInfoUser level 21 (full account detail)
 - [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
 - [x] DCERPC auth (NTLMSSP sign/seal): authenticated BIND + AUTH3, per-PDU packet
       integrity + privacy with NTLM key exchange — `NtlmSecurityContext`, `Rc4State`,
@@ -136,6 +137,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
+- [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [ ] Port of `examples/smbclient.py`
@@ -399,3 +401,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   QueryServiceConfigW (data) -> Close. Parser pinned by a known-bytes test. A nice
   fingerprint falls out: Samba reports a Unix smbd path where Windows reports a
   %SystemRoot% .exe.
+- **2026-10-31 — samr group/alias enumeration (samrdump groups) validated against the DC.**
+  `rpc-enumgroups` adds SamrEnumerateGroupsInDomain (opnum 11) and
+  SamrEnumerateAliasesInDomain (opnum 15); both return a SAMPR_RID_ENUMERATION, the
+  same structure the user-enum already parses, so they reuse ParseRidEnumeration with
+  no new parser. Against the DC it lists 12 groups (Domain Admins, Schema Admins,
+  Enterprise Admins, Protected Users, ...) and 5 aliases (Cert Publishers, DnsAdmins,
+  ...), matching impacket's samrdump. tshark shows Connect -> ... -> OpenDomain ->
+  EnumDomainGroups -> EnumDomainAliases. On a standalone (non-DC) Samba these return
+  empty, which is why this was deferred until the DC lab existed.

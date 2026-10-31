@@ -1067,6 +1067,72 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-enumgroups":
+    {
+        // Domain group + alias enumeration via samr (the samrdump groups behavior):
+        // SamrEnumerateGroupsInDomain (opnum 11) + SamrEnumerateAliasesInDomain (15).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-enumgroups <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+
+        if (sid is not null)
+        {
+            SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+            SamrEnumResult groups = Samr.EnumerateGroups(pipe, dom.Handle);
+            SamrEnumResult aliases = Samr.EnumerateAliases(pipe, dom.Handle);
+
+            Console.WriteLine($"Groups in {accountDomain} ({sid}), {groups.Entries.Count}:");
+            foreach (SamrRidEntry g in groups.Entries)
+            {
+                Console.WriteLine($"  RID {g.Rid,-6} {g.Name}");
+            }
+
+            Console.WriteLine($"Aliases in {accountDomain}, {aliases.Entries.Count}:");
+            foreach (SamrRidEntry a in aliases.Entries)
+            {
+                Console.WriteLine($"  RID {a.Rid,-6} {a.Name}");
+            }
+
+            Samr.CloseHandle(pipe, dom.Handle);
+        }
+        else
+        {
+            Console.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+        }
+
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "rpc-passpol":
     {
         // Domain password + lockout policy via samr SamrQueryInformationDomain
@@ -1383,6 +1449,8 @@ static void PrintUsage()
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
+    Console.WriteLine("  rpc-enumgroups <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   Domain group + alias enumeration via samr (samrdump groups).");
     Console.WriteLine("  rpc-passpol <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain password + lockout policy via samr SamrQueryInformationDomain.");
     Console.WriteLine("  rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
