@@ -122,6 +122,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump, over SMB)
 - [x] `rpc-dump-tcp <host> [port]` — same over ncacn_ip_tcp to the endpoint mapper (DCERPC over TCP, no SMB)
 - [x] `rpc-epm-map <host> [interface] [port]` — resolve an interface's dynamic TCP port via epm ept_map
+- [x] `rpc-samr-tcp <host> <user> <password> [domain]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -347,3 +348,14 @@ captures here (what differs, why, and whether it is detection-relevant).
   `ept_lookup` (enumerate all endpoints) is not ported — Samba answers the blanket
   query with ept_s_not_registered (impacket hits the same wall), so it can't be
   validated here.
+- **2026-10-31 — full RPC-over-TCP flow (ept_map -> sealed samr) validated against the DC.**
+  `rpc-samr-tcp` chains the whole modern-Windows path with no SMB anywhere: bind the
+  endpoint mapper on 135, ept_map samr to its dynamic port (49154), open a second TCP
+  connection straight to it, NTLMSSP packet-privacy (sign+seal) bind as the domain
+  Administrator, then SamrConnect/EnumerateDomains/LookupDomain/OpenDomain/
+  EnumerateUsers — returning LAB + BUILTIN and RIDs 500/501/502. tshark shows two TCP
+  sessions (EPM Map on 135, then SAMR bind+AUTH3+sealed calls on 49154), matching an
+  impacket ncacn_ip_tcp samrdump. This confirms the NTLM sign/seal context works over
+  `TcpDcerpcTransport` as well as the SMB pipe — the transport abstraction holds end to
+  end. The feature composes already-tested parts (Epm, DcerpcPipe sign/seal, Samr), so
+  it is covered by their unit tests plus this live run.

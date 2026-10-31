@@ -483,6 +483,82 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-samr-tcp":
+    {
+        // The full Windows-style RPC-over-TCP flow: ask the endpoint mapper (135)
+        // for samr's dynamic port, connect straight to it over ncacn_ip_tcp, bind
+        // with NTLMSSP packet privacy (sign+seal), then enumerate the SAM domains
+        // and their users. No SMB anywhere — this is how a modern client reaches a
+        // TCP-bound RPC service.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int epmPort = args.Length >= 6 ? int.Parse(args[5]) : 135;
+
+        // 1) Resolve samr's dynamic TCP port via the endpoint mapper.
+        DcerpcPipe mapper = DcerpcPipe.OverTcp(host, epmPort);
+        if (!mapper.Bind(DcerpcInterface.Epm).Accepted)
+        {
+            Console.Error.WriteLine("Bind to endpoint mapper rejected.");
+            return 1;
+        }
+
+        EpmMapResult? mapped = Epm.MapTcp(mapper, DcerpcInterface.Samr);
+        mapper.Close();
+        if (mapped is null)
+        {
+            Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for samr.");
+            return 1;
+        }
+
+        Console.WriteLine($"samr endpoint on {host}: {mapped}  (resolved via ept_map)");
+
+        // 2) Connect to the resolved port and bind samr with packet privacy.
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, mapped.Port);
+        DcerpcBindAck ack = pipe.BindAuthenticated(
+            DcerpcInterface.Samr, domain, user, password, DcerpcAuthLevel.PacketPrivacy);
+        if (!ack.Accepted)
+        {
+            Console.Error.WriteLine($"Authenticated samr bind over TCP rejected (result {ack.Result}, reason {ack.Reason}).");
+            return 1;
+        }
+
+        // 3) samrdump over TCP: connect, enumerate domains, enumerate users.
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        Console.WriteLine($"SAM domains (over ncacn_ip_tcp, sealed): {string.Join(", ", domains.Entries.Select(d => d.Name))}");
+
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is not null)
+        {
+            SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+            SamrEnumResult users = Samr.EnumerateUsers(pipe, dom.Handle);
+            Console.WriteLine($"Users in {accountDomain} ({sid}), {users.Entries.Count}:");
+            foreach (SamrRidEntry u in users.Entries)
+            {
+                Console.WriteLine($"  RID {u.Rid,-6} {u.Name}");
+            }
+
+            Samr.CloseHandle(pipe, dom.Handle);
+        }
+        else
+        {
+            Console.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+        }
+
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -1133,6 +1209,8 @@ static void PrintUsage()
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
     Console.WriteLine("  rpc-epm-map <host> [interface=samr] [port]");
     Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
+    Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
+    Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
