@@ -70,6 +70,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR context handles (20-byte) + top-level [ref]/[unique] strings (`NdrWriter`/`NdrReader`)
 - [x] svcctl (`Svcctl`): OpenSCManagerW, OpenServiceW, CreateServiceW, StartServiceW,
       DeleteService, CloseServiceHandle — the psexec service-control surface
+- [x] svcctl `REnumServicesStatusW` (services.py list): two-call buffer sizing + offset-packed ENUM_SERVICE_STATUSW parse
 - [x] Level-union → struct → deferred unique-string-pointer NDR (host-info parsers)
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
@@ -125,6 +126,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-getarch <host> [port]` — target architecture via an NDR+NDR64 two-context bind (getarch)
 - [x] `rpc-epm-map <host> [interface] [port]` — resolve an interface's dynamic TCP port via epm ept_map
 - [x] `rpc-samr-tcp <host> <user> <password> [domain]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
+- [x] `rpc-services <host> <user> <password> [domain] [port]` — svcctl service enumeration (services.py list)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
@@ -372,3 +374,15 @@ captures here (what differs, why, and whether it is detection-relevant).
   pinned by a known-bytes test from the captured dual-context BIND_ACK. tshark confirms
   the two offered contexts (32-bit NDR + 64-bit NDR). The getarch "x64" branch itself
   can only be confirmed against a real Windows host (this lab shows the reject branch).
+- **2026-10-31 — svcctl service enumeration (services.py list) validated against the DC.**
+  `rpc-services` opens the SCM with ENUMERATE access and calls REnumServicesStatusW
+  (opnum 14) using the SCM's two-call buffer-sizing dance: the first call (cbBufSize=0)
+  returns WERR_MORE_DATA + pcbBytesNeeded, the second returns the packed buffer. That
+  buffer is not ordinary NDR — it holds fixed 36-byte ENUM_SERVICE_STATUSW records (two
+  name byte-offsets + a 7-DWORD SERVICE_STATUS) with the names stored at those offsets
+  within the same buffer. Against the DC (as Administrator) it lists Spooler / NETLOGON
+  / RemoteRegistry (RUNNING) and WINS (STOPPED) with display names, matching impacket's
+  services.py. The offset-buffer parser is pinned by a known-bytes test from the
+  captured buffer; tshark shows OpenSCManager -> EnumServicesStatusW (WERR_MORE_DATA) ->
+  EnumServicesStatusW (data) -> Close. Needs admin: a non-admin Samba user gets access
+  denied, so this is DC/admin-validated.

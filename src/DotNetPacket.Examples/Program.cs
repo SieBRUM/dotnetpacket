@@ -595,6 +595,59 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-services":
+    {
+        // List the installed services via svcctl REnumServicesStatusW (the impacket
+        // services.py "list" recon). Read-only: opens the SCM with ENUMERATE access,
+        // enumerates, and prints each service's name, state, and display name.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-services <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Svcctl.Pipe);
+        pipe.Bind(DcerpcInterface.Svcctl);
+
+        ScHandleResult scm = Svcctl.OpenScManager(pipe, null, ScManagerAccess.Connect | ScManagerAccess.EnumerateService);
+        if (!scm.Success)
+        {
+            Console.Error.WriteLine($"OpenSCManager failed: {Svcctl.DescribeWin32(scm.ReturnCode)}");
+            return 1;
+        }
+
+        IReadOnlyList<ServiceStatusEntry> services = Svcctl.EnumerateServices(pipe, scm.Handle);
+        Svcctl.CloseServiceHandle(pipe, scm.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Services on {host} (via svcctl REnumServicesStatusW, {services.Count}):");
+        Console.WriteLine($"  {"STATE",-14} {"NAME",-24} DISPLAY");
+        foreach (ServiceStatusEntry svc in services)
+        {
+            Console.WriteLine($"  {svc.State,-14} {svc.Name,-24} {svc.DisplayName}");
+        }
+
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -1249,6 +1302,8 @@ static void PrintUsage()
     Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
     Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
+    Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");

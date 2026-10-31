@@ -51,6 +51,23 @@ public sealed record ScHandleResult(byte[] Handle, uint ReturnCode)
     public bool Success => ReturnCode == 0;
 }
 
+/// <summary>One ENUM_SERVICE_STATUSW entry (MS-SCMR 2.2.10): a service's names + status.</summary>
+public sealed record ServiceStatusEntry(string Name, string DisplayName, uint ServiceType, uint CurrentState)
+{
+    /// <summary>The SERVICE_STATUS dwCurrentState value as a readable name (MS-SCMR 2.2.47).</summary>
+    public string State => CurrentState switch
+    {
+        1 => "STOPPED",
+        2 => "START_PENDING",
+        3 => "STOP_PENDING",
+        4 => "RUNNING",
+        5 => "CONTINUE_PENDING",
+        6 => "PAUSE_PENDING",
+        7 => "PAUSED",
+        _ => $"0x{CurrentState:X}",
+    };
+}
+
 /// <summary>
 /// Minimal svcctl / Service Control Manager client (MS-SCMR). Port of the parts of
 /// impacket's <c>dcerpc.v5.scmr</c> used by the service-execution ("psexec")
@@ -62,9 +79,16 @@ public static class Svcctl
     private const ushort OpnumCloseServiceHandle = 0;
     private const ushort OpnumDeleteService = 2;
     private const ushort OpnumCreateServiceW = 12;
+    private const ushort OpnumEnumServicesStatusW = 14;
     private const ushort OpnumOpenSCManagerW = 15;
     private const ushort OpnumOpenServiceW = 16;
     private const ushort OpnumStartServiceW = 19;
+
+    /// <summary>Service type filter: SERVICE_WIN32 (own + share process).</summary>
+    public const uint ServiceWin32 = 0x00000030;
+
+    /// <summary>Service state filter: SERVICE_STATE_ALL.</summary>
+    public const uint ServiceStateAll = 0x00000003;
 
     /// <summary>ROpenSCManagerW (opnum 15): connect to the SCM and get a manager handle.</summary>
     public static ScHandleResult OpenScManager(DcerpcPipe pipe, string? machineName, ScManagerAccess access)
@@ -94,6 +118,86 @@ public static class Svcctl
         byte[] handle = reader.ReadContextHandle();
         uint returnCode = reader.ReadUInt32();
         return new ScHandleResult(handle, returnCode);
+    }
+
+    /// <summary>
+    /// REnumServicesStatusW (opnum 14): list the installed services (the services.py
+    /// "list" recon). Uses the SCM's two-call buffer-sizing dance — a first call with a
+    /// zero buffer returns the required size, the second returns the packed
+    /// ENUM_SERVICE_STATUSW records. Requires SC_MANAGER_ENUMERATE_SERVICE on the handle.
+    /// </summary>
+    public static IReadOnlyList<ServiceStatusEntry> EnumerateServices(
+        DcerpcPipe pipe,
+        byte[] scmHandle,
+        uint serviceType = ServiceWin32,
+        uint serviceState = ServiceStateAll)
+    {
+        (_, uint needed, _, _) = EnumServicesCall(pipe, scmHandle, serviceType, serviceState, 0);
+        if (needed == 0)
+        {
+            return Array.Empty<ServiceStatusEntry>();
+        }
+
+        (byte[] buffer, _, uint count, _) = EnumServicesCall(pipe, scmHandle, serviceType, serviceState, needed);
+        return ParseServices(buffer, count);
+    }
+
+    private static (byte[] Buffer, uint Needed, uint Count, uint ReturnCode) EnumServicesCall(
+        DcerpcPipe pipe, byte[] scmHandle, uint serviceType, uint serviceState, uint bufferSize)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(scmHandle); // hSCManager [in]
+        ndr.WriteUInt32(serviceType);      // dwServiceType
+        ndr.WriteUInt32(serviceState);     // dwServiceState
+        ndr.WriteUInt32(bufferSize);       // cbBufSize
+        ndr.WriteReferent(false);          // lpResumeIndex [in,out,unique] — null
+        byte[] stub = pipe.Call(OpnumEnumServicesStatusW, ndr.ToArray());
+
+        var reader = new NdrReader(stub);
+        uint maxCount = reader.ReadUInt32();          // lpBuffer conformant max_count
+        byte[] buffer = reader.ReadBytes((int)maxCount);
+        uint needed = reader.ReadUInt32();            // pcbBytesNeeded
+        uint count = reader.ReadUInt32();             // lpServicesReturned
+        reader.ReadUInt32();                          // lpResumeIndex (out)
+        uint returnCode = reader.ReadUInt32();        // return (0, or ERROR_MORE_DATA 0xEA)
+        return (buffer, needed, count, returnCode);
+    }
+
+    /// <summary>
+    /// Parses the packed ENUM_SERVICE_STATUSW buffer: <paramref name="count"/> fixed
+    /// 36-byte records at the front (two name offsets + a 7-DWORD SERVICE_STATUS), with
+    /// the names stored as byte offsets into the same buffer.
+    /// </summary>
+    public static IReadOnlyList<ServiceStatusEntry> ParseServices(byte[] buffer, uint count)
+    {
+        const int recordSize = 36; // 2 offsets + SERVICE_STATUS (7 DWORDs)
+        var list = new List<ServiceStatusEntry>((int)count);
+        for (uint i = 0; i < count; i++)
+        {
+            int baseOffset = (int)(i * recordSize);
+            uint nameOffset = BitConverter.ToUInt32(buffer, baseOffset);
+            uint displayOffset = BitConverter.ToUInt32(buffer, baseOffset + 4);
+            uint type = BitConverter.ToUInt32(buffer, baseOffset + 8);
+            uint state = BitConverter.ToUInt32(buffer, baseOffset + 12);
+            list.Add(new ServiceStatusEntry(
+                ReadUtf16Z(buffer, (int)nameOffset),
+                ReadUtf16Z(buffer, (int)displayOffset),
+                type,
+                state));
+        }
+
+        return list;
+    }
+
+    private static string ReadUtf16Z(byte[] buffer, int offset)
+    {
+        int end = offset;
+        while (end + 1 < buffer.Length && !(buffer[end] == 0 && buffer[end + 1] == 0))
+        {
+            end += 2;
+        }
+
+        return System.Text.Encoding.Unicode.GetString(buffer, offset, end - offset);
     }
 
     /// <summary>
