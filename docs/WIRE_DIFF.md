@@ -48,6 +48,37 @@ current lab does not have — see the caveat at the end).
 | Type 3 Version block | `10.0.19041` | absent | same |
 | Type 3 MIC | present | present | both send a MIC |
 
+## Findings (lab: Samba AD DC, 2026-10-31)
+
+These cover the DCERPC paths added since: authenticated sign/seal, DCERPC over
+TCP (`ncacn_ip_tcp`), and the endpoint mapper. Captured with `rpc-samr-tcp` /
+`rpc-epm-map` vs impacket's `hept_map` + a sealed samr bind, against the same
+Samba AD DC (`tools/lab-addc.sh`).
+
+### DCERPC authenticated BIND — NTLMSSP over RPC (sign/seal)
+
+| Field | DotNetPacket (.NET) | stock impacket | Note |
+| --- | --- | --- | --- |
+| Type 1 NegotiateFlags | `0xe2888235` | `0xe0888235` | differ only in `NEGOTIATE_VERSION` (`0x02000000`) |
+| Type 1 / Type 3 Version block | `10.0.19041` (NTLM rev 15) | **absent** | **impacket tell**, same as on the SMB path: impacket sends no OS version; a real Windows client does. |
+| SEAL + KEY_EXCH | set | set | both negotiate key exchange and sealing |
+| Sealed REQUEST layout | sign whole PDU minus verifier; seal stub only; auth pad `0xBB` | identical | **durable behavioral signal** — the NTLM2 "sign-all / seal-data" shape is the same in both runtimes |
+
+### Endpoint mapper `ept_map` request (ncacn_ip_tcp:135)
+
+| Field | DotNetPacket (.NET) | stock impacket | Note |
+| --- | --- | --- | --- |
+| Protocol tower (5 floors, 75-byte octet string) | identical | identical | interface UUID + NDR + RPC-CO + TCP + IP floors are byte-for-byte the same |
+| `obj` referent id | `0x00020000` | `0x00000001` | different NDR referent-numbering scheme (both non-null; server accepts either) |
+| NDR conformant-struct pad fill | `0x00` | `0xAB` | **impacket tell.** impacket fills NDR alignment padding with `0xAA/0xBB`-family bytes; DotNetPacket zero-fills (closer to Windows). |
+| `max_towers` requested | `1` | `4` | cosmetic request-size difference |
+
+### Endpoint mapper `ept_map` response (server-side tell)
+
+| Field | value on Samba DC | on Windows | Note |
+| --- | --- | --- | --- |
+| Returned tower host floor (IP) | `0.0.0.0` | the server's actual address | A **server** fingerprint (not a client one): Samba's mapper returns `0.0.0.0`, Windows returns the real IP. Useful for telling the responder apart, independent of the client. |
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single
@@ -62,6 +93,15 @@ current lab does not have — see the caveat at the end).
   whether the client is Python or .NET. Detections keyed on that call sequence and
   its state machine survive a tool being rewritten; detections keyed on the fields
   above do not.
+- A rule keying on **`0xAA`/`0xBB` NDR padding bytes** in DCERPC stubs is an
+  impacket marshaller artifact — DotNetPacket zero-fills (as Windows tends to), so
+  that rule misses it. Likewise **"NTLMSSP on the RPC auth trailer with no Version
+  field"** is the same impacket tell as on the SMB path.
+- Over TCP the durable signal is again the **sequence**: EPM `ept_map` on port 135
+  → connect to the returned dynamic port → authenticated BIND → the interface's
+  calls. That mapper→dynamic-port→bind flow is identical for impacket, DotNetPacket,
+  and Windows; the per-field tells above (version block, pad fill, referent ids) are
+  what separate the runtimes, and they do **not** separate DotNetPacket from Windows.
 
 ## Caveat
 
