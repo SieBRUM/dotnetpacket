@@ -87,6 +87,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
+- [x] winreg `BaseRegQueryValue` (opnum 17): read a named value (type + data) via two-call sizing
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
 - [ ] More calls: samr QueryInfoUser level 21 (full account detail)
 - [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
@@ -140,6 +141,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
+- [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -410,3 +412,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   ...), matching impacket's samrdump. tshark shows Connect -> ... -> OpenDomain ->
   EnumDomainGroups -> EnumDomainAliases. On a standalone (non-DC) Samba these return
   empty, which is why this was deferred until the DC lab existed.
+- **2026-10-31 — winreg BaseRegQueryValue (reg.py value read) validated against the DC.**
+  `rpc-regquery <subkey> <value>` opens HKLM, opens the subkey, and reads a named value
+  (opnum 17): HKLM\...\CurrentVersion\SystemRoot = "c:\Windows" (REG_SZ), CurrentVersion
+  = "6.1". A gotcha worth recording: the lpData [in,out] byte array is conformant-
+  VARYING, and sending it empty (MaxCount=0) is rejected by Samba with nca_s_fault_ndr;
+  so — like reg.exe and impacket — the client sends a non-empty buffer (512 bytes) and,
+  on ERROR_MORE_DATA, re-queries at the returned size (sizing exactly on the retry).
+  Parser pinned by a known-bytes test; tshark shows OpenHKLM -> OpenKey -> QueryValue ->
+  CloseKey.

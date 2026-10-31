@@ -1300,6 +1300,69 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-regquery":
+    {
+        // Read a named registry value via winreg: OpenHKLM -> OpenKey(subkey) ->
+        // BaseRegQueryValue(value). The reg.py "reg query KEY -v VALUE" recon.
+        if (args.Length < 6)
+        {
+            Console.Error.WriteLine("usage: rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string subKey = args[4];
+        string valueName = args[5];
+        string domain = args.Length >= 7 ? args[6] : string.Empty;
+        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Winreg.Pipe);
+        pipe.Bind(DcerpcInterface.Winreg);
+
+        ScHandleResult hklm = Winreg.OpenHklm(pipe);
+        if (!hklm.Success)
+        {
+            Console.Error.WriteLine($"OpenHKLM failed: 0x{hklm.ReturnCode:X8}");
+            return 1;
+        }
+
+        ScHandleResult key = Winreg.OpenKey(pipe, hklm.Handle, subKey);
+        if (!key.Success)
+        {
+            Console.Error.WriteLine($"OpenKey {subKey} failed: 0x{key.ReturnCode:X8}");
+            return 1;
+        }
+
+        Winreg.RegValue value = Winreg.QueryValue(pipe, key.Handle, valueName);
+        Winreg.CloseKey(pipe, key.Handle);
+        Winreg.CloseKey(pipe, hklm.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        if (!value.Success)
+        {
+            Console.WriteLine($"HKLM\\{subKey} : {valueName} -> query failed 0x{value.ReturnCode:X8}");
+            return 0;
+        }
+
+        Console.WriteLine($"HKLM\\{subKey}");
+        Console.WriteLine($"  {valueName}  ({value.TypeName})  =  {value.AsText}");
+        return 0;
+    }
+
     case "smb2-ls":
     {
         // Directory listing over SMB2: TREE_CONNECT + CREATE(dir) + QUERY_DIRECTORY + CLOSE.
@@ -1457,5 +1520,7 @@ static void PrintUsage()
     Console.WriteLine("                   Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).");
     Console.WriteLine("  rpc-reg <host> <user> <password> [subkey] [domain] [port]");
     Console.WriteLine("                   Remote-registry recon via winreg (MS-RRP): OpenHKLM + GetVersion + OpenKey.");
+    Console.WriteLine("  rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]");
+    Console.WriteLine("                   Read a registry value via winreg BaseRegQueryValue (reg query KEY -v VALUE).");
     Console.WriteLine("  help             Show this help.");
 }

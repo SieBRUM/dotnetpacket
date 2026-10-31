@@ -16,9 +16,35 @@ public static class Winreg
     private const ushort OpnumOpenLocalMachine = 2;   // OpenHKLM
     private const ushort OpnumBaseRegCloseKey = 5;
     private const ushort OpnumBaseRegOpenKey = 15;
+    private const ushort OpnumBaseRegQueryValue = 17;
     private const ushort OpnumBaseRegGetVersion = 26;
 
     private const uint MaximumAllowed = 0x02000000;
+    private const uint ErrorMoreData = 0x000000EA;
+
+    /// <summary>A registry value read: its REG_* type, raw data, and the call's return code.</summary>
+    public sealed record RegValue(uint Type, byte[] Data, uint ReturnCode)
+    {
+        public bool Success => ReturnCode == 0;
+
+        /// <summary>The data as a string when the type is REG_SZ/EXPAND_SZ (1/2); otherwise a hex dump.</summary>
+        public string AsText => Type is 1 or 2
+            ? System.Text.Encoding.Unicode.GetString(Data).TrimEnd('\0')
+            : Convert.ToHexString(Data);
+
+        /// <summary>The REG_* type as a readable name (MS-RRP 2.2.9 / winnt.h).</summary>
+        public string TypeName => Type switch
+        {
+            0 => "REG_NONE",
+            1 => "REG_SZ",
+            2 => "REG_EXPAND_SZ",
+            3 => "REG_BINARY",
+            4 => "REG_DWORD",
+            7 => "REG_MULTI_SZ",
+            11 => "REG_QWORD",
+            _ => $"0x{Type:X}",
+        };
+    }
 
     /// <summary>OpenLocalMachine / OpenHKLM (opnum 2): open the remote HKEY_LOCAL_MACHINE hive.</summary>
     public static ScHandleResult OpenHklm(DcerpcPipe pipe, uint desiredAccess = MaximumAllowed)
@@ -59,6 +85,75 @@ public static class Winreg
         var reader = new NdrReader(stub);
         byte[] handle = reader.ReadContextHandle();
         return new ScHandleResult(handle, reader.ReadUInt32());
+    }
+
+    /// <summary>
+    /// BaseRegQueryValue (opnum 17): read a named value under an open key (the reg.py
+    /// value read). Uses two-call sizing like reg.exe — a first call with a zero-length
+    /// data buffer returns ERROR_MORE_DATA and the required size, then it re-queries with
+    /// a buffer of that size (rather than impacket's fixed pre-allocation).
+    /// </summary>
+    public static RegValue QueryValue(DcerpcPipe pipe, byte[] hKey, string valueName)
+    {
+        // Start with a modest buffer; grow to the exact size if the server says so.
+        (uint type, byte[] data, uint needed, uint ret) = QueryValueCall(pipe, hKey, valueName, 512);
+        if (ret == ErrorMoreData && needed > 0)
+        {
+            (type, data, _, ret) = QueryValueCall(pipe, hKey, valueName, needed);
+        }
+
+        return new RegValue(type, data, ret);
+    }
+
+    private static (uint Type, byte[] Data, uint Needed, uint ReturnCode) QueryValueCall(
+        DcerpcPipe pipe, byte[] hKey, string valueName, uint bufferSize)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(hKey);          // hKey [in]
+        ndr.WriteRrpUnicodeString(valueName);  // lpValueName (NUL-counted RRP string)
+        ndr.WriteReferent(true);               // lpType [in,out,unique]
+        ndr.WriteUInt32(0);
+        ndr.WriteReferent(true);               // lpData [in,out,unique] conformant-varying byte array
+        ndr.WriteUInt32(bufferSize);           //   MaxCount
+        ndr.WriteUInt32(0);                    //   Offset
+        ndr.WriteUInt32(bufferSize);           //   ActualCount
+        ndr.WriteBytes(new byte[bufferSize]);
+        ndr.Align(4);
+        ndr.WriteReferent(true);               // lpcbData [in,out,unique]
+        ndr.WriteUInt32(bufferSize);
+        ndr.WriteReferent(true);               // lpcbLen [in,out,unique]
+        ndr.WriteUInt32(bufferSize);
+        return ParseQueryValueResponse(pipe.Call(OpnumBaseRegQueryValue, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses a BaseRegQueryValue response: lpType, the lpData conformant-varying byte
+    /// array, lpcbData (bytes needed/returned), lpcbLen, and the return code. Exposed
+    /// for tests / offline analysis.
+    /// </summary>
+    public static (uint Type, byte[] Data, uint Needed, uint ReturnCode) ParseQueryValueResponse(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint type = reader.ReadReferent() != 0 ? reader.ReadUInt32() : 0;
+
+        byte[] data = Array.Empty<byte>();
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt32();                 // MaxCount
+            reader.ReadUInt32();                 // Offset
+            uint actual = reader.ReadUInt32();   // ActualCount
+            data = reader.ReadBytes((int)actual);
+            reader.Align(4);
+        }
+
+        uint needed = reader.ReadReferent() != 0 ? reader.ReadUInt32() : 0; // lpcbData (bytes needed/returned)
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt32();                 // lpcbLen
+        }
+
+        uint returnCode = reader.ReadUInt32();
+        return (type, data, needed, returnCode);
     }
 
     /// <summary>BaseRegCloseKey (opnum 5): release a key handle.</summary>
