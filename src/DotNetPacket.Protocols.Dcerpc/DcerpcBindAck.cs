@@ -31,6 +31,10 @@ public sealed class DcerpcBindAck
 
     public ushort Reason { get; private set; }
 
+    /// <summary>Per-presentation-context results, in order (one entry per offered context).</summary>
+    public IReadOnlyList<(ContextResult Result, ushort Reason)> Results { get; private set; } =
+        Array.Empty<(ContextResult, ushort)>();
+
     /// <summary>The authentication token (e.g. an NTLMSSP CHALLENGE) from the trailing auth verifier, if any.</summary>
     public byte[] AuthValue { get; private set; } = Array.Empty<byte>();
 
@@ -77,11 +81,21 @@ public sealed class DcerpcBindAck
         byte resultCount = reader.ReadByte();
         reader.ReadByte();   // reserved
         reader.ReadUInt16(); // reserved2
+
+        var results = new List<(ContextResult, ushort)>(resultCount);
+        for (int i = 0; i < resultCount; i++)
+        {
+            var result = (ContextResult)reader.ReadUInt16();
+            ushort reason = reader.ReadUInt16();
+            reader.Position += 20; // transfer_syntax (UUID + version) for this context
+            results.Add((result, reason));
+        }
+
+        ack.Results = results;
         if (resultCount > 0)
         {
-            ack.Result = (ContextResult)reader.ReadUInt16();
-            ack.Reason = reader.ReadUInt16();
-            // transfer_syntax (20 bytes) follows but is not needed here.
+            ack.Result = results[0].Item1; // first context, for the single-context callers
+            ack.Reason = results[0].Item2;
         }
 
         return ack;

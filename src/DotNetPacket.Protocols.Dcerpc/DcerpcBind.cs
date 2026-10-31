@@ -25,6 +25,16 @@ public sealed class DcerpcBind
 
     public uint CallId { get; set; } = 1;
 
+    /// <summary>
+    /// An optional alternate transfer syntax offered as a second presentation context
+    /// (context id 1) for the same interface — used to probe NDR64 support (getarch).
+    /// </summary>
+    public Guid? SecondTransferSyntax { get; set; }
+
+    public ushort SecondTransferVersionMajor { get; set; }
+
+    public ushort SecondTransferVersionMinor { get; set; }
+
     /// <summary>Optional authentication: the sec_trailer describing the token, if any.</summary>
     public DcerpcSecTrailer? AuthTrailer { get; set; }
 
@@ -39,24 +49,36 @@ public sealed class DcerpcBind
         body.WriteUInt16(MaxRecvFrag);
         body.WriteUInt32(AssocGroupId);
 
-        // p_context_elem: one context with one transfer syntax.
-        body.WriteByte(1); // n_context_elem
+        // p_context_elem: one context per offered transfer syntax (two when probing NDR64).
+        bool twoContexts = SecondTransferSyntax is not null;
+        body.WriteByte((byte)(twoContexts ? 2 : 1)); // n_context_elem
         body.WriteByte(0); // reserved
         body.WriteUInt16(0); // reserved2
 
+        // Context 0: the interface bound to NDR v2.0.
         body.WriteUInt16(ContextId);
         body.WriteByte(1); // n_transfer_syn
         body.WriteByte(0); // reserved
-
-        // abstract_syntax: interface UUID + version.
         body.WriteBytes(InterfaceUuid.ToByteArray());
         body.WriteUInt16(InterfaceVersionMajor);
         body.WriteUInt16(InterfaceVersionMinor);
-
-        // transfer_syntax: NDR v2.0.
         body.WriteBytes(Dcerpc.NdrTransferSyntax.ToByteArray());
         body.WriteUInt16(Dcerpc.NdrVersionMajor);
         body.WriteUInt16(Dcerpc.NdrVersionMinor);
+
+        if (twoContexts)
+        {
+            // Context 1: the same interface offered with the alternate transfer syntax.
+            body.WriteUInt16((ushort)(ContextId + 1));
+            body.WriteByte(1); // n_transfer_syn
+            body.WriteByte(0); // reserved
+            body.WriteBytes(InterfaceUuid.ToByteArray());
+            body.WriteUInt16(InterfaceVersionMajor);
+            body.WriteUInt16(InterfaceVersionMinor);
+            body.WriteBytes(SecondTransferSyntax!.Value.ToByteArray());
+            body.WriteUInt16(SecondTransferVersionMajor);
+            body.WriteUInt16(SecondTransferVersionMinor);
+        }
 
         byte[] bodyBytes = body.ToArray();
         byte[] token = AuthToken ?? Array.Empty<byte>();

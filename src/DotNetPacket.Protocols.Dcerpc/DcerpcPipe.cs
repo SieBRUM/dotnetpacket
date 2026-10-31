@@ -51,6 +51,27 @@ public sealed class DcerpcPipe
     }
 
     /// <summary>
+    /// Binds offering a second presentation context with an alternate transfer syntax
+    /// (e.g. NDR64) and returns the BIND_ACK with its per-context result list — the
+    /// getarch probe. The server accepts the syntaxes it supports and rejects the rest.
+    /// </summary>
+    public DcerpcBindAck BindProbe(DcerpcInterface iface, Guid secondSyntax, ushort major, ushort minor)
+    {
+        var bind = new DcerpcBind
+        {
+            InterfaceUuid = iface.Uuid,
+            InterfaceVersionMajor = iface.VersionMajor,
+            InterfaceVersionMinor = iface.VersionMinor,
+            CallId = _callId++,
+            SecondTransferSyntax = secondSyntax,
+            SecondTransferVersionMajor = major,
+            SecondTransferVersionMinor = minor,
+        };
+
+        return DcerpcBindAck.Parse(_transport.Transceive(bind.Pack()));
+    }
+
+    /// <summary>
     /// Binds with NTLMSSP authentication and establishes per-PDU protection at
     /// <paramref name="level"/> (packet integrity or privacy): BIND (+Type1) → BIND_ACK
     /// (Type2) → AUTH3 (Type3). After this, <see cref="Call"/> signs and, at privacy

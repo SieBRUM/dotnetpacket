@@ -40,6 +40,16 @@ public static class Dcerpc
     public const ushort NdrVersionMajor = 2;
     public const ushort NdrVersionMinor = 0;
 
+    /// <summary>
+    /// The NDR64 transfer syntax UUID (version 1.0). Offered as a second presentation
+    /// context to probe for a 64-bit RPC runtime (impacket's getarch): a modern x64
+    /// Windows host accepts it; a 32-bit host or a non-Windows stack (e.g. Samba) rejects
+    /// that context with provider_rejection / transfer-syntaxes-not-supported.
+    /// </summary>
+    public static readonly Guid Ndr64TransferSyntax = new("71710533-beba-4937-8319-b5dbef9ccc36");
+    public const ushort Ndr64VersionMajor = 1;
+    public const ushort Ndr64VersionMinor = 0;
+
     /// <summary>Authentication service id: NTLMSSP (MS-RPCE 2.2.1.1.7, RPC_C_AUTHN_WINNT).</summary>
     public const byte AuthTypeNtlm = 0x0A;
 }

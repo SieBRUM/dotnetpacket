@@ -92,6 +92,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       `DcerpcAuth3`, `DcerpcSecTrailer`, `DcerpcRequest.PackAuthenticated` /
       `DcerpcPipe.BindAuthenticated`
 - [x] mgmt `rpc_mgmt_inq_if_ids` (`Mgmt`): enumerate the interface ids registered on an endpoint (rpcdump)
+- [x] Multi-context BIND (offer a second transfer syntax) + per-context BIND_ACK result-list parse (getarch / NDR64 probe)
 - [ ] Fragmented request/response reassembly for signed/sealed PDUs over MaxXmitFrag
 - [x] ncacn_ip_tcp transport (DCERPC directly over TCP/135) — `IDcerpcTransport` +
       `TcpDcerpcTransport` (+ `SmbPipeTransport` for ncacn_np); bind/call/sign-seal is
@@ -121,6 +122,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]` — NetrShareEnum over NTLMSSP sign/seal
 - [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump, over SMB)
 - [x] `rpc-dump-tcp <host> [port]` — same over ncacn_ip_tcp to the endpoint mapper (DCERPC over TCP, no SMB)
+- [x] `rpc-getarch <host> [port]` — target architecture via an NDR+NDR64 two-context bind (getarch)
 - [x] `rpc-epm-map <host> [interface] [port]` — resolve an interface's dynamic TCP port via epm ept_map
 - [x] `rpc-samr-tcp <host> <user> <password> [domain]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
@@ -359,3 +361,14 @@ captures here (what differs, why, and whether it is detection-relevant).
   `TcpDcerpcTransport` as well as the SMB pipe — the transport abstraction holds end to
   end. The feature composes already-tested parts (Epm, DcerpcPipe sign/seal, Samr), so
   it is covered by their unit tests plus this live run.
+- **2026-10-31 — getarch (NDR64 two-context bind) validated against the Samba AD DC.**
+  `rpc-getarch` binds the mgmt interface over ncacn_ip_tcp:135 offering two
+  presentation contexts — NDR (ctx 0) and NDR64 (ctx 1) — and reads the per-context
+  result list. Samba accepts ctx 0 (NDR) and rejects ctx 1 (NDR64) with
+  provider_rejection / reason 2 (transfer syntaxes not supported), so the example
+  reports "x86 or non-Windows (Samba)". A modern x64 Windows host instead accepts the
+  NDR64 context — that is the whole detection trick. Required extending DcerpcBind to
+  emit a second context and DcerpcBindAck to parse the full result list; the parse is
+  pinned by a known-bytes test from the captured dual-context BIND_ACK. tshark confirms
+  the two offered contexts (32-bit NDR + 64-bit NDR). The getarch "x64" branch itself
+  can only be confirmed against a real Windows host (this lab shows the reject branch).

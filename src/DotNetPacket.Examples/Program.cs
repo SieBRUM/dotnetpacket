@@ -438,6 +438,42 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-getarch":
+    {
+        // Detect the target RPC runtime's architecture (impacket getarch): bind the
+        // endpoint mapper offering two presentation contexts — NDR (ctx 0) and NDR64
+        // (ctx 1). A modern x64 Windows host accepts the NDR64 context; a 32-bit host
+        // or a non-Windows stack (Samba) rejects it. No SMB, anonymous.
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: rpc-getarch <host> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        int port = args.Length >= 3 ? int.Parse(args[2]) : 135;
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, port);
+        DcerpcBindAck ack = pipe.BindProbe(
+            DcerpcInterface.Mgmt, Dcerpc.Ndr64TransferSyntax, Dcerpc.Ndr64VersionMajor, Dcerpc.Ndr64VersionMinor);
+        pipe.Close();
+
+        bool ndr64Accepted = ack.Results.Count >= 2
+            && ack.Results[1].Result == DcerpcBindAck.ContextResult.Acceptance;
+
+        Console.WriteLine($"Architecture probe of {host}:{port} (NDR + NDR64 bind):");
+        for (int i = 0; i < ack.Results.Count; i++)
+        {
+            string syntax = i == 0 ? "NDR  (32-bit)" : "NDR64 (64-bit)";
+            Console.WriteLine($"  ctx {i}: {syntax,-14} -> {ack.Results[i].Result} (reason {ack.Results[i].Reason})");
+        }
+
+        Console.WriteLine(ndr64Accepted
+            ? "  => NDR64 accepted: target is x64 (Windows)."
+            : "  => NDR64 rejected: x86 or a non-Windows RPC stack (e.g. Samba).");
+        return 0;
+    }
+
     case "rpc-epm-map":
     {
         // Ask the endpoint mapper (TCP/135) which dynamic ncacn_ip_tcp port an
@@ -1207,6 +1243,8 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
+    Console.WriteLine("  rpc-getarch <host> [port]");
+    Console.WriteLine("                   Detect target architecture via an NDR+NDR64 two-context bind (getarch).");
     Console.WriteLine("  rpc-epm-map <host> [interface=samr] [port]");
     Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
     Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
