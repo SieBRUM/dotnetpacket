@@ -878,6 +878,24 @@ switch (args[0])
             LsaAccountDomain account = Lsarpc.QueryAccountDomain(pipe, policy.Handle);
             Console.WriteLine($"  Account domain: {account.Name}");
             Console.WriteLine($"  Account SID:    {account.Sid}");
+
+            // DNS/forest identity (QueryInformationPolicy2 level 12) — only a DC answers.
+            try
+            {
+                LsaDnsDomain dns = Lsarpc.QueryDnsDomain(pipe, policy.Handle);
+                if (dns.Success && !string.IsNullOrEmpty(dns.DnsDomainName))
+                {
+                    Console.WriteLine($"  DNS domain:     {dns.DnsDomainName}");
+                    Console.WriteLine($"  DNS forest:     {dns.DnsForestName}");
+                    Console.WriteLine($"  Domain GUID:    {dns.DomainGuid}");
+                    Console.WriteLine($"  Domain SID:     {dns.Sid}");
+                }
+            }
+            catch (DcerpcFaultException)
+            {
+                // Not a DC (standalone servers fault on level 12) — account-domain info stands.
+            }
+
             Lsarpc.Close(pipe, policy.Handle);
         }
 

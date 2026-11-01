@@ -12,6 +12,21 @@ public sealed record LsaAccountDomain(string Name, string Sid, uint Status)
 public sealed record LsaPrivilege(string Name, uint LuidLow, int LuidHigh);
 
 /// <summary>
+/// LSAPR_POLICY_DNS_DOMAIN_INFO (MS-LSAD 2.2.4.4): the DNS/forest identity of a domain
+/// — NetBIOS name, DNS domain, DNS forest, domain GUID, and domain SID.
+/// </summary>
+public sealed record LsaDnsDomain(
+    string NetbiosName,
+    string DnsDomainName,
+    string DnsForestName,
+    string DomainGuid,
+    string Sid,
+    uint Status)
+{
+    public bool Success => Status == 0;
+}
+
+/// <summary>
 /// Minimal lsarpc client (MS-LSAD). Port of the parts of impacket's
 /// <c>dcerpc.v5.lsad</c> used for domain recon: open the LSA policy and read the
 /// account-domain name + SID (the precursor to SID lookups). The pipe must already
@@ -23,9 +38,11 @@ public static class Lsarpc
     private const ushort OpnumLsarEnumeratePrivileges = 2;
     private const ushort OpnumLsarQueryInformationPolicy = 7;
     private const ushort OpnumLsarOpenPolicy2 = 44;
+    private const ushort OpnumLsarQueryInformationPolicy2 = 46;
 
     private const uint MaximumAllowed = 0x02000000;
     private const ushort PolicyAccountDomainInformation = 5;
+    private const ushort PolicyDnsDomainInformation = 12;
 
     /// <summary>LsarOpenPolicy2 (opnum 44): open a handle to the local LSA policy object.</summary>
     public static ScHandleResult OpenPolicy2(DcerpcPipe pipe, uint desiredAccess = MaximumAllowed)
@@ -178,6 +195,71 @@ public static class Lsarpc
 
         uint status = reader.ReadUInt32();
         return new LsaAccountDomain(name, sid, status);
+    }
+
+    /// <summary>
+    /// LsarQueryInformationPolicy2 (opnum 46), class PolicyDnsDomainInformation — the
+    /// DNS/forest identity of the domain. Only meaningful on a domain controller.
+    /// </summary>
+    public static LsaDnsDomain QueryDnsDomain(DcerpcPipe pipe, byte[] policyHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle);            // PolicyHandle [in]
+        ndr.WriteUInt16(PolicyDnsDomainInformation);     // InformationClass (enum16)
+        byte[] stub = pipe.Call(OpnumLsarQueryInformationPolicy2, ndr.ToArray());
+        return ParseDnsDomain(stub);
+    }
+
+    /// <summary>
+    /// Parses a PolicyDnsDomainInformation response (union referent + tag 12, three
+    /// RPC_UNICODE_STRING headers, a 16-byte DomainGuid, and an RPC_SID pointer, then the
+    /// deferred string buffers and SID). Exposed for tests / offline analysis.
+    /// </summary>
+    public static LsaDnsDomain ParseDnsDomain(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        if (reader.ReadReferent() == 0)
+        {
+            return new LsaDnsDomain(string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, reader.ReadUInt32());
+        }
+
+        reader.ReadUInt32(); // union discriminant (ULONG tag == 12)
+
+        uint nameRef = ReadUnicodeStringHeader(reader);
+        uint dnsRef = ReadUnicodeStringHeader(reader);
+        uint forestRef = ReadUnicodeStringHeader(reader);
+        var guid = new Guid(reader.ReadBytes(16));
+        uint sidRef = reader.ReadReferent();
+
+        string netbios = nameRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string dns = dnsRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string forest = forestRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string sid = sidRef != 0 ? ReadSid(reader) : string.Empty;
+
+        uint status = reader.ReadUInt32();
+        return new LsaDnsDomain(netbios, dns, forest, guid.ToString(), sid, status);
+    }
+
+    private static uint ReadUnicodeStringHeader(NdrReader reader)
+    {
+        reader.ReadUInt16(); // Length (bytes)
+        reader.ReadUInt16(); // MaximumLength (bytes)
+        return reader.ReadReferent();
+    }
+
+    private static string ReadSid(NdrReader reader)
+    {
+        reader.ReadUInt32();               // conformant MaxCount (== SubAuthorityCount)
+        byte revision = reader.ReadByte();
+        byte subAuthorityCount = reader.ReadByte();
+        byte[] identifierAuthority = reader.ReadBytes(6);
+        var subAuthorities = new uint[subAuthorityCount];
+        for (int i = 0; i < subAuthorityCount; i++)
+        {
+            subAuthorities[i] = reader.ReadUInt32();
+        }
+
+        return FormatSid(revision, identifierAuthority, subAuthorities);
     }
 
     /// <summary>Formats an RPC_SID as the canonical S-R-IA-SA... string.</summary>

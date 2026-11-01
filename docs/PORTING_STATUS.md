@@ -77,6 +77,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
 - [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
+- [x] lsarpc `LsarQueryInformationPolicy2` level 12 (DNS domain: NetBIOS/DNS/forest names, domain GUID + SID)
 - [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
 - [x] lsat `LsarLookupSids` (SID -> domain\name) + `LsarLookupNames` (name -> SID) — `Lsat`
 - [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
@@ -134,7 +135,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-svcconfig <host> <user> <password> <service> [domain] [port]` — svcctl per-service config (QueryServiceConfigW)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
-- [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID
+- [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
 - [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
@@ -433,3 +434,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   Domain (""). tshark shows OpenHKLM -> OpenKey -> EnumValue(0) -> EnumValue(1) ->
   EnumValue(2)=WERR_NO_MORE_ITEMS. Parser pinned by a known-bytes test. This closes the
   earlier "EnumValue has fiddly nested pre-allocated buffers" gap.
+- **2026-11-01 — lsarpc DNS/forest domain info (QueryInformationPolicy2 L12) validated on the DC.**
+  `rpc-lsa` now also calls LsarQueryInformationPolicy2 (opnum 46) with
+  PolicyDnsDomainInformation (level 12): LSAPR_POLICY_DNS_DOMAIN_INFO = three
+  RPC_UNICODE_STRINGs (NetBIOS/DNS-domain/DNS-forest), a 16-byte DomainGuid, and an
+  RPC_SID pointer. Against the DC it reports NetBIOS LAB, DNS lab.local, forest
+  lab.local, a domain GUID, and the domain SID. Note opnum 46 faults on standalone
+  (non-DC) Samba, so the example wraps the call in a fault guard and falls back to the
+  account-domain info; it is DC-validated. Parser pinned by a known-bytes test; tshark
+  shows OpenPolicy2 -> QueryInfoPolicy -> QueryInfoPolicy2 -> Close.
