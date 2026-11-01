@@ -1363,6 +1363,66 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-regenum":
+    {
+        // Enumerate all values under a registry key via winreg BaseRegEnumValue
+        // (reg.py "reg query KEY" — list the key's values). OpenHKLM -> OpenKey -> loop.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-regenum <host> <user> <password> [subkey] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string subKey = args.Length >= 5 ? args[4] : @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Winreg.Pipe);
+        pipe.Bind(DcerpcInterface.Winreg);
+
+        ScHandleResult hklm = Winreg.OpenHklm(pipe);
+        if (!hklm.Success)
+        {
+            Console.Error.WriteLine($"OpenHKLM failed: 0x{hklm.ReturnCode:X8}");
+            return 1;
+        }
+
+        ScHandleResult key = Winreg.OpenKey(pipe, hklm.Handle, subKey);
+        if (!key.Success)
+        {
+            Console.Error.WriteLine($"OpenKey {subKey} failed: 0x{key.ReturnCode:X8}");
+            return 1;
+        }
+
+        IReadOnlyList<Winreg.RegNamedValue> values = Winreg.EnumerateValues(pipe, key.Handle);
+        Winreg.CloseKey(pipe, key.Handle);
+        Winreg.CloseKey(pipe, hklm.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"HKLM\\{subKey}  ({values.Count} values):");
+        foreach (Winreg.RegNamedValue v in values)
+        {
+            Console.WriteLine($"  {v.Name,-20} ({v.TypeName})  =  {v.AsText}");
+        }
+
+        return 0;
+    }
+
     case "smb2-ls":
     {
         // Directory listing over SMB2: TREE_CONNECT + CREATE(dir) + QUERY_DIRECTORY + CLOSE.
@@ -1522,5 +1582,7 @@ static void PrintUsage()
     Console.WriteLine("                   Remote-registry recon via winreg (MS-RRP): OpenHKLM + GetVersion + OpenKey.");
     Console.WriteLine("  rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]");
     Console.WriteLine("                   Read a registry value via winreg BaseRegQueryValue (reg query KEY -v VALUE).");
+    Console.WriteLine("  rpc-regenum <host> <user> <password> [subkey] [domain] [port]");
+    Console.WriteLine("                   Enumerate a key's values via winreg BaseRegEnumValue (reg query KEY).");
     Console.WriteLine("  help             Show this help.");
 }

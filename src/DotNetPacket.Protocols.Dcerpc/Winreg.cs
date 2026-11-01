@@ -7,20 +7,22 @@ namespace DotNetPacket.Protocols.Dcerpc;
 /// bound to the winreg interface. Byte layout verified against impacket.
 /// </summary>
 /// <remarks>
-/// Scoped to the calls this lab's Samba implements cleanly. BaseRegEnumKey /
-/// BaseRegQueryInfoKey use impacket's pre-allocated-buffer scheme and/or are
-/// unimplemented by standalone Samba; they are tracked in PORTING_STATUS.
+/// Covers OpenHKLM/GetVersion/OpenKey/CloseKey plus value reads (QueryValue and
+/// EnumValue). BaseRegEnumKey / BaseRegQueryInfoKey remain unported (QueryInfoKey
+/// faults on standalone Samba); they are tracked in PORTING_STATUS.
 /// </remarks>
 public static class Winreg
 {
     private const ushort OpnumOpenLocalMachine = 2;   // OpenHKLM
     private const ushort OpnumBaseRegCloseKey = 5;
+    private const ushort OpnumBaseRegEnumValue = 10;
     private const ushort OpnumBaseRegOpenKey = 15;
     private const ushort OpnumBaseRegQueryValue = 17;
     private const ushort OpnumBaseRegGetVersion = 26;
 
     private const uint MaximumAllowed = 0x02000000;
     private const uint ErrorMoreData = 0x000000EA;
+    private const uint ErrorNoMoreItems = 0x00000103;
 
     /// <summary>A registry value read: its REG_* type, raw data, and the call's return code.</summary>
     public sealed record RegValue(uint Type, byte[] Data, uint ReturnCode)
@@ -154,6 +156,123 @@ public static class Winreg
 
         uint returnCode = reader.ReadUInt32();
         return (type, data, needed, returnCode);
+    }
+
+    /// <summary>A named registry value returned by value enumeration.</summary>
+    public sealed record RegNamedValue(string Name, uint Type, byte[] Data)
+    {
+        public string TypeName => new RegValue(Type, Data, 0).TypeName;
+
+        public string AsText => new RegValue(Type, Data, 0).AsText;
+    }
+
+    /// <summary>
+    /// BaseRegEnumValue (opnum 10): enumerate all values under an open key (the reg.py
+    /// "list a key's values" recon). Calls the op with an increasing index until the
+    /// server returns ERROR_NO_MORE_ITEMS. The request pre-allocates both an empty
+    /// value-name buffer (the server fills it) and a data buffer, re-querying larger on
+    /// ERROR_MORE_DATA — the same sizing dance as BaseRegQueryValue.
+    /// </summary>
+    public static IReadOnlyList<RegNamedValue> EnumerateValues(DcerpcPipe pipe, byte[] hKey)
+    {
+        var result = new List<RegNamedValue>();
+        for (uint index = 0; ; index++)
+        {
+            (RegNamedValue? value, uint needed, uint ret) = EnumValueCall(pipe, hKey, index, 256);
+            if (ret == ErrorMoreData && needed > 0)
+            {
+                (value, _, ret) = EnumValueCall(pipe, hKey, index, needed);
+            }
+
+            if (ret == ErrorNoMoreItems || value is null)
+            {
+                break;
+            }
+
+            if (ret != 0)
+            {
+                break;
+            }
+
+            result.Add(value);
+        }
+
+        return result;
+    }
+
+    private static (RegNamedValue? Value, uint Needed, uint ReturnCode) EnumValueCall(
+        DcerpcPipe pipe, byte[] hKey, uint index, uint bufferSize)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(hKey);          // hKey [in]
+        ndr.WriteUInt32(index);                // dwIndex
+
+        // lpValueNameIn: an empty RPC_UNICODE_STRING with a pre-sized buffer the server fills.
+        ndr.WriteUInt16(0);                    //   Length = 0
+        ndr.WriteUInt16((ushort)(bufferSize * 2)); // MaximumLength (bytes)
+        ndr.WriteReferent(true);               //   Buffer ptr
+        ndr.WriteUInt32(bufferSize);           //   MaxCount (chars)
+        ndr.WriteUInt32(0);                    //   Offset
+        ndr.WriteUInt32(0);                    //   ActualCount (empty)
+
+        ndr.WriteReferent(true);               // lpType [in,out,unique]
+        ndr.WriteUInt32(0);
+        ndr.WriteReferent(true);               // lpData [in,out,unique] conformant-varying
+        ndr.WriteUInt32(bufferSize);
+        ndr.WriteUInt32(0);
+        ndr.WriteUInt32(bufferSize);
+        ndr.WriteBytes(new byte[bufferSize]);
+        ndr.Align(4);
+        ndr.WriteReferent(true);               // lpcbData [in,out,unique]
+        ndr.WriteUInt32(bufferSize);
+        ndr.WriteReferent(true);               // lpcbLen [in,out,unique]
+        ndr.WriteUInt32(bufferSize);
+        return ParseEnumValueResponse(pipe.Call(OpnumBaseRegEnumValue, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses a BaseRegEnumValue response: lpValueNameOut (RPC_UNICODE_STRING), lpType,
+    /// the lpData conformant-varying byte array, lpcbData, lpcbLen, and the return code.
+    /// Exposed for tests / offline analysis.
+    /// </summary>
+    public static (RegNamedValue? Value, uint Needed, uint ReturnCode) ParseEnumValueResponse(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+
+        // lpValueNameOut RPC_UNICODE_STRING
+        reader.ReadUInt16();                   // Length (bytes)
+        reader.ReadUInt16();                   // MaximumLength
+        string name = string.Empty;
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt32();               // MaxCount
+            reader.ReadUInt32();               // Offset
+            uint actual = reader.ReadUInt32(); // ActualCount (chars)
+            name = reader.ReadWideChars((int)actual).TrimEnd('\0');
+            reader.Align(4);
+        }
+
+        uint type = reader.ReadReferent() != 0 ? reader.ReadUInt32() : 0;
+
+        byte[] data = Array.Empty<byte>();
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt32();               // MaxCount
+            reader.ReadUInt32();               // Offset
+            uint actual = reader.ReadUInt32(); // ActualCount
+            data = reader.ReadBytes((int)actual);
+            reader.Align(4);
+        }
+
+        uint needed = reader.ReadReferent() != 0 ? reader.ReadUInt32() : 0; // lpcbData
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt32();               // lpcbLen
+        }
+
+        uint returnCode = reader.ReadUInt32();
+        RegNamedValue? value = returnCode == 0 ? new RegNamedValue(name, type, data) : null;
+        return (value, needed, returnCode);
     }
 
     /// <summary>BaseRegCloseKey (opnum 5): release a key handle.</summary>

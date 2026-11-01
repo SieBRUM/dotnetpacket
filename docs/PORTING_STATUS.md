@@ -88,6 +88,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
 - [x] winreg `BaseRegQueryValue` (opnum 17): read a named value (type + data) via two-call sizing
+- [x] winreg `BaseRegEnumValue` (opnum 10): enumerate a key's values (pre-allocated name + data buffers)
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
 - [ ] More calls: samr QueryInfoUser level 21 (full account detail)
 - [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
@@ -142,6 +143,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
+- [x] `rpc-regenum <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's values
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -421,3 +423,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   on ERROR_MORE_DATA, re-queries at the returned size (sizing exactly on the retry).
   Parser pinned by a known-bytes test; tshark shows OpenHKLM -> OpenKey -> QueryValue ->
   CloseKey.
+- **2026-11-01 — winreg BaseRegEnumValue (reg.py key-value listing) validated against the DC.**
+  `rpc-regenum <subkey>` enumerates a key's values: calls BaseRegEnumValue (opnum 10)
+  with an increasing index until WERR_NO_MORE_ITEMS. The request pre-allocates both an
+  empty value-name RPC_UNICODE_STRING (Length 0, a sized MaximumLength + Buffer the
+  server fills) and the same conformant-varying data buffer as QueryValue, re-querying
+  larger on ERROR_MORE_DATA. Against the DC it lists CurrentVersion's SystemRoot
+  ("c:\Windows") + CurrentVersion ("6.1") and Tcpip\Parameters' Hostname ("vm") +
+  Domain (""). tshark shows OpenHKLM -> OpenKey -> EnumValue(0) -> EnumValue(1) ->
+  EnumValue(2)=WERR_NO_MORE_ITEMS. Parser pinned by a known-bytes test. This closes the
+  earlier "EnumValue has fiddly nested pre-allocated buffers" gap.
