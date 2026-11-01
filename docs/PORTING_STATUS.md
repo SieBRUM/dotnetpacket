@@ -85,13 +85,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       — the full samrdump behavior (enumerate + per-user attributes)
 - [x] samr `SamrQueryInformationDomain` levels 1 (password info) + 12 (lockout info) — domain password policy
 - [x] samr `SamrEnumerateGroupsInDomain` (opnum 11) + `SamrEnumerateAliasesInDomain` (opnum 15) — group/alias enum (reuses the RID-enumeration parser)
+- [x] samr `SamrQueryInformationUser2` level 21 (SAMPR_USER_ALL_INFORMATION) — per-user detail
+      samrdump prints: account-control flags, FILETIME timestamps, bad-password / logon counters
+      (`Samr.QueryUserAllInfo` / `ParseUserAll`, `rpc-userinfo`). Parses the full fixed arm then
+      the deferred string buffers; password-blob / SD / logon-hours arrays are left undecoded
+      (the SAM returns the blobs NULL for this call). Validated live against the DC (RID 500).
 - [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
 - [x] winreg `BaseRegQueryValue` (opnum 17): read a named value (type + data) via two-call sizing
 - [x] winreg `BaseRegEnumValue` (opnum 10): enumerate a key's values (pre-allocated name + data buffers)
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
-- [ ] More calls: samr QueryInfoUser level 21 (full account detail)
 - [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
 - [x] DCERPC auth (NTLMSSP sign/seal): authenticated BIND + AUTH3, per-PDU packet
       integrity + privacy with NTLM key exchange — `NtlmSecurityContext`, `Rc4State`,
