@@ -3,6 +3,31 @@ namespace DotNetPacket.Protocols.Dcerpc;
 /// <summary>A SAMPR_RID_ENUMERATION entry (MS-SAMR 2.2.7.10): a RID and its name.</summary>
 public sealed record SamrRidEntry(uint Rid, string Name);
 
+/// <summary>
+/// A SamrLookupNamesInDomain result row: the requested name, its resolved RID, and the
+/// SID_NAME_USE classification (MS-SAMR 2.2.1.9). Rid/Use are meaningful only when resolved.
+/// </summary>
+public sealed record SamrNameMapping(string Name, uint Rid, uint Use)
+{
+    public bool Resolved => Use != 0 && Use != 8 /* SidTypeUnknown */;
+
+    /// <summary>Human-readable SID_NAME_USE name for <see cref="Use"/>.</summary>
+    public string UseName => Use switch
+    {
+        1 => "User",
+        2 => "Group",
+        3 => "Domain",
+        4 => "Alias",
+        5 => "WellKnownGroup",
+        6 => "DeletedAccount",
+        7 => "Invalid",
+        8 => "Unknown",
+        9 => "Computer",
+        10 => "Label",
+        _ => $"Use({Use})",
+    };
+}
+
 /// <summary>Result of a handle-returning samr call.</summary>
 public sealed record SamrHandleResult(byte[] Handle, uint ReturnCode)
 {
@@ -75,6 +100,7 @@ public static class Samr
     private const ushort OpnumConnect = 0;
     private const ushort OpnumCloseHandle = 1;
     private const ushort OpnumLookupDomain = 5;
+    private const ushort OpnumLookupNamesInDomain = 17;
     private const ushort OpnumEnumerateDomains = 6;
     private const ushort OpnumOpenDomain = 7;
     private const ushort OpnumQueryInformationDomain = 8;
@@ -130,6 +156,74 @@ public static class Samr
         SamrSid? sid = sidReferent != 0 ? ReadSid(reader) : null;
         uint status = reader.ReadUInt32();
         return (sid, status);
+    }
+
+    /// <summary>
+    /// SamrLookupNamesInDomain (opnum 17): resolve account names to RIDs within a domain
+    /// (name -> RID, the reverse of SamrLookupIdsInDomain). Port of impacket's
+    /// <c>hSamrLookupNamesInDomain</c>. The Names parameter is a conformant-varying array of
+    /// RPC_UNICODE_STRING with the IDL size_is(1000) upper bound; the element buffers are the
+    /// exact-count (no-NUL) counted strings. Returns one row per requested name, in order.
+    /// </summary>
+    public static IReadOnlyList<SamrNameMapping> LookupNames(DcerpcPipe pipe, byte[] domainHandle, IReadOnlyList<string> names)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt32((uint)names.Count);   // Count
+        ndr.WriteUInt32(1000);                 // Names array MaxCount (IDL size_is(1000))
+        ndr.WriteUInt32(0);                    // Offset
+        ndr.WriteUInt32((uint)names.Count);    // ActualCount (length_is(Count))
+        foreach (string name in names)
+        {
+            ndr.WriteUnicodeStringHeader(name);
+        }
+        foreach (string name in names)
+        {
+            ndr.WriteUnicodeStringBuffer(name);
+        }
+
+        byte[] stub = pipe.Call(OpnumLookupNamesInDomain, ndr.ToArray());
+        return ParseLookupNames(stub, names);
+    }
+
+    /// <summary>
+    /// Parses a SamrLookupNamesInDomain response (two SAMPR_ULONG_ARRAYs — RelativeIds and Use —
+    /// then the return code). Exposed for tests / offline analysis. On a partial-mapping status
+    /// the arrays still line up with the requested names positionally.
+    /// </summary>
+    public static IReadOnlyList<SamrNameMapping> ParseLookupNames(byte[] stub, IReadOnlyList<string> names)
+    {
+        var reader = new NdrReader(stub);
+        uint[] rids = ReadUlongArray(reader);
+        uint[] uses = ReadUlongArray(reader);
+
+        var result = new List<SamrNameMapping>(names.Count);
+        for (int i = 0; i < names.Count; i++)
+        {
+            uint rid = i < rids.Length ? rids[i] : 0;
+            uint use = i < uses.Length ? uses[i] : 0;
+            result.Add(new SamrNameMapping(names[i], rid, use));
+        }
+        return result;
+    }
+
+    /// <summary>Reads a SAMPR_ULONG_ARRAY (Count + pointer to a conformant array of ULONGs).</summary>
+    private static uint[] ReadUlongArray(NdrReader reader)
+    {
+        uint count = reader.ReadUInt32();
+        uint referent = reader.ReadReferent();
+        if (referent == 0)
+        {
+            return Array.Empty<uint>();
+        }
+
+        reader.ReadUInt32();            // conformant MaxCount
+        var values = new uint[count];
+        for (uint i = 0; i < count; i++)
+        {
+            values[i] = reader.ReadUInt32();
+        }
+        return values;
     }
 
     /// <summary>SamrOpenDomain (opnum 7): open a domain by SID and get a domain handle.</summary>

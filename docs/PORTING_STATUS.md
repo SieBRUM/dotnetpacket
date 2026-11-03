@@ -85,6 +85,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       — the full samrdump behavior (enumerate + per-user attributes)
 - [x] samr `SamrQueryInformationDomain` levels 1 (password info) + 12 (lockout info) — domain password policy
 - [x] samr `SamrEnumerateGroupsInDomain` (opnum 11) + `SamrEnumerateAliasesInDomain` (opnum 15) — group/alias enum (reuses the RID-enumeration parser)
+- [x] samr `SamrLookupNamesInDomain` (opnum 17) — name->RID resolution (`Samr.LookupNames`,
+      `rpc-lookuprid`; `rpc-userinfo` now resolves its target through it). Names go out as a
+      conformant-varying RPC_UNICODE_STRING array with the IDL size_is(1000) bound; the response
+      is two SAMPR_ULONG_ARRAYs (RelativeIds + SID_NAME_USE) read positionally so partial
+      mappings line up. Validated live against the DC (500/501/502 + an unresolved name). Request
+      shows the already-documented NDR pad-fill / referent-id diffs vs impacket.
 - [x] samr `SamrQueryInformationUser2` level 21 (SAMPR_USER_ALL_INFORMATION) — per-user detail
       samrdump prints: account-control flags, FILETIME timestamps, bad-password / logon counters
       (`Samr.QueryUserAllInfo` / `ParseUserAll`, `rpc-userinfo`). Parses the full fixed arm then
