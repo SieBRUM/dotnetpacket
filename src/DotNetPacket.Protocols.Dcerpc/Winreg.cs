@@ -15,6 +15,7 @@ public static class Winreg
 {
     private const ushort OpnumOpenLocalMachine = 2;   // OpenHKLM
     private const ushort OpnumBaseRegCloseKey = 5;
+    private const ushort OpnumBaseRegEnumKey = 9;
     private const ushort OpnumBaseRegEnumValue = 10;
     private const ushort OpnumBaseRegOpenKey = 15;
     private const ushort OpnumBaseRegQueryValue = 17;
@@ -198,6 +199,107 @@ public static class Winreg
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// BaseRegEnumKey (opnum 9): enumerate a key's subkey names (the reg.py key walk). Port of
+    /// impacket's <c>hBaseRegEnumKey</c>: loop dwIndex from 0, pre-sizing lpNameIn (1024-byte
+    /// buffer) and lpClassIn (64 spaces) the way reg.exe does, until ERROR_NO_MORE_ITEMS.
+    /// </summary>
+    public static IReadOnlyList<string> EnumerateKeys(DcerpcPipe pipe, byte[] hKey)
+    {
+        var result = new List<string>();
+        for (uint index = 0; ; index++)
+        {
+            (string? name, uint ret) = EnumKeyCall(pipe, hKey, index);
+            if (ret != 0 || name is null)
+            {
+                break; // ERROR_NO_MORE_ITEMS (0x103) or any other stop condition
+            }
+
+            result.Add(name);
+        }
+
+        return result;
+    }
+
+    private static (string? Name, uint ReturnCode) EnumKeyCall(DcerpcPipe pipe, byte[] hKey, uint index)
+    {
+        const uint nameMaxChars = 512; // 1024-byte pre-allocated name buffer, like reg.exe
+        const int classChars = 64;
+
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(hKey);              // hKey [in]
+        ndr.WriteUInt32(index);                    // dwIndex
+
+        // lpNameIn: empty RPC_UNICODE_STRING with a pre-sized buffer the server fills in.
+        ndr.WriteUInt16(0);                        //   Length = 0
+        ndr.WriteUInt16((ushort)(nameMaxChars * 2)); // MaximumLength (bytes)
+        ndr.WriteReferent(true);                   //   Buffer ptr
+        ndr.WriteUInt32(nameMaxChars);             //   MaxCount (chars)
+        ndr.WriteUInt32(0);                        //   Offset
+        ndr.WriteUInt32(0);                        //   ActualCount (empty)
+
+        // lpClassIn [in,unique]: a pre-sized class string (reg.exe sends 64 spaces).
+        ndr.WriteReferent(true);                   //   pointer present
+        ndr.WriteUInt16(classChars * 2);           //   Length (bytes)
+        ndr.WriteUInt16(classChars * 2);           //   MaximumLength
+        ndr.WriteReferent(true);                   //   Buffer ptr
+        ndr.WriteUInt32(classChars);               //   MaxCount
+        ndr.WriteUInt32(0);                        //   Offset
+        ndr.WriteUInt32(classChars);               //   ActualCount
+        ndr.WriteBytes(System.Text.Encoding.Unicode.GetBytes(new string(' ', classChars)));
+        ndr.Align(4);
+
+        ndr.WriteReferent(false);                  // lpftLastWriteTime [in,unique] = NULL
+        return ParseEnumKeyResponse(pipe.Call(OpnumBaseRegEnumKey, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses a BaseRegEnumKey response: lpNameOut (RPC_UNICODE_STRING subkey name), the
+    /// optional lpClassOut, an optional lpftLastWriteTime, and the return code. Exposed for
+    /// tests / offline analysis.
+    /// </summary>
+    public static (string? Name, uint ReturnCode) ParseEnumKeyResponse(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+
+        // lpNameOut RPC_UNICODE_STRING
+        reader.ReadUInt16();                       // Length (bytes)
+        reader.ReadUInt16();                       // MaximumLength
+        string name = string.Empty;
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt32();                   // MaxCount
+            reader.ReadUInt32();                   // Offset
+            uint actual = reader.ReadUInt32();     // ActualCount (chars)
+            name = reader.ReadWideChars((int)actual).TrimEnd('\0');
+            reader.Align(4);
+        }
+
+        // lplpClassOut PRPC_UNICODE_STRING [out]
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadUInt16();                   // Length
+            reader.ReadUInt16();                   // MaximumLength
+            if (reader.ReadReferent() != 0)
+            {
+                reader.ReadUInt32();               // MaxCount
+                reader.ReadUInt32();               // Offset
+                uint actual = reader.ReadUInt32(); // ActualCount
+                reader.ReadWideChars((int)actual);
+                reader.Align(4);
+            }
+        }
+
+        // lpftLastWriteTime PFILETIME [in,out,unique]
+        if (reader.ReadReferent() != 0)
+        {
+            reader.ReadInt64();                    // FILETIME
+        }
+
+        uint returnCode = reader.ReadUInt32();
+        return (returnCode == 0 ? name : null, returnCode);
     }
 
     private static (RegNamedValue? Value, uint Needed, uint ReturnCode) EnumValueCall(

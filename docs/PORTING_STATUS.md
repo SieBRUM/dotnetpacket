@@ -116,8 +116,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
 - [x] winreg `BaseRegQueryValue` (opnum 17): read a named value (type + data) via two-call sizing
 - [x] winreg `BaseRegEnumValue` (opnum 10): enumerate a key's values (pre-allocated name + data buffers)
+- [x] winreg `BaseRegEnumKey` (opnum 9): enumerate a key's subkeys (`Winreg.EnumerateKeys`,
+      `rpc-regkeys`) — pre-sized lpNameIn (1024-byte buffer) + lpClassIn (64 spaces) like reg.exe,
+      loop dwIndex until ERROR_NO_MORE_ITEMS. Validated live against the DC (HKLM\SOFTWARE ->
+      Microsoft/Samba/Policies; ...\Microsoft -> Windows NT/Windows). Faults on standalone Samba.
 - [ ] Fuller NDR: [v1_enum], multi-level pointers
-- [ ] winreg BaseRegEnumKey / BaseRegQueryInfoKey (pre-allocated buffers; QueryInfoKey faults on Samba)
+- [ ] winreg BaseRegQueryInfoKey (pre-allocated buffers; faults on standalone Samba)
 - [x] DCERPC auth (NTLMSSP sign/seal): authenticated BIND + AUTH3, per-PDU packet
       integrity + privacy with NTLM key exchange — `NtlmSecurityContext`, `Rc4State`,
       `DcerpcAuth3`, `DcerpcSecTrailer`, `DcerpcRequest.PackAuthenticated` /
@@ -171,6 +175,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
 - [x] `rpc-regenum <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's values
+- [x] `rpc-regkeys <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's subkeys
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
