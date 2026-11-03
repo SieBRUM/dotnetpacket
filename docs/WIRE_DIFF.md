@@ -112,6 +112,7 @@ either impacket *or* a DotNetPacket-specific shape:
 | --- | --- | --- | --- | --- |
 | Referent ids | sequential `0x00020000` + 4 per pointer | heap/randomish request ids | sequential `0x00020000` + 4 | **matched to Windows.** Previously a single constant `0x00020000` for every pointer — a DotNetPacket-only tell that also aliased distinct pointers. Now distinct and MIDL-style. |
 | NDR alignment pad fill | `0x00` | `0xAA`/`0xBB` | `0x00` | matched to Windows (see above). |
+| `LsarLookupSids2` ClientRevision | `2` | `1` | `2` | matched to Windows. impacket's `hLsarLookupSids2` defaults ClientRevision to 1 (pre-Win2003); a modern Windows client sends 2, so DotNetPacket sends 2. |
 
 ### Pending a Windows capture (currently ≈ impacket; revisit)
 

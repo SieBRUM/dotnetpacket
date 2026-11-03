@@ -1081,6 +1081,64 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-lookupsid2":
+    {
+        // SID->name recon via lsat LsarLookupSids2 (opnum 57) — the variant modern Windows
+        // clients use (adds LookupOptions + ClientRevision; EX translated-name records).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-lookupsid2 <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        LsaAccountDomain account = Lsarpc.QueryAccountDomain(pipe, policy.Handle);
+
+        var sids = new List<string> { "S-1-5-32-544", "S-1-5-32-545", "S-1-1-0", "S-1-5-18" };
+        if (!string.IsNullOrEmpty(account.Sid))
+        {
+            foreach (int rid in new[] { 500, 501, 512, 513 })
+            {
+                sids.Add($"{account.Sid}-{rid}");
+            }
+        }
+
+        IReadOnlyList<LsaResolvedSid> resolved = Lsat.LookupSids2(pipe, policy.Handle, sids);
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"SID lookups (LookupSids2) on {host} (account domain {account.Name} = {account.Sid}):");
+        foreach (LsaResolvedSid r in resolved)
+        {
+            bool ok = r.Use != SidNameUse.Unknown && r.Use != SidNameUse.Invalid && !string.IsNullOrEmpty(r.Name);
+            string label = ok ? $"{r.Display} ({r.Use})" : "(unresolved)";
+            Console.WriteLine($"  {r.InputSid,-48} {label}");
+        }
+
+        return 0;
+    }
+
     case "rpc-enumusers":
     {
         // Domain user enumeration via samr (the samrdump / enumdomusers behavior).
@@ -1943,6 +2001,8 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate LSA privileges via lsarpc LsarEnumeratePrivileges.");
     Console.WriteLine("  rpc-lookupsid <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
+    Console.WriteLine("  rpc-lookupsid2 <host> <user> <password> [domain] [port]");
+    Console.WriteLine("                   SID->name via lsat LsarLookupSids2 (opnum 57) — the modern-Windows variant.");
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");

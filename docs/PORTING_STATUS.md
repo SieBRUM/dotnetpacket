@@ -83,6 +83,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
 - [x] lsarpc `LsarQueryInformationPolicy2` level 12 (DNS domain: NetBIOS/DNS/forest names, domain GUID + SID)
 - [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
+- [x] lsat `LsarLookupSids2` (opnum 57) — the SID->name call modern Windows clients use
+      (`Lsat.LookupSids2`, `rpc-lookupsid2`). Adds LookupOptions + ClientRevision and parses the
+      EX translated-name records (extra per-entry Flags). Sent with ClientRevision=2 (Windows),
+      not impacket's 1 — see WIRE_DIFF.md. Validated live against the DC.
 - [x] lsat `LsarLookupSids` (SID -> domain\name) + `LsarLookupNames` (name -> SID) — `Lsat`
 - [x] samr enumeration (`Samr`): Connect, EnumerateDomains, LookupDomain, OpenDomain,
       EnumerateUsersInDomain, OpenUser, QueryInformationUser2 (general info), CloseHandle
@@ -168,6 +172,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
 - [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
+- [x] `rpc-lookupsid2 <host> <user> <password> [domain] [port]` — lsat SID->name via LookupSids2 (modern Windows)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
