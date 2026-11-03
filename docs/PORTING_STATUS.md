@@ -72,6 +72,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       DeleteService, CloseServiceHandle — the psexec service-control surface
 - [x] svcctl `REnumServicesStatusW` (services.py list): two-call buffer sizing + offset-packed ENUM_SERVICE_STATUSW parse
 - [x] svcctl `RQueryServiceConfigW` (services.py per-service): binary path, start type, logon account (two-call sizing)
+- [x] svcctl `RQueryServiceStatus` (opnum 6): live SERVICE_STATUS — run state, accepted control
+      codes, exit codes (`Svcctl.QueryServiceStatus`, `rpc-svcstatus`). Request is just the
+      service handle (SERVICE_QUERY_STATUS access); response is the inline 7-ULONG SERVICE_STATUS.
+      Validated live against the DC (Spooler RUNNING/accepts STOP, NETLOGON/RemoteRegistry).
 - [x] Level-union → struct → deferred unique-string-pointer NDR (host-info parsers)
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
@@ -154,6 +158,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-samr-tcp <host> <user> <password> [domain]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
 - [x] `rpc-services <host> <user> <password> [domain] [port]` — svcctl service enumeration (services.py list)
 - [x] `rpc-svcconfig <host> <user> <password> <service> [domain] [port]` — svcctl per-service config (QueryServiceConfigW)
+- [x] `rpc-svcstatus <host> <user> <password> <service> [domain] [port]` — svcctl live service status (RQueryServiceStatus)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)

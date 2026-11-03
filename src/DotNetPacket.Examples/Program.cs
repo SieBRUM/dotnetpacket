@@ -713,6 +713,74 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-svcstatus":
+    {
+        // Query one service's live SERVICE_STATUS via svcctl RQueryServiceStatus (opnum 6):
+        // run state, accepted control codes, last exit codes.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: rpc-svcstatus <host> <user> <password> <service> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string serviceName = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Svcctl.Pipe);
+        pipe.Bind(DcerpcInterface.Svcctl);
+
+        ScHandleResult scm = Svcctl.OpenScManager(pipe, null, ScManagerAccess.Connect);
+        if (!scm.Success)
+        {
+            Console.Error.WriteLine($"OpenSCManager failed: {Svcctl.DescribeWin32(scm.ReturnCode)}");
+            return 1;
+        }
+
+        ScHandleResult svc = Svcctl.OpenService(pipe, scm.Handle, serviceName, ServiceAccess.QueryStatus);
+        if (!svc.Success)
+        {
+            Console.Error.WriteLine($"OpenService({serviceName}) failed: {Svcctl.DescribeWin32(svc.ReturnCode)}");
+            return 1;
+        }
+
+        ServiceStatus status = Svcctl.QueryServiceStatus(pipe, svc.Handle);
+        Svcctl.CloseServiceHandle(pipe, svc.Handle);
+        Svcctl.CloseServiceHandle(pipe, scm.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Service status for {serviceName} on {host}:");
+        Console.WriteLine($"  Current state:      {status.State}");
+        Console.WriteLine($"  Service type:       0x{status.ServiceType:x}");
+        Console.WriteLine($"  Controls accepted:  {status.ControlsAcceptedText}");
+        Console.WriteLine($"  Win32 exit code:    {status.Win32ExitCode}");
+        if (status.ServiceSpecificExitCode != 0)
+        {
+            Console.WriteLine($"  Specific exit code: {status.ServiceSpecificExitCode}");
+        }
+        if (status.CheckPoint != 0 || status.WaitHint != 0)
+        {
+            Console.WriteLine($"  Checkpoint/wait:    {status.CheckPoint} / {status.WaitHint} ms");
+        }
+
+        return 0;
+    }
+
     case "rpc-svcctl":
     {
         // Lab-only: generate the remote service-creation ("psexec") wire signature
@@ -1803,6 +1871,8 @@ static void PrintUsage()
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");
     Console.WriteLine("                   Query one service's config (binary path, start type, account) via QueryServiceConfigW.");
+    Console.WriteLine("  rpc-svcstatus <host> <user> <password> <service> [domain] [port]");
+    Console.WriteLine("                   Query one service's live SERVICE_STATUS (run state, controls) via RQueryServiceStatus.");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");

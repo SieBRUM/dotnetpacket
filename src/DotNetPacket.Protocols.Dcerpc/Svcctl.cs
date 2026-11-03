@@ -93,6 +93,36 @@ public sealed record ServiceStatusEntry(string Name, string DisplayName, uint Se
 }
 
 /// <summary>
+/// A service's live status (MS-SCMR 2.2.47 SERVICE_STATUS): the current run state plus the
+/// control codes it accepts and its last exit codes. Returned by RQueryServiceStatus.
+/// </summary>
+public sealed record ServiceStatus(
+    uint ServiceType,
+    uint CurrentState,
+    uint ControlsAccepted,
+    uint Win32ExitCode,
+    uint ServiceSpecificExitCode,
+    uint CheckPoint,
+    uint WaitHint)
+{
+    /// <summary>The dwCurrentState value as a readable name (MS-SCMR 2.2.47).</summary>
+    public string State => CurrentState switch
+    {
+        1 => "STOPPED",
+        2 => "START_PENDING",
+        3 => "STOP_PENDING",
+        4 => "RUNNING",
+        5 => "CONTINUE_PENDING",
+        6 => "PAUSE_PENDING",
+        7 => "PAUSED",
+        _ => $"0x{CurrentState:X}",
+    };
+
+    /// <summary>The SERVICE_ACCEPT_* control codes accepted, as readable names.</summary>
+    public string ControlsAcceptedText => Svcctl.ControlsAcceptedText(ControlsAccepted);
+}
+
+/// <summary>
 /// Minimal svcctl / Service Control Manager client (MS-SCMR). Port of the parts of
 /// impacket's <c>dcerpc.v5.scmr</c> used by the service-execution ("psexec")
 /// behavior. Lab use only — the example drives a benign marker command so the SOC
@@ -102,6 +132,7 @@ public static class Svcctl
 {
     private const ushort OpnumCloseServiceHandle = 0;
     private const ushort OpnumDeleteService = 2;
+    private const ushort OpnumQueryServiceStatus = 6;
     private const ushort OpnumCreateServiceW = 12;
     private const ushort OpnumEnumServicesStatusW = 14;
     private const ushort OpnumOpenSCManagerW = 15;
@@ -278,6 +309,55 @@ public static class Svcctl
         var config = new ServiceConfig(
             type, startType, errorControl, tagId, binary, loadOrder, dependencies, startName, display);
         return (config, needed, returnCode);
+    }
+
+    /// <summary>
+    /// RQueryServiceStatus (opnum 6): the service's live SERVICE_STATUS (run state, accepted
+    /// controls, exit codes). Port of impacket's <c>hRQueryServiceStatus</c>. The service handle
+    /// needs SERVICE_QUERY_STATUS access; the response is the inline 7-ULONG SERVICE_STATUS.
+    /// </summary>
+    public static ServiceStatus QueryServiceStatus(DcerpcPipe pipe, byte[] serviceHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(serviceHandle);
+        byte[] stub = pipe.Call(OpnumQueryServiceStatus, ndr.ToArray());
+        return ParseServiceStatus(stub);
+    }
+
+    /// <summary>Parses a SERVICE_STATUS response (seven ULONGs; the return code follows). Exposed for tests.</summary>
+    public static ServiceStatus ParseServiceStatus(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        return new ServiceStatus(
+            reader.ReadUInt32(),   // dwServiceType
+            reader.ReadUInt32(),   // dwCurrentState
+            reader.ReadUInt32(),   // dwControlsAccepted
+            reader.ReadUInt32(),   // dwWin32ExitCode
+            reader.ReadUInt32(),   // dwServiceSpecificExitCode
+            reader.ReadUInt32(),   // dwCheckPoint
+            reader.ReadUInt32());  // dwWaitHint
+    }
+
+    private static readonly (uint Bit, string Name)[] AcceptFlags =
+    {
+        (0x00000001, "STOP"),
+        (0x00000002, "PAUSE_CONTINUE"),
+        (0x00000004, "SHUTDOWN"),
+        (0x00000008, "PARAMCHANGE"),
+        (0x00000010, "NETBINDCHANGE"),
+        (0x00000020, "HARDWAREPROFILECHANGE"),
+        (0x00000040, "POWEREVENT"),
+        (0x00000080, "SESSIONCHANGE"),
+        (0x00000100, "PRESHUTDOWN"),
+        (0x00000200, "TIMECHANGE"),
+        (0x00000400, "TRIGGEREVENT"),
+    };
+
+    /// <summary>Renders the SERVICE_ACCEPT_* control codes set in a dwControlsAccepted value.</summary>
+    public static string ControlsAcceptedText(uint controls)
+    {
+        var set = AcceptFlags.Where(f => (controls & f.Bit) != 0).Select(f => f.Name).ToArray();
+        return set.Length == 0 ? "(none)" : string.Join(" | ", set);
     }
 
     /// <summary>
