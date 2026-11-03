@@ -37,6 +37,7 @@ public static class Lsat
     private const ushort OpnumLsarLookupNames = 14;
     private const ushort OpnumLsarLookupSids = 15;
     private const ushort OpnumLsarLookupSids2 = 57;
+    private const ushort OpnumLsarLookupNames2 = 58;
     private const ushort LsapLookupWksta = 1; // LSAP_LOOKUP_LEVEL
 
     // LookupOptions / ClientRevision for the "2" call. A modern Windows client sends
@@ -184,6 +185,24 @@ public static class Lsat
     /// <summary>LsarLookupNames (opnum 14): translate account names to SIDs (name -> SID).</summary>
     public static IReadOnlyList<LsaResolvedName> LookupNames(DcerpcPipe pipe, byte[] policyHandle, IReadOnlyList<string> names)
     {
+        byte[] stub = pipe.Call(OpnumLsarLookupNames, BuildNamesRequest(policyHandle, names, extended: false));
+        return ParseLookupNames(stub, names);
+    }
+
+    /// <summary>
+    /// LsarLookupNames2 (opnum 58): the name->SID call modern Windows clients use. Same inputs
+    /// as LookupNames plus LookupOptions + ClientRevision, and the response carries the EX
+    /// translated-SID records (an extra per-entry Flags field). Port of impacket's
+    /// <c>hLsarLookupNames2</c> — but with the Windows ClientRevision (2), not impacket's 1.
+    /// </summary>
+    public static IReadOnlyList<LsaResolvedName> LookupNames2(DcerpcPipe pipe, byte[] policyHandle, IReadOnlyList<string> names)
+    {
+        byte[] stub = pipe.Call(OpnumLsarLookupNames2, BuildNamesRequest(policyHandle, names, extended: true));
+        return ParseLookupNames(stub, names, extended: true);
+    }
+
+    private static byte[] BuildNamesRequest(byte[] policyHandle, IReadOnlyList<string> names, bool extended)
+    {
         var ndr = new NdrWriter();
         ndr.WriteContextHandle(policyHandle);
         ndr.WriteUInt32((uint)names.Count);       // Count
@@ -202,13 +221,21 @@ public static class Lsat
         ndr.WriteReferent(false);                 // TranslatedSids.Sids (NULL)
         ndr.WriteUInt16(LsapLookupWksta);         // LookupLevel
         ndr.WriteUInt32(0);                       // MappedCount
+        if (extended)
+        {
+            ndr.WriteUInt32(LookupOptionsDefault);  // LookupOptions (LookupNames2 only)
+            ndr.WriteUInt32(ClientRevisionWindows); // ClientRevision (LookupNames2 only)
+        }
 
-        byte[] stub = pipe.Call(OpnumLsarLookupNames, ndr.ToArray());
-        return ParseLookupNames(stub, names);
+        return ndr.ToArray();
     }
 
-    /// <summary>Parses an LsarLookupNames response (referenced domains + translated SIDs). Exposed for tests.</summary>
-    public static IReadOnlyList<LsaResolvedName> ParseLookupNames(byte[] stub, IReadOnlyList<string> names)
+    /// <summary>
+    /// Parses an LsarLookupNames / LsarLookupNames2 response (referenced domains + translated
+    /// SIDs). When <paramref name="extended"/> is set the translated SIDs are the EX records,
+    /// which carry an extra per-entry Flags field after DomainIndex. Exposed for tests.
+    /// </summary>
+    public static IReadOnlyList<LsaResolvedName> ParseLookupNames(byte[] stub, IReadOnlyList<string> names, bool extended = false)
     {
         var reader = new NdrReader(stub);
 
@@ -257,6 +284,10 @@ public static class Lsat
                 reader.Align(4);                  // enum16 + pad
                 rids[i] = reader.ReadUInt32();
                 domainIndexes[i] = (int)reader.ReadUInt32();
+                if (extended)
+                {
+                    reader.ReadUInt32();          // Flags (LSAPR_TRANSLATED_SID_EX only)
+                }
             }
         }
 

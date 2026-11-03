@@ -1615,6 +1615,53 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-lookupnames2":
+    {
+        // Name->SID recon via lsat LsarLookupNames2 (opnum 58) — the variant modern Windows
+        // clients use (adds LookupOptions + ClientRevision; EX translated-SID records).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-lookupnames2 <host> <user> <password> [names csv] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string[] names = args.Length >= 5 ? args[4].Split(',') : new[] { "Administrator", "Guest", "Domain Admins" };
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        IReadOnlyList<LsaResolvedName> resolved = Lsat.LookupNames2(pipe, policy.Handle, names);
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Name lookups (LookupNames2) on {host}:");
+        foreach (LsaResolvedName r in resolved)
+        {
+            bool ok = r.Use != SidNameUse.Unknown && r.Use != SidNameUse.Invalid && !string.IsNullOrEmpty(r.Sid);
+            Console.WriteLine($"  {r.InputName,-20} {(ok ? $"{r.Sid} ({r.Use})" : "(unresolved)")}");
+        }
+
+        return 0;
+    }
+
     case "rpc-reg":
     {
         // Remote-registry recon via winreg (MS-RRP): open HKLM, read its version,
@@ -2017,6 +2064,8 @@ static void PrintUsage()
     Console.WriteLine("                   Domain password + lockout policy via samr SamrQueryInformationDomain.");
     Console.WriteLine("  rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
     Console.WriteLine("                   Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).");
+    Console.WriteLine("  rpc-lookupnames2 <host> <user> <password> [names csv] [domain] [port]");
+    Console.WriteLine("                   Name->SID via lsat LsarLookupNames2 (opnum 58) — the modern-Windows variant.");
     Console.WriteLine("  rpc-reg <host> <user> <password> [subkey] [domain] [port]");
     Console.WriteLine("                   Remote-registry recon via winreg (MS-RRP): OpenHKLM + GetVersion + OpenKey.");
     Console.WriteLine("  rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]");
