@@ -12,6 +12,19 @@ public sealed record LsaAccountDomain(string Name, string Sid, uint Status)
 public sealed record LsaPrivilege(string Name, uint LuidLow, int LuidHigh);
 
 /// <summary>
+/// The system-access rights and privileges the LSA has assigned to one account SID
+/// (MS-LSAD LsarEnumerateAccountRights). <see cref="Rights"/> holds the right names
+/// (e.g. <c>SeBackupPrivilege</c>, <c>SeInteractiveLogonRight</c>).
+/// </summary>
+public sealed record LsaAccountRights(string Sid, IReadOnlyList<string> Rights, uint Status)
+{
+    public bool Success => Status == 0;
+
+    /// <summary>STATUS_OBJECT_NAME_NOT_FOUND — the SID has no LSA account object (no rights assigned).</summary>
+    public bool NotFound => Status == 0xC0000034;
+}
+
+/// <summary>
 /// LSAPR_POLICY_DNS_DOMAIN_INFO (MS-LSAD 2.2.4.4): the DNS/forest identity of a domain
 /// — NetBIOS name, DNS domain, DNS forest, domain GUID, and domain SID.
 /// </summary>
@@ -37,6 +50,7 @@ public static class Lsarpc
     private const ushort OpnumLsarClose = 0;
     private const ushort OpnumLsarEnumeratePrivileges = 2;
     private const ushort OpnumLsarQueryInformationPolicy = 7;
+    private const ushort OpnumLsarEnumerateAccountRights = 36;
     private const ushort OpnumLsarOpenPolicy2 = 44;
     private const ushort OpnumLsarQueryInformationPolicy2 = 46;
 
@@ -131,6 +145,59 @@ public static class Lsarpc
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// LsarEnumerateAccountRights (opnum 36): list the system-access rights and privileges
+    /// the LSA has granted to one account SID. Port of impacket's
+    /// <c>hLsarEnumerateAccountRights</c>. The request is just the policy handle plus the
+    /// account SID embedded as a conformant RPC_SID (no referent) — there are no
+    /// discretionary request fields, so nothing here fingerprints the runtime.
+    /// </summary>
+    public static LsaAccountRights EnumerateAccountRights(DcerpcPipe pipe, byte[] policyHandle, string sid)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle);              // PolicyHandle [in]
+        (byte revision, byte[] authority, uint[] subs) = ParseSid(sid);
+        ndr.WriteSid(revision, authority, subs);           // AccountSid [in] (embedded RPC_SID)
+        return ParseAccountRights(pipe.Call(OpnumLsarEnumerateAccountRights, ndr.ToArray()), sid);
+    }
+
+    /// <summary>
+    /// Parses an LsarEnumerateAccountRights response: an LSAPR_USER_RIGHT_SET
+    /// (EntriesRead + a referent to a conformant RPC_UNICODE_STRING array — Length/
+    /// MaxLength/Buffer-referent headers, then deferred conformant-varying name buffers),
+    /// then the NTSTATUS. Exposed for tests / offline analysis.
+    /// </summary>
+    public static LsaAccountRights ParseAccountRights(byte[] stub, string sid)
+    {
+        var reader = new NdrReader(stub);
+        uint entries = reader.ReadUInt32();   // EntriesRead
+        if (reader.ReadReferent() == 0)       // UserRights array pointer
+        {
+            return new LsaAccountRights(sid, Array.Empty<string>(), reader.ReadUInt32());
+        }
+
+        reader.ReadUInt32();                  // conformant max_count
+
+        // Inline RPC_UNICODE_STRING headers first: {Length, MaxLength, Buffer referent}.
+        var bufRefs = new uint[entries];
+        for (uint i = 0; i < entries; i++)
+        {
+            reader.ReadUInt16();              // Length (bytes)
+            reader.ReadUInt16();              // MaximumLength
+            bufRefs[i] = reader.ReadReferent(); // Buffer pointer
+        }
+
+        // Then the deferred conformant-varying name buffers, in order.
+        var rights = new List<string>((int)entries);
+        for (uint i = 0; i < entries; i++)
+        {
+            rights.Add(bufRefs[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty);
+        }
+
+        uint status = reader.ReadUInt32();    // ErrorCode (NTSTATUS)
+        return new LsaAccountRights(sid, rights, status);
     }
 
     /// <summary>LsarClose (opnum 0): release a policy handle.</summary>
@@ -278,5 +345,27 @@ public static class Lsarpc
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>Parses a canonical S-R-IA-SA... SID into (revision, 6-byte authority, sub-authorities).</summary>
+    private static (byte Revision, byte[] Authority, uint[] SubAuthorities) ParseSid(string sid)
+    {
+        string[] parts = sid.Split('-');
+        byte revision = byte.Parse(parts[1]);
+        ulong authority = ulong.Parse(parts[2]);
+        var authorityBytes = new byte[6];
+        for (int i = 5; i >= 0; i--)
+        {
+            authorityBytes[i] = (byte)(authority & 0xFF);
+            authority >>= 8;
+        }
+
+        var subs = new uint[parts.Length - 3];
+        for (int i = 0; i < subs.Length; i++)
+        {
+            subs[i] = uint.Parse(parts[i + 3]);
+        }
+
+        return (revision, authorityBytes, subs);
     }
 }

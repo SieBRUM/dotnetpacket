@@ -1023,6 +1023,72 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-accountrights":
+    {
+        // List the LSA rights/privileges granted to one account SID via lsarpc
+        // LsarEnumerateAccountRights (the "who can do what" recon behind tools that
+        // audit SeDebugPrivilege/SeBackupPrivilege holders).
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: rpc-accountrights <host> <user> <password> <sid> [domain] [port]");
+            Console.Error.WriteLine("  e.g. rpc-accountrights 127.0.0.1 Administrator 'pass' S-1-5-32-550 LAB");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string sid = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        if (!policy.Success)
+        {
+            Console.Error.WriteLine($"OpenPolicy2 failed: 0x{policy.ReturnCode:X8}");
+            return 1;
+        }
+
+        LsaAccountRights rights = Lsarpc.EnumerateAccountRights(pipe, policy.Handle, sid);
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        if (rights.NotFound)
+        {
+            Console.WriteLine($"{sid}: no LSA account object (no rights directly assigned).");
+            return 0;
+        }
+
+        if (!rights.Success)
+        {
+            Console.Error.WriteLine($"LsarEnumerateAccountRights failed: 0x{rights.Status:X8}");
+            return 1;
+        }
+
+        Console.WriteLine($"Account rights for {sid} on {host} ({rights.Rights.Count}):");
+        foreach (string r in rights.Rights)
+        {
+            Console.WriteLine($"  {r}");
+        }
+
+        return 0;
+    }
+
     case "rpc-lookupsid":
     {
         // SID->name recon via lsat LsarLookupSids (the lookupsid behavior).
@@ -2045,6 +2111,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-lsa <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");
     Console.WriteLine("  rpc-privs <host> <user> <password> [domain] [port]");
+    Console.WriteLine("  rpc-accountrights <host> <user> <password> <sid> [domain] [port]");
     Console.WriteLine("                   Enumerate LSA privileges via lsarpc LsarEnumeratePrivileges.");
     Console.WriteLine("  rpc-lookupsid <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");

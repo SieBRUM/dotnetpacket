@@ -114,6 +114,12 @@ either impacket *or* a DotNetPacket-specific shape:
 | NDR alignment pad fill | `0x00` | `0xAA`/`0xBB` | `0x00` | matched to Windows (see above). |
 | `LsarLookupSids2` / `LsarLookupNames2` ClientRevision | `2` | `1` | `2` | matched to Windows. impacket's `hLsarLookupSids2`/`hLsarLookupNames2` default ClientRevision to 1 (pre-Win2003); a modern Windows client sends 2, so DotNetPacket sends 2. |
 
+Calls with **no** request-side discretion (fully determined by the handle + inputs, so
+nothing to fingerprint and nothing to revisit): `LsarEnumerateAccountRights` (opnum 36) —
+the request is the policy handle plus the account SID marshalled as an embedded conformant
+RPC_SID, with no referent pointers, no pre-sized out-buffers, and no option/revision fields.
+DotNetPacket's bytes here are identical to impacket's and to what Windows must send.
+
 ### Pending a Windows capture (currently ≈ impacket; revisit)
 
 These request-side *discretionary* values were taken from impacket / reg.exe

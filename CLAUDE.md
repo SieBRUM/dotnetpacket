@@ -98,7 +98,7 @@ src/
     Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, handles, strings)
     Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
-    Lsarpc.cs                      #   lsarpc policy open + account domain/SID + DNS/forest info + privilege enumeration
+    Lsarpc.cs                      #   lsarpc policy open + account domain/SID + DNS/forest info + privilege enumeration + per-SID account rights
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
     Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open + QueryInfo (general + level-21 all) + GetGroupsForUser + password policy (samrdump)
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
@@ -170,6 +170,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <lab-host> <user> <
 dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-privs <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-accountrights <lab-host> <user> <password> <sid> [domain]   # LsarEnumerateAccountRights (rights granted to a SID)
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid2 <lab-host> <user> <password> [domain]   # LsarLookupSids2 (modern Windows)
 dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]

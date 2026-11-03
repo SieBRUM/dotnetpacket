@@ -81,6 +81,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
 - [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
+- [x] lsarpc `LsarEnumerateAccountRights` (opnum 36) — rights/privileges granted to one account SID
+      (`Lsarpc.EnumerateAccountRights`, `rpc-accountrights`). Request is handle + an embedded
+      conformant RPC_SID (no referent, no discretionary fields); response is an
+      LSAPR_USER_RIGHT_SET (RPC_UNICODE_STRING array). Validated live against the DC
+      (S-1-5-32-550 → 3 rights, S-1-5-32-544 → 24 incl. SeDebugPrivilege; an account with no
+      LSA object reports STATUS_OBJECT_NAME_NOT_FOUND cleanly).
 - [x] lsarpc `LsarQueryInformationPolicy2` level 12 (DNS domain: NetBIOS/DNS/forest names, domain GUID + SID)
 - [x] NDR conformant arrays of structs (SID array in; referenced-domains + translated-names out)
 - [x] lsat `LsarLookupNames2` (opnum 58) — the name->SID call modern Windows clients use
@@ -175,6 +181,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
 - [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
+- [x] `rpc-accountrights <host> <user> <password> <sid> [domain] [port]` — lsarpc rights granted to a SID
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupsid2 <host> <user> <password> [domain] [port]` — lsat SID->name via LookupSids2 (modern Windows)
 - [x] `rpc-lookupnames2 <host> <user> <password> [names] [domain] [port]` — lsat name->SID via LookupNames2 (modern Windows)
