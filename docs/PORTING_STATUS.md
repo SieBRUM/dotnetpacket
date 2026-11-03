@@ -85,6 +85,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       — the full samrdump behavior (enumerate + per-user attributes)
 - [x] samr `SamrQueryInformationDomain` levels 1 (password info) + 12 (lockout info) — domain password policy
 - [x] samr `SamrEnumerateGroupsInDomain` (opnum 11) + `SamrEnumerateAliasesInDomain` (opnum 15) — group/alias enum (reuses the RID-enumeration parser)
+- [x] samr `SamrGetGroupsForUser` (opnum 39) — a user's domain group memberships
+      (`Samr.GetGroupsForUser`; `rpc-userinfo` now lists them). Request is just the user handle;
+      response is a SAMPR_GET_GROUPS_BUFFER (count + conformant GROUP_MEMBERSHIP array of
+      RID + SE_GROUP_* attributes). Well-known RIDs named, flag bits decoded. Validated live
+      against the DC (Administrator -> Domain Users/Admins, Enterprise/Schema Admins, GPO Creators).
 - [x] samr `SamrLookupNamesInDomain` (opnum 17) — name->RID resolution (`Samr.LookupNames`,
       `rpc-lookuprid`; `rpc-userinfo` now resolves its target through it). Names go out as a
       conformant-varying RPC_UNICODE_STRING array with the IDL size_is(1000) bound; the response

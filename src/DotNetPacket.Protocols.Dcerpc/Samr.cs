@@ -41,6 +41,33 @@ public sealed record SamrEnumResult(IReadOnlyList<SamrRidEntry> Entries, uint Re
 public sealed record SamrUserGeneral(string UserName, string FullName, uint PrimaryGroupId, string AdminComment, string UserComment);
 
 /// <summary>
+/// A GROUP_MEMBERSHIP entry (MS-SAMR 2.2.7.2): one domain group the user belongs to — the
+/// group RID and its SE_GROUP_* attribute flags. <see cref="GroupName"/> names the well-known
+/// RIDs; <see cref="AttributesText"/> decodes the flag bits.
+/// </summary>
+public sealed record SamrGroupMembership(uint Rid, uint Attributes)
+{
+    /// <summary>Well-known group name for the RID, or "RID &lt;n&gt;" when not well-known.</summary>
+    public string GroupName => Rid switch
+    {
+        512 => "Domain Admins",
+        513 => "Domain Users",
+        514 => "Domain Guests",
+        515 => "Domain Computers",
+        516 => "Domain Controllers",
+        517 => "Cert Publishers",
+        518 => "Schema Admins",
+        519 => "Enterprise Admins",
+        520 => "Group Policy Creator Owners",
+        521 => "Read-only Domain Controllers",
+        _ => $"RID {Rid}",
+    };
+
+    /// <summary>Human-readable SE_GROUP_* attribute names (MS-DTYP 2.4.3).</summary>
+    public string AttributesText => Samr.GroupAttributesText(Attributes);
+}
+
+/// <summary>
 /// SAMPR_USER_ALL_INFORMATION (MS-SAMR 2.2.6.6): the full per-user record returned by
 /// SamrQueryInformationUser2 class 21 — the detail impacket's samrdump prints per account
 /// (timestamps, account-control flags, bad-password / logon counters). Timestamps are raw
@@ -108,6 +135,7 @@ public static class Samr
     private const ushort OpnumEnumerateUsers = 13;
     private const ushort OpnumEnumerateAliases = 15;
     private const ushort OpnumOpenUser = 34;
+    private const ushort OpnumGetGroupsForUser = 39;
     private const ushort OpnumQueryInformationUser2 = 47;
 
     private const uint MaximumAllowed = 0x02000000;
@@ -286,6 +314,65 @@ public static class Samr
         var reader = new NdrReader(stub);
         byte[] handle = reader.ReadContextHandle();
         return new SamrHandleResult(handle, reader.ReadUInt32());
+    }
+
+    /// <summary>
+    /// SamrGetGroupsForUser (opnum 39): the domain groups a user is a member of, as
+    /// GROUP_MEMBERSHIP rows (RID + SE_GROUP_* attributes). Port of impacket's
+    /// <c>hSamrGetGroupsForUser</c>. The request is just the user handle; the response is a
+    /// SAMPR_GET_GROUPS_BUFFER (count + pointer to a conformant GROUP_MEMBERSHIP array).
+    /// </summary>
+    public static IReadOnlyList<SamrGroupMembership> GetGroupsForUser(DcerpcPipe pipe, byte[] userHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(userHandle);
+        byte[] stub = pipe.Call(OpnumGetGroupsForUser, ndr.ToArray());
+        return ParseGroupsForUser(stub);
+    }
+
+    /// <summary>Parses a SamrGetGroupsForUser response (exposed for tests / offline analysis).</summary>
+    public static IReadOnlyList<SamrGroupMembership> ParseGroupsForUser(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint bufferReferent = reader.ReadReferent();
+        if (bufferReferent == 0)
+        {
+            return Array.Empty<SamrGroupMembership>();
+        }
+
+        uint count = reader.ReadUInt32();     // MembershipCount
+        uint arrayReferent = reader.ReadReferent();
+        var groups = new List<SamrGroupMembership>((int)count);
+        if (arrayReferent != 0)
+        {
+            reader.ReadUInt32();              // conformant MaxCount
+            for (uint i = 0; i < count; i++)
+            {
+                uint rid = reader.ReadUInt32();
+                uint attributes = reader.ReadUInt32();
+                groups.Add(new SamrGroupMembership(rid, attributes));
+            }
+        }
+        return groups;
+    }
+
+    private static readonly (uint Bit, string Name)[] GroupAttributeFlags =
+    {
+        (0x00000001, "MANDATORY"),
+        (0x00000002, "ENABLED_BY_DEFAULT"),
+        (0x00000004, "ENABLED"),
+        (0x00000008, "OWNER"),
+        (0x00000010, "USE_FOR_DENY_ONLY"),
+        (0x00000020, "INTEGRITY"),
+        (0x00000040, "INTEGRITY_ENABLED"),
+        (0x20000000, "RESOURCE"),
+    };
+
+    /// <summary>Renders the SE_GROUP_* attribute flag names set in a GROUP_MEMBERSHIP.Attributes value.</summary>
+    public static string GroupAttributesText(uint attributes)
+    {
+        var set = GroupAttributeFlags.Where(f => (attributes & f.Bit) != 0).Select(f => f.Name).ToArray();
+        return set.Length == 0 ? "(none)" : string.Join(" | ", set);
     }
 
     /// <summary>SamrQueryInformationUser2 (opnum 47), class UserGeneralInformation (level 1).</summary>

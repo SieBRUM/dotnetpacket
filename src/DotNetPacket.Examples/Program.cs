@@ -1161,6 +1161,14 @@ switch (args[0])
         Console.WriteLine($"  Last logon         : {Ft(Samr.FileTimeToUtc(d.LastLogon))}");
         Console.WriteLine($"  Account expires    : {Ft(Samr.FileTimeToUtc(d.AccountExpires))}");
 
+        // Group memberships via SamrGetGroupsForUser (opnum 39).
+        IReadOnlyList<SamrGroupMembership> groups = Samr.GetGroupsForUser(pipe, uh.Handle);
+        Console.WriteLine($"  Group memberships  : {groups.Count}");
+        foreach (SamrGroupMembership g in groups)
+        {
+            Console.WriteLine($"    - {g.GroupName,-32} (RID {g.Rid}, {g.AttributesText})");
+        }
+
         Samr.CloseHandle(pipe, uh.Handle);
         Samr.CloseHandle(pipe, dom.Handle);
         Samr.CloseHandle(pipe, server.Handle);

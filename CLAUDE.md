@@ -100,7 +100,7 @@ src/
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID + DNS/forest info + privilege enumeration
     Lsat.cs                        #   lsat LsarLookupSids (SID->name) + LsarLookupNames (name->SID)
-    Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name->RID)/open + QueryInfo (general + level-21 all) + password policy (samrdump)
+    Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name->RID)/open + QueryInfo (general + level-21 all) + GetGroupsForUser + password policy (samrdump)
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config (services.py) + control (psexec, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/Close
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
