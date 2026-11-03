@@ -90,6 +90,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       response is a SAMPR_GET_GROUPS_BUFFER (count + conformant GROUP_MEMBERSHIP array of
       RID + SE_GROUP_* attributes). Well-known RIDs named, flag bits decoded. Validated live
       against the DC (Administrator -> Domain Users/Admins, Enterprise/Schema Admins, GPO Creators).
+- [x] samr `SamrLookupIdsInDomain` (opnum 18) — RID->name resolution (`Samr.LookupIds`,
+      `rpc-lookupid`; `rpc-userinfo` uses it to name the groups from GetGroupsForUser, custom
+      groups included). RelativeIds go out as a conformant-varying ULONG array (size_is(1000));
+      the response is a SAMPR_RETURNED_USTRING_ARRAY of names + a SAMPR_ULONG_ARRAY of
+      SID_NAME_USE, read positionally. Validated live against the DC (500/513/512/519 -> names,
+      an unknown RID reports unresolved).
 - [x] samr `SamrLookupNamesInDomain` (opnum 17) — name->RID resolution (`Samr.LookupNames`,
       `rpc-lookuprid`; `rpc-userinfo` now resolves its target through it). Names go out as a
       conformant-varying RPC_UNICODE_STRING array with the IDL size_is(1000) bound; the response

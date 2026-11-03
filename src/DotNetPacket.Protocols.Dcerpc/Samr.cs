@@ -128,6 +128,7 @@ public static class Samr
     private const ushort OpnumCloseHandle = 1;
     private const ushort OpnumLookupDomain = 5;
     private const ushort OpnumLookupNamesInDomain = 17;
+    private const ushort OpnumLookupIdsInDomain = 18;
     private const ushort OpnumEnumerateDomains = 6;
     private const ushort OpnumOpenDomain = 7;
     private const ushort OpnumQueryInformationDomain = 8;
@@ -233,6 +234,78 @@ public static class Samr
             result.Add(new SamrNameMapping(names[i], rid, use));
         }
         return result;
+    }
+
+    /// <summary>
+    /// SamrLookupIdsInDomain (opnum 18): resolve RIDs to account names within a domain
+    /// (RID -> name, the reverse of SamrLookupNamesInDomain). Port of impacket's
+    /// <c>hSamrLookupIdsInDomain</c>. RelativeIds go out as a conformant-varying ULONG array
+    /// with the IDL size_is(1000) bound; the response is a SAMPR_RETURNED_USTRING_ARRAY of names
+    /// plus a SAMPR_ULONG_ARRAY of SID_NAME_USE. Returns one row per requested RID, in order.
+    /// </summary>
+    public static IReadOnlyList<SamrNameMapping> LookupIds(DcerpcPipe pipe, byte[] domainHandle, IReadOnlyList<uint> rids)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt32((uint)rids.Count);    // Count
+        ndr.WriteUInt32(1000);                 // RelativeIds array MaxCount (IDL size_is(1000))
+        ndr.WriteUInt32(0);                    // Offset
+        ndr.WriteUInt32((uint)rids.Count);     // ActualCount (length_is(Count))
+        foreach (uint rid in rids)
+        {
+            ndr.WriteUInt32(rid);
+        }
+
+        byte[] stub = pipe.Call(OpnumLookupIdsInDomain, ndr.ToArray());
+        return ParseLookupIds(stub, rids);
+    }
+
+    /// <summary>
+    /// Parses a SamrLookupIdsInDomain response (a SAMPR_RETURNED_USTRING_ARRAY of names, then a
+    /// SAMPR_ULONG_ARRAY of SID_NAME_USE, then the return code). Exposed for tests / offline
+    /// analysis. Names/uses line up positionally with the requested RIDs.
+    /// </summary>
+    public static IReadOnlyList<SamrNameMapping> ParseLookupIds(byte[] stub, IReadOnlyList<uint> rids)
+    {
+        var reader = new NdrReader(stub);
+        string[] names = ReadReturnedStringArray(reader);
+        uint[] uses = ReadUlongArray(reader);
+
+        var result = new List<SamrNameMapping>(rids.Count);
+        for (int i = 0; i < rids.Count; i++)
+        {
+            string name = i < names.Length ? names[i] : string.Empty;
+            uint use = i < uses.Length ? uses[i] : 0;
+            result.Add(new SamrNameMapping(name, rids[i], use));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Reads a SAMPR_RETURNED_USTRING_ARRAY (Count + pointer to a conformant array of
+    /// RPC_UNICODE_STRING): the fixed headers first, then the deferred (no-NUL) name buffers.
+    /// </summary>
+    private static string[] ReadReturnedStringArray(NdrReader reader)
+    {
+        uint count = reader.ReadUInt32();
+        uint referent = reader.ReadReferent();
+        var names = new string[count];
+        if (referent == 0)
+        {
+            return names;
+        }
+
+        reader.ReadUInt32();            // conformant MaxCount
+        var refs = new uint[count];
+        for (uint i = 0; i < count; i++)
+        {
+            refs[i] = ReadUnicodeStringHeader(reader); // Length + MaxLength + Buffer referent
+        }
+        for (uint i = 0; i < count; i++)
+        {
+            names[i] = refs[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        }
+        return names;
     }
 
     /// <summary>Reads a SAMPR_ULONG_ARRAY (Count + pointer to a conformant array of ULONGs).</summary>

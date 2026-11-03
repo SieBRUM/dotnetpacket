@@ -1161,12 +1161,19 @@ switch (args[0])
         Console.WriteLine($"  Last logon         : {Ft(Samr.FileTimeToUtc(d.LastLogon))}");
         Console.WriteLine($"  Account expires    : {Ft(Samr.FileTimeToUtc(d.AccountExpires))}");
 
-        // Group memberships via SamrGetGroupsForUser (opnum 39).
+        // Group memberships via SamrGetGroupsForUser (opnum 39), with the group RIDs resolved
+        // back to names via SamrLookupIdsInDomain (opnum 18) so custom groups show too.
         IReadOnlyList<SamrGroupMembership> groups = Samr.GetGroupsForUser(pipe, uh.Handle);
         Console.WriteLine($"  Group memberships  : {groups.Count}");
-        foreach (SamrGroupMembership g in groups)
+        if (groups.Count > 0)
         {
-            Console.WriteLine($"    - {g.GroupName,-32} (RID {g.Rid}, {g.AttributesText})");
+            uint[] groupRids = groups.Select(g => g.Rid).ToArray();
+            IReadOnlyList<SamrNameMapping> names = Samr.LookupIds(pipe, dom.Handle, groupRids);
+            for (int i = 0; i < groups.Count; i++)
+            {
+                string label = !string.IsNullOrEmpty(names[i].Name) ? names[i].Name : groups[i].GroupName;
+                Console.WriteLine($"    - {label,-32} (RID {groups[i].Rid}, {groups[i].AttributesText})");
+            }
         }
 
         Samr.CloseHandle(pipe, uh.Handle);
@@ -1230,6 +1237,70 @@ switch (args[0])
             Console.WriteLine(row.Resolved
                 ? $"  {row.Name,-24} RID {row.Rid,-6} {row.UseName}"
                 : $"  {row.Name,-24} (unresolved: {row.UseName})");
+        }
+
+        Samr.CloseHandle(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
+    case "rpc-lookupid":
+    {
+        // RID -> name resolution via samr SamrLookupIdsInDomain (opnum 18): the reverse of
+        // rpc-lookuprid, and how a tool turns RIDs (e.g. from a group membership) into names.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: rpc-lookupid <host> <user> <password> <rids-csv> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        uint[] targetRids = args[4]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(uint.Parse).ToArray();
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is null)
+        {
+            Console.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+            Samr.CloseHandle(pipe, server.Handle);
+            pipe.Close();
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+        IReadOnlyList<SamrNameMapping> rows = Samr.LookupIds(pipe, dom.Handle, targetRids);
+
+        Console.WriteLine($"RID -> name in {accountDomain} ({sid}):");
+        foreach (SamrNameMapping row in rows)
+        {
+            Console.WriteLine(row.Resolved
+                ? $"  RID {row.Rid,-6} {row.Name,-28} {row.UseName}"
+                : $"  RID {row.Rid,-6} (unresolved: {row.UseName})");
         }
 
         Samr.CloseHandle(pipe, dom.Handle);
@@ -1748,6 +1819,8 @@ static void PrintUsage()
     Console.WriteLine("                   Per-user detail via samr QueryInformationUser2 level 21 (flags, timestamps).");
     Console.WriteLine("  rpc-lookuprid <host> <user> <password> <names-csv> [domain] [port]");
     Console.WriteLine("                   Name->RID resolution via samr SamrLookupNamesInDomain (opnum 17).");
+    Console.WriteLine("  rpc-lookupid <host> <user> <password> <rids-csv> [domain] [port]");
+    Console.WriteLine("                   RID->name resolution via samr SamrLookupIdsInDomain (opnum 18).");
     Console.WriteLine("  rpc-enumgroups <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain group + alias enumeration via samr (samrdump groups).");
     Console.WriteLine("  rpc-passpol <host> <user> <password> [domain] [port]");
