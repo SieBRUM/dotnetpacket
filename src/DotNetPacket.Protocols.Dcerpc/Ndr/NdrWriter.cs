@@ -13,8 +13,14 @@ public sealed class NdrWriter
 {
     private readonly List<byte> _buffer = new();
 
-    /// <summary>A conventional non-null referent id for unique pointers.</summary>
+    /// <summary>The first referent id handed out; subsequent pointers increment from here.</summary>
     public const uint NonNullReferent = 0x00020000;
+
+    // Referent ids are assigned sequentially (0x00020000, 0x00020004, ...) the way MIDL /
+    // a real Windows client does, so each distinct pointer in a call gets a distinct id.
+    // This deliberately avoids both a single constant id (which would alias distinct
+    // pointers and is a DotNetPacket-only tell) and impacket's heap-derived request ids.
+    private uint _nextReferent = NonNullReferent;
 
     public int Length => _buffer.Count;
 
@@ -44,8 +50,21 @@ public sealed class NdrWriter
         _buffer.Add((byte)(value >> 8));
     }
 
-    /// <summary>Writes a unique pointer referent id (0 for NULL, else a non-null id).</summary>
-    public void WriteReferent(bool present) => WriteUInt32(present ? NonNullReferent : 0);
+    /// <summary>
+    /// Writes a pointer referent id: 0 for NULL, else the next sequential non-null id
+    /// (incrementing by 4, MIDL-style, so distinct pointers get distinct referents).
+    /// </summary>
+    public void WriteReferent(bool present)
+    {
+        if (!present)
+        {
+            WriteUInt32(0);
+            return;
+        }
+
+        WriteUInt32(_nextReferent);
+        _nextReferent += 4;
+    }
 
     public void WriteByte(byte value) => _buffer.Add(value);
 

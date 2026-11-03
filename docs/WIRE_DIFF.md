@@ -69,7 +69,7 @@ Samba AD DC (`tools/lab-addc.sh`).
 | Field | DotNetPacket (.NET) | stock impacket | Note |
 | --- | --- | --- | --- |
 | Protocol tower (5 floors, 75-byte octet string) | identical | identical | interface UUID + NDR + RPC-CO + TCP + IP floors are byte-for-byte the same |
-| `obj` referent id | `0x00020000` | `0x00000001` | different NDR referent-numbering scheme (both non-null; server accepts either) |
+| `obj` referent id | `0x00020000` (first pointer; later pointers `+4`) | `0x00000001` | DotNetPacket assigns referents sequentially from `0x00020000` incrementing by 4, the MIDL / Windows scheme; impacket uses its own numbering. Both non-null; server accepts either. |
 | NDR conformant-struct pad fill | `0x00` | `0xAB` | **impacket tell.** impacket fills NDR alignment padding with `0xAA/0xBB`-family bytes; DotNetPacket zero-fills (closer to Windows). |
 | `max_towers` requested | `1` | `4` | cosmetic request-size difference |
 
@@ -102,6 +102,42 @@ Samba AD DC (`tools/lab-addc.sh`).
   calls. That mapper→dynamic-port→bind flow is identical for impacket, DotNetPacket,
   and Windows; the per-field tells above (version block, pad fill, referent ids) are
   what separate the runtimes, and they do **not** separate DotNetPacket from Windows.
+
+## NDR request-marshalling choices (anti-fingerprint pass, 2026-11)
+
+A deliberate pass to make request-side NDR look like a Windows client rather than
+either impacket *or* a DotNetPacket-specific shape:
+
+| Choice | DotNetPacket | impacket | Windows (MIDL) | Status |
+| --- | --- | --- | --- | --- |
+| Referent ids | sequential `0x00020000` + 4 per pointer | heap/randomish request ids | sequential `0x00020000` + 4 | **matched to Windows.** Previously a single constant `0x00020000` for every pointer — a DotNetPacket-only tell that also aliased distinct pointers. Now distinct and MIDL-style. |
+| NDR alignment pad fill | `0x00` | `0xAA`/`0xBB` | `0x00` | matched to Windows (see above). |
+
+### Pending a Windows capture (currently ≈ impacket; revisit)
+
+These request-side *discretionary* values were taken from impacket / reg.exe
+convention while decoding the protocol. They are protocol-valid and the server
+accepts them, but I can't prove they match a **real Windows client** without a
+capture, and changing them blindly risks the server rejecting the call. They are
+left close to impacket **on purpose** and flagged here to revisit when we get a
+Windows capture as the third column:
+
+- **`BaseRegEnumKey` `lpClassIn` = 64 spaces, `lpNameIn` buffer = 1024 bytes.** Taken
+  from impacket's `hBaseRegEnumKey`. Real `reg.exe`/`RegEnumKeyExW` may send a
+  different class hint (possibly NULL) or a different buffer size. Left as-is because
+  a wrong pre-size can make the server truncate or fault.
+- **`BaseRegEnumValue` / `BaseRegQueryValue` pre-allocated buffer sizes** (256 / 512
+  bytes, then grow on `ERROR_MORE_DATA`). The two-call grow pattern itself is
+  protocol-driven and Windows-like; the exact first-guess size is a discretionary
+  value copied from impacket/reg.exe convention.
+- **`SamrLookupNamesInDomain` / `SamrLookupIdsInDomain` array `MaxCount` = 1000.** This
+  one is **IDL-mandated** (`size_is(1000)`) — every client including Windows sends
+  1000, so it is *not* a fingerprint. Noted here only to record that it was checked.
+- **Conformant-varying string NUL handling.** DotNetPacket appends and counts a NUL
+  terminator for `[string]` buffers (as Windows does for NUL-counted strings) but
+  sends exact-count (no-NUL) buffers for the samr name arrays (matching what the
+  server returned in captures). Believed correct per MS-DTYP; revisit if a Windows
+  capture shows otherwise.
 
 ## Caveat
 
