@@ -137,6 +137,13 @@ Windows capture as the third column:
   bytes, then grow on `ERROR_MORE_DATA`). The two-call grow pattern itself is
   protocol-driven and Windows-like; the exact first-guess size is a discretionary
   value copied from impacket/reg.exe convention.
+- **`SamrQueryDisplayInformation` `EntryCount` / `PreferredMaximumLength` = `0xFFFFFFFF`.** Taken
+  from impacket's `hSamrQueryDisplayInformation` defaults — the "return as much as fits" sentinels,
+  which make the DC return the whole display list in one call. A real Windows admin tool typically
+  pages with a bounded `PreferredMaximumLength` and `SamrGetDisplayEnumerationIndex`. The paging
+  *loop* DotNetPacket implements (resume from the last Index on STATUS_MORE_ENTRIES) is Windows-like
+  and protocol-driven; the one-shot `0xFFFFFFFF` first request is the discretionary bit left ≈ impacket
+  until a Windows capture shows a real page size.
 - **`SamrLookupNamesInDomain` / `SamrLookupIdsInDomain` array `MaxCount` = 1000.** This
   one is **IDL-mandated** (`size_is(1000)`) — every client including Windows sends
   1000, so it is *not* a fingerprint. Noted here only to record that it was checked.

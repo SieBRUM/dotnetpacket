@@ -41,6 +41,24 @@ public sealed record SamrEnumResult(IReadOnlyList<SamrRidEntry> Entries, uint Re
 public sealed record SamrUserGeneral(string UserName, string FullName, uint PrimaryGroupId, string AdminComment, string UserComment);
 
 /// <summary>
+/// One SAMPR_DOMAIN_DISPLAY_USER entry (MS-SAMR 2.2.8.6) — the record the display-information
+/// enumeration (samrdump) returns per account: the 1-based display Index, the RID, the
+/// USER_ACCOUNT_* control flags, and the account name / description / full name in a single
+/// pass (no per-user OpenUser/QueryInformationUser round-trips).
+/// </summary>
+public sealed record SamrDisplayUser(
+    uint Index,
+    uint Rid,
+    uint AccountControl,
+    string AccountName,
+    string AdminComment,
+    string FullName)
+{
+    /// <summary>The USER_ACCOUNT_* flag names set in <see cref="AccountControl"/>.</summary>
+    public string AccountControlText => Samr.AccountFlagsText(AccountControl);
+}
+
+/// <summary>
 /// A GROUP_MEMBERSHIP entry (MS-SAMR 2.2.7.2): one domain group the user belongs to — the
 /// group RID and its SE_GROUP_* attribute flags. <see cref="GroupName"/> names the well-known
 /// RIDs; <see cref="AttributesText"/> decodes the flag bits.
@@ -138,6 +156,10 @@ public static class Samr
     private const ushort OpnumOpenUser = 34;
     private const ushort OpnumGetGroupsForUser = 39;
     private const ushort OpnumQueryInformationUser2 = 47;
+    private const ushort OpnumQueryDisplayInformation = 40;
+
+    private const uint DomainDisplayUser = 1;      // DOMAIN_DISPLAY_INFORMATION.DomainDisplayUser
+    private const uint StatusMoreEntries = 0x00000105; // STATUS_MORE_ENTRIES — server has more pages
 
     private const uint MaximumAllowed = 0x02000000;
     private const uint UserNormalAccount = 0x00000010;
@@ -628,6 +650,94 @@ public static class Samr
     {
         var set = UserAccountFlags.Where(f => (uac & f.Bit) != 0).Select(f => f.Name).ToArray();
         return set.Length == 0 ? "(none)" : string.Join(" | ", set);
+    }
+
+    /// <summary>
+    /// SamrQueryDisplayInformation (opnum 40), class DomainDisplayUser (1): the account display
+    /// list samrdump prints — RID, account-control flags, name, description and full name for
+    /// every user in one enumeration. Port of impacket's <c>hSamrQueryDisplayInformation</c>.
+    /// Continues across pages on STATUS_MORE_ENTRIES (resuming from the last returned Index).
+    /// </summary>
+    public static IReadOnlyList<SamrDisplayUser> QueryDisplayUsers(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var all = new List<SamrDisplayUser>();
+        uint index = 0;
+        while (true)
+        {
+            var ndr = new NdrWriter();
+            ndr.WriteContextHandle(domainHandle);   // DomainHandle [in]
+            ndr.WriteUInt32(DomainDisplayUser);      // DisplayInformationClass = 1
+            ndr.WriteUInt32(index);                  // Index [in] — resume point
+            ndr.WriteUInt32(0xFFFFFFFF);             // EntryCount — "as many as fit"
+            ndr.WriteUInt32(0xFFFFFFFF);             // PreferredMaximumLength — "everything"
+            byte[] stub = pipe.Call(OpnumQueryDisplayInformation, ndr.ToArray());
+
+            (IReadOnlyList<SamrDisplayUser> page, _, uint status) = ParseDisplayUsers(stub);
+            all.AddRange(page);
+
+            // Single-shot on this lab (server returns all with status 0). Only page when the
+            // server explicitly says there is more; resume just past the last Index we saw.
+            if (page.Count == 0 || status != StatusMoreEntries)
+            {
+                break;
+            }
+
+            index = page[^1].Index;
+        }
+
+        return all;
+    }
+
+    /// <summary>
+    /// Parses a SamrQueryDisplayInformation DomainDisplayUser response: TotalAvailable,
+    /// TotalReturned, a SAMPR_DISPLAY_INFO_BUFFER union (tag 1 -> EntriesRead + a referenced
+    /// conformant SAMPR_DOMAIN_DISPLAY_USER array: Index/Rid/AccountControl + three
+    /// RPC_UNICODE_STRING headers each, then the deferred name/description/full-name buffers),
+    /// then the NTSTATUS. Returns the page, TotalAvailable, and the status. Exposed for tests.
+    /// </summary>
+    public static (IReadOnlyList<SamrDisplayUser> Users, uint TotalAvailable, uint Status) ParseDisplayUsers(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint totalAvailable = reader.ReadUInt32();  // TotalAvailable
+        reader.ReadUInt32();                         // TotalReturned (bytes)
+        reader.ReadUInt32();                         // union discriminant (DisplayInformationClass == 1)
+        uint entries = reader.ReadUInt32();          // EntriesRead
+        if (reader.ReadReferent() == 0)              // Buffer array pointer
+        {
+            return (Array.Empty<SamrDisplayUser>(), totalAvailable, reader.ReadUInt32());
+        }
+
+        reader.ReadUInt32();                         // conformant max_count
+
+        // Inline fixed fields + the three RPC_UNICODE_STRING headers per entry.
+        var index = new uint[entries];
+        var rid = new uint[entries];
+        var ctrl = new uint[entries];
+        var nameRef = new uint[entries];
+        var commentRef = new uint[entries];
+        var fullRef = new uint[entries];
+        for (uint i = 0; i < entries; i++)
+        {
+            index[i] = reader.ReadUInt32();          // Index
+            rid[i] = reader.ReadUInt32();            // Rid
+            ctrl[i] = reader.ReadUInt32();           // AccountControl
+            nameRef[i] = ReadUnicodeStringHeader(reader);    // AccountName
+            commentRef[i] = ReadUnicodeStringHeader(reader); // AdminComment
+            fullRef[i] = ReadUnicodeStringHeader(reader);    // FullName
+        }
+
+        // Deferred conformant-varying buffers, in field order per entry.
+        var users = new List<SamrDisplayUser>((int)entries);
+        for (uint i = 0; i < entries; i++)
+        {
+            string name = nameRef[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+            string comment = commentRef[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+            string full = fullRef[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+            users.Add(new SamrDisplayUser(index[i], rid[i], ctrl[i], name, comment, full));
+        }
+
+        uint status = reader.ReadUInt32();           // ErrorCode (NTSTATUS)
+        return (users, totalAvailable, status);
     }
 
     /// <summary>SamrQueryInformationDomain (opnum 8), class DomainPasswordInformation (level 1).</summary>

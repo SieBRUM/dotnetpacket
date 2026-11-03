@@ -125,6 +125,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       (`Samr.QueryUserAllInfo` / `ParseUserAll`, `rpc-userinfo`). Parses the full fixed arm then
       the deferred string buffers; password-blob / SD / logon-hours arrays are left undecoded
       (the SAM returns the blobs NULL for this call). Validated live against the DC (RID 500).
+- [x] samr `SamrQueryDisplayInformation` level 1 / DomainDisplayUser (opnum 40) — the samrdump
+      display enumeration: RID + USER_ACCOUNT_* flags + name/description/full name for every user
+      in one pass, no per-user OpenUser round-trips (`Samr.QueryDisplayUsers` / `ParseDisplayUsers`,
+      `rpc-dispinfo`). Pages across STATUS_MORE_ENTRIES (resuming from the last Index); on this lab
+      the server returns everything in one call with status 0. Validated live against the DC
+      (krbtgt/502, Guest/501, Administrator/500 with descriptions).
 - [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
@@ -187,6 +193,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lookupnames2 <host> <user> <password> [names] [domain] [port]` — lsat name->SID via LookupNames2 (modern Windows)
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
+- [x] `rpc-dispinfo <host> <user> <password> [domain] [port]` — samr display-info enumeration (samrdump)
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
@@ -491,3 +498,24 @@ captures here (what differs, why, and whether it is detection-relevant).
   (non-DC) Samba, so the example wraps the call in a fault guard and falls back to the
   account-domain info; it is DC-validated. Parser pinned by a known-bytes test; tshark
   shows OpenPolicy2 -> QueryInfoPolicy -> QueryInfoPolicy2 -> Close.
+- **2026-11-03 — lsarpc LsarEnumerateAccountRights (opnum 36) validated on the DC.**
+  `rpc-accountrights` lists the LSA rights/privileges granted to one account SID. Request is
+  the policy handle plus the account SID as an embedded conformant RPC_SID (no referent, no
+  discretionary fields); response is an LSAPR_USER_RIGHT_SET (RPC_UNICODE_STRING array). Against
+  the DC: S-1-5-32-550 -> 3 rights, S-1-5-32-544 -> 24 (incl. SeDebugPrivilege); an account with
+  no LSA object reports STATUS_OBJECT_NAME_NOT_FOUND cleanly. Parser pinned by a known-bytes test.
+- **2026-11-03 — samr SamrQueryDisplayInformation (opnum 40, DomainDisplayUser) validated on the DC.**
+  `rpc-dispinfo` enumerates every user's RID, account-control flags, name, description and full
+  name in one call (the samrdump display path — no per-user OpenUser round-trips). Response is a
+  SAMPR_DISPLAY_INFO_BUFFER union (tag 1) wrapping a conformant SAMPR_DOMAIN_DISPLAY_USER array;
+  parser pinned by a known-bytes test from the verbatim 596-byte DC response. Request matches
+  impacket byte-for-byte (handle + class 1 + Index + EntryCount/PreferredMaximumLength =
+  0xFFFFFFFF). Paging across STATUS_MORE_ENTRIES is implemented but untested on this lab (the DC
+  returns everything in one call with status 0).
+- **2026-11-03 — observed: these fault on this Samba AD DC build (not ported).** Both impacket
+  *and* any faithful client get `rpc_x_bad_stub_data` from Samba for `LsarEnumerateAccounts`
+  (lsad opnum 11, every SID with an LSA account object) and `NetrShareGetInfo` (srvsvc, all
+  levels 0/1/2/501/502/503) — confirmed by running stock impacket's `hLsarEnumerateAccounts` /
+  `hNetrShareGetInfo` against the lab, which fail identically regardless of access mask. These
+  are server-side Samba limitations, so neither can be live-validated here; deferred until a
+  Windows DC / file server is available as the capture target.
