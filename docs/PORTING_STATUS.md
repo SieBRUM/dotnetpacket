@@ -81,6 +81,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
 - [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
+- [x] lsarpc `LsarLookupPrivilegeValue` (opnum 31) + `LsarLookupPrivilegeName` (opnum 32) — the
+      privilege name<->LUID resolver pair (`Lsarpc.LookupPrivilegeValue` / `LookupPrivilegeName`,
+      `rpc-privlookup`). Name goes out as an RPC_UNICODE_STRING (exact-count, no NUL — same
+      marshalling as the lsat name lookups); the name response is a referenced RPC_UNICODE_STRING.
+      Validated live against the DC (SeDebugPrivilege<->20, SeBackupPrivilege<->17, round-trips
+      agree; an unknown name returns STATUS_NO_SUCH_PRIVILEGE). Both responses pinned by known-bytes tests.
 - [x] lsarpc `LsarEnumerateAccountRights` (opnum 36) — rights/privileges granted to one account SID
       (`Lsarpc.EnumerateAccountRights`, `rpc-accountrights`). Request is handle + an embedded
       conformant RPC_SID (no referent, no discretionary fields); response is an
@@ -188,6 +194,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
 - [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
 - [x] `rpc-accountrights <host> <user> <password> <sid> [domain] [port]` — lsarpc rights granted to a SID
+- [x] `rpc-privlookup <host> <user> <password> <privilege-name|luid> [domain] [port]` — lsarpc privilege name<->LUID
 - [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
 - [x] `rpc-lookupsid2 <host> <user> <password> [domain] [port]` — lsat SID->name via LookupSids2 (modern Windows)
 - [x] `rpc-lookupnames2 <host> <user> <password> [names] [domain] [port]` — lsat name->SID via LookupNames2 (modern Windows)

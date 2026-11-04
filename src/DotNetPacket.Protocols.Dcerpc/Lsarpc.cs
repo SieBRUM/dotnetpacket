@@ -50,6 +50,8 @@ public static class Lsarpc
     private const ushort OpnumLsarClose = 0;
     private const ushort OpnumLsarEnumeratePrivileges = 2;
     private const ushort OpnumLsarQueryInformationPolicy = 7;
+    private const ushort OpnumLsarLookupPrivilegeValue = 31;
+    private const ushort OpnumLsarLookupPrivilegeName = 32;
     private const ushort OpnumLsarEnumerateAccountRights = 36;
     private const ushort OpnumLsarOpenPolicy2 = 44;
     private const ushort OpnumLsarQueryInformationPolicy2 = 46;
@@ -145,6 +147,62 @@ public static class Lsarpc
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// LsarLookupPrivilegeValue (opnum 31): resolve a privilege name (e.g.
+    /// <c>SeDebugPrivilege</c>) to its local LUID. Port of impacket's
+    /// <c>hLsarLookupPrivilegeValue</c>. The Name goes out as an RPC_UNICODE_STRING
+    /// (exact-count buffer, no NUL — same marshalling as the lsat name lookups).
+    /// </summary>
+    public static (uint LuidLow, int LuidHigh, uint Status) LookupPrivilegeValue(DcerpcPipe pipe, byte[] policyHandle, string name)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle);   // PolicyHandle [in]
+        ndr.WriteUnicodeStringHeader(name);      // Name header (Length/MaxLength + buffer referent)
+        ndr.WriteUnicodeStringBuffer(name);      // Name buffer (conformant-varying, no NUL)
+        return ParsePrivilegeValue(pipe.Call(OpnumLsarLookupPrivilegeValue, ndr.ToArray()));
+    }
+
+    /// <summary>Parses an LsarLookupPrivilegeValue response: a LUID (LowPart, HighPart) + NTSTATUS.</summary>
+    public static (uint LuidLow, int LuidHigh, uint Status) ParsePrivilegeValue(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint low = reader.ReadUInt32();     // Value.LowPart
+        int high = (int)reader.ReadUInt32(); // Value.HighPart
+        uint status = reader.ReadUInt32();  // ErrorCode
+        return (low, high, status);
+    }
+
+    /// <summary>
+    /// LsarLookupPrivilegeName (opnum 32): resolve a privilege LUID back to its name — the
+    /// reverse of <see cref="LookupPrivilegeValue"/>. Port of impacket's
+    /// <c>hLsarLookupPrivilegeName</c>. The response Name is a referenced RPC_UNICODE_STRING.
+    /// </summary>
+    public static (string Name, uint Status) LookupPrivilegeName(DcerpcPipe pipe, byte[] policyHandle, uint luidLow, int luidHigh)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle); // PolicyHandle [in]
+        ndr.WriteUInt32(luidLow);             // Value.LowPart
+        ndr.WriteUInt32((uint)luidHigh);      // Value.HighPart
+        return ParsePrivilegeName(pipe.Call(OpnumLsarLookupPrivilegeName, ndr.ToArray()));
+    }
+
+    /// <summary>Parses an LsarLookupPrivilegeName response: a referenced RPC_UNICODE_STRING name + NTSTATUS.</summary>
+    public static (string Name, uint Status) ParsePrivilegeName(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        if (reader.ReadReferent() == 0)        // Name pointer
+        {
+            return (string.Empty, reader.ReadUInt32());
+        }
+
+        reader.ReadUInt16();                   // Name.Length (bytes)
+        reader.ReadUInt16();                   // Name.MaximumLength
+        uint bufRef = reader.ReadReferent();   // Name.Buffer pointer
+        string name = bufRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        uint status = reader.ReadUInt32();     // ErrorCode
+        return (name, status);
     }
 
     /// <summary>

@@ -1089,6 +1089,88 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-privlookup":
+    {
+        // Resolve a privilege name <-> its LUID via lsarpc LsarLookupPrivilegeValue (opnum 31)
+        // and LsarLookupPrivilegeName (opnum 32). Pass a name (e.g. SeDebugPrivilege) to get the
+        // LUID and confirm with the reverse lookup; pass a number to resolve a LUID to its name.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: rpc-privlookup <host> <user> <password> <privilege-name|luid> [domain] [port]");
+            Console.Error.WriteLine("  e.g. rpc-privlookup 127.0.0.1 Administrator 'pass' SeDebugPrivilege LAB");
+            Console.Error.WriteLine("       rpc-privlookup 127.0.0.1 Administrator 'pass' 20 LAB");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string target = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        if (!policy.Success)
+        {
+            Console.Error.WriteLine($"OpenPolicy2 failed: 0x{policy.ReturnCode:X8}");
+            return 1;
+        }
+
+        int exit = 0;
+        if (uint.TryParse(target, out uint luidLow))
+        {
+            // LUID -> name
+            (string name, uint status) = Lsarpc.LookupPrivilegeName(pipe, policy.Handle, luidLow, 0);
+            if (status == 0)
+            {
+                Console.WriteLine($"LUID {luidLow} -> {name}");
+            }
+            else
+            {
+                Console.Error.WriteLine($"LookupPrivilegeName(LUID {luidLow}) failed: 0x{status:X8}");
+                exit = 1;
+            }
+        }
+        else
+        {
+            // name -> LUID, then confirm with the reverse lookup
+            (uint low, int high, uint status) = Lsarpc.LookupPrivilegeValue(pipe, policy.Handle, target);
+            if (status == 0)
+            {
+                Console.WriteLine($"{target} -> LUID {high}:{low}");
+                (string back, uint rstatus) = Lsarpc.LookupPrivilegeName(pipe, policy.Handle, low, high);
+                if (rstatus == 0)
+                {
+                    Console.WriteLine($"  reverse: LUID {high}:{low} -> {back}");
+                }
+            }
+            else
+            {
+                Console.Error.WriteLine($"LookupPrivilegeValue({target}) failed: 0x{status:X8}");
+                exit = 1;
+            }
+        }
+
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return exit;
+    }
+
     case "rpc-lookupsid":
     {
         // SID->name recon via lsat LsarLookupSids (the lookupsid behavior).
@@ -2178,6 +2260,7 @@ static void PrintUsage()
     Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");
     Console.WriteLine("  rpc-privs <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-accountrights <host> <user> <password> <sid> [domain] [port]");
+    Console.WriteLine("  rpc-privlookup <host> <user> <password> <privilege-name|luid> [domain] [port]");
     Console.WriteLine("                   Enumerate LSA privileges via lsarpc LsarEnumeratePrivileges.");
     Console.WriteLine("  rpc-lookupsid <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");

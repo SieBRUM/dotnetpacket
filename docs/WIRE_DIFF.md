@@ -119,6 +119,12 @@ nothing to fingerprint and nothing to revisit): `LsarEnumerateAccountRights` (op
 the request is the policy handle plus the account SID marshalled as an embedded conformant
 RPC_SID, with no referent pointers, no pre-sized out-buffers, and no option/revision fields.
 DotNetPacket's bytes here are identical to impacket's and to what Windows must send.
+`LsarLookupPrivilegeValue` (opnum 31) and `LsarLookupPrivilegeName` (opnum 32) are the same:
+the request is the policy handle plus either a privilege name (an RPC_UNICODE_STRING, exact-count
+buffer, no NUL — Length/MaxLength 32, MaxCount/ActualCount 16 for `SeDebugPrivilege`, matching
+impacket byte-for-byte) or a LUID. The only per-field difference from impacket is the string's
+referent id (impacket's heap-ish value vs DotNetPacket's sequential `0x00020000`), already covered
+by the referent-id row above — i.e. a point where DotNetPacket matches Windows/MIDL, not impacket.
 
 ### Pending a Windows capture (currently ≈ impacket; revisit)
 
