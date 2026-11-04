@@ -59,6 +59,22 @@ public sealed record SamrDisplayUser(
 }
 
 /// <summary>
+/// One SAMPR_DOMAIN_DISPLAY_GROUP entry (MS-SAMR 2.2.8.7) — the group record the display-group
+/// enumeration returns: the 1-based display Index, the group RID, the SE_GROUP_* attribute flags,
+/// and the group name + description.
+/// </summary>
+public sealed record SamrDisplayGroup(
+    uint Index,
+    uint Rid,
+    uint Attributes,
+    string AccountName,
+    string AdminComment)
+{
+    /// <summary>The SE_GROUP_* attribute flag names set in <see cref="Attributes"/>.</summary>
+    public string AttributesText => Samr.GroupAttributesText(Attributes);
+}
+
+/// <summary>
 /// A GROUP_MEMBERSHIP entry (MS-SAMR 2.2.7.2): one domain group the user belongs to — the
 /// group RID and its SE_GROUP_* attribute flags. <see cref="GroupName"/> names the well-known
 /// RIDs; <see cref="AttributesText"/> decodes the flag bits.
@@ -159,6 +175,7 @@ public static class Samr
     private const ushort OpnumQueryDisplayInformation = 40;
 
     private const uint DomainDisplayUser = 1;      // DOMAIN_DISPLAY_INFORMATION.DomainDisplayUser
+    private const uint DomainDisplayGroup = 3;     // DOMAIN_DISPLAY_INFORMATION.DomainDisplayGroup
     private const uint StatusMoreEntries = 0x00000105; // STATUS_MORE_ENTRIES — server has more pages
 
     private const uint MaximumAllowed = 0x02000000;
@@ -738,6 +755,86 @@ public static class Samr
 
         uint status = reader.ReadUInt32();           // ErrorCode (NTSTATUS)
         return (users, totalAvailable, status);
+    }
+
+    /// <summary>
+    /// SamrQueryDisplayInformation (opnum 40), class DomainDisplayGroup (3): the domain group
+    /// display list — RID, SE_GROUP_* attributes, name and description for every group in one
+    /// enumeration. Same call as <see cref="QueryDisplayUsers"/> with a different information class;
+    /// the per-entry record is a SAMPR_DOMAIN_DISPLAY_GROUP (no FullName field).
+    /// </summary>
+    public static IReadOnlyList<SamrDisplayGroup> QueryDisplayGroups(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var all = new List<SamrDisplayGroup>();
+        uint index = 0;
+        while (true)
+        {
+            var ndr = new NdrWriter();
+            ndr.WriteContextHandle(domainHandle);   // DomainHandle [in]
+            ndr.WriteUInt32(DomainDisplayGroup);     // DisplayInformationClass = 3
+            ndr.WriteUInt32(index);                  // Index [in] — resume point
+            ndr.WriteUInt32(0xFFFFFFFF);             // EntryCount — "as many as fit"
+            ndr.WriteUInt32(0xFFFFFFFF);             // PreferredMaximumLength — "everything"
+            byte[] stub = pipe.Call(OpnumQueryDisplayInformation, ndr.ToArray());
+
+            (IReadOnlyList<SamrDisplayGroup> page, _, uint status) = ParseDisplayGroups(stub);
+            all.AddRange(page);
+
+            if (page.Count == 0 || status != StatusMoreEntries)
+            {
+                break;
+            }
+
+            index = page[^1].Index;
+        }
+
+        return all;
+    }
+
+    /// <summary>
+    /// Parses a SamrQueryDisplayInformation DomainDisplayGroup response: TotalAvailable,
+    /// TotalReturned, a SAMPR_DISPLAY_INFO_BUFFER union (tag 3 -> EntriesRead + a referenced
+    /// conformant SAMPR_DOMAIN_DISPLAY_GROUP array: Index/Rid/Attributes + two RPC_UNICODE_STRING
+    /// headers each, then the deferred name/description buffers), then the NTSTATUS. Exposed for tests.
+    /// </summary>
+    public static (IReadOnlyList<SamrDisplayGroup> Groups, uint TotalAvailable, uint Status) ParseDisplayGroups(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint totalAvailable = reader.ReadUInt32();  // TotalAvailable
+        reader.ReadUInt32();                         // TotalReturned (bytes)
+        reader.ReadUInt32();                         // union discriminant (DisplayInformationClass == 3)
+        uint entries = reader.ReadUInt32();          // EntriesRead
+        if (reader.ReadReferent() == 0)              // Buffer array pointer
+        {
+            return (Array.Empty<SamrDisplayGroup>(), totalAvailable, reader.ReadUInt32());
+        }
+
+        reader.ReadUInt32();                         // conformant max_count
+
+        var index = new uint[entries];
+        var rid = new uint[entries];
+        var attributes = new uint[entries];
+        var nameRef = new uint[entries];
+        var commentRef = new uint[entries];
+        for (uint i = 0; i < entries; i++)
+        {
+            index[i] = reader.ReadUInt32();          // Index
+            rid[i] = reader.ReadUInt32();            // Rid
+            attributes[i] = reader.ReadUInt32();     // Attributes (SE_GROUP_*)
+            nameRef[i] = ReadUnicodeStringHeader(reader);    // AccountName
+            commentRef[i] = ReadUnicodeStringHeader(reader); // AdminComment
+        }
+
+        var groups = new List<SamrDisplayGroup>((int)entries);
+        for (uint i = 0; i < entries; i++)
+        {
+            string name = nameRef[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+            string comment = commentRef[i] != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+            groups.Add(new SamrDisplayGroup(index[i], rid[i], attributes[i], name, comment));
+        }
+
+        uint status = reader.ReadUInt32();           // ErrorCode (NTSTATUS)
+        return (groups, totalAvailable, status);
     }
 
     /// <summary>SamrQueryInformationDomain (opnum 8), class DomainPasswordInformation (level 1).</summary>

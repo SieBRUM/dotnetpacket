@@ -100,7 +100,7 @@ src/
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID + DNS/forest info + privilege enumeration + name<->LUID lookup + per-SID account rights
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
-    Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open + QueryInfo (general + level-21 all) + display info (samrdump) + GetGroupsForUser + password policy
+    Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open + QueryInfo (general + level-21 all) + display info users+groups (samrdump) + GetGroupsForUser + password policy
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/EnumKey/Close
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
@@ -176,6 +176,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid <lab-host> <user
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid2 <lab-host> <user> <password> [domain]   # LsarLookupSids2 (modern Windows)
 dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dispinfo <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation (samrdump display path)
+dotnet run --project src/DotNetPacket.Examples -- rpc-dispgroups <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation level 3 (group display)
 dotnet run --project src/DotNetPacket.Examples -- rpc-userinfo <lab-host> <user> <password> <target-user> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookuprid <lab-host> <user> <password> <names-csv> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookupid <lab-host> <user> <password> <rids-csv> [domain]

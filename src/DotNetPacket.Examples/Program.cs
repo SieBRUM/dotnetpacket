@@ -1425,6 +1425,70 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-dispgroups":
+    {
+        // Domain group display enumeration via samr SamrQueryDisplayInformation level 3
+        // (DomainDisplayGroup): RID + SE_GROUP_* attributes + name/description for every group.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-dispgroups <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is null)
+        {
+            Console.Error.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+            Samr.CloseHandle(pipe, server.Handle);
+            pipe.Close();
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+        IReadOnlyList<SamrDisplayGroup> groups = Samr.QueryDisplayGroups(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"Display groups for {accountDomain} ({sid}) on {host} — {groups.Count} groups:");
+        foreach (SamrDisplayGroup g in groups)
+        {
+            Console.WriteLine($"  [{g.Index}] RID {g.Rid,-6} {g.AccountName}");
+            if (!string.IsNullOrEmpty(g.AdminComment))
+            {
+                Console.WriteLine($"          desc: {g.AdminComment}");
+            }
+            Console.WriteLine($"          attrs: {g.AttributesText}");
+        }
+
+        return 0;
+    }
+
     case "rpc-userinfo":
     {
         // Per-user detail via samr SamrQueryInformationUser2 class 21 (SAMPR_USER_ALL_INFORMATION) —
@@ -2268,6 +2332,7 @@ static void PrintUsage()
     Console.WriteLine("                   SID->name via lsat LsarLookupSids2 (opnum 57) — the modern-Windows variant.");
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-dispinfo <host> <user> <password> [domain] [port]");
+    Console.WriteLine("  rpc-dispgroups <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");
     Console.WriteLine("                   Per-user detail via samr QueryInformationUser2 level 21 (flags, timestamps).");

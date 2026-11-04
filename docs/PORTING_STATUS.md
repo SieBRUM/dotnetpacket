@@ -137,6 +137,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       `rpc-dispinfo`). Pages across STATUS_MORE_ENTRIES (resuming from the last Index); on this lab
       the server returns everything in one call with status 0. Validated live against the DC
       (krbtgt/502, Guest/501, Administrator/500 with descriptions).
+- [x] samr `SamrQueryDisplayInformation` level 3 / DomainDisplayGroup (opnum 40) — the domain
+      group display list: RID + SE_GROUP_* attributes + name/description per group, one pass
+      (`Samr.QueryDisplayGroups` / `ParseDisplayGroups`, `rpc-dispgroups`). Same call as the user
+      display path with a different information class; the per-entry record is a
+      SAMPR_DOMAIN_DISPLAY_GROUP (no FullName). Validated live against the DC (12 groups: Domain
+      Admins/512, Enterprise Admins/519, Domain Users/513, …). Known-bytes test pins the verbatim
+      2424-byte DC response.
 - [x] NDR `RRP_UNICODE_STRING` (NUL counted in Length/MaxLength + buffer) — `NdrWriter.WriteRrpUnicodeString`
 - [x] winreg / remote registry (`Winreg`, MS-RRP): OpenHKLM, BaseRegGetVersion,
       BaseRegOpenKey, BaseRegCloseKey — the reg.py recon surface
@@ -201,6 +208,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
 - [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
 - [x] `rpc-dispinfo <host> <user> <password> [domain] [port]` — samr display-info enumeration (samrdump)
+- [x] `rpc-dispgroups <host> <user> <password> [domain] [port]` — samr group display enumeration
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
@@ -526,3 +534,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   `hNetrShareGetInfo` against the lab, which fail identically regardless of access mask. These
   are server-side Samba limitations, so neither can be live-validated here; deferred until a
   Windows DC / file server is available as the capture target.
+- **2026-11-04 — samr group display info (SamrQueryDisplayInformation level 3) validated on the DC.**
+  `rpc-dispgroups` lists every domain group's RID, SE_GROUP_* attributes, name and description in
+  one call (same opnum 40 as `rpc-dispinfo`, information class 3). Validated live against the DC
+  (12 groups). Parser pinned by a known-bytes test from the verbatim 2424-byte response.
+- **2026-11-04 — observed: samr SamrGetAliasMembership (opnum 16) faults on this Samba build (not ported).**
+  Stock impacket's `hSamrGetAliasMembership` returns `rpc_x_bad_stub_data` against the lab DC for
+  both the BUILTIN and account-domain handles (tried Administrator/Domain Admins/Enterprise Admins
+  SIDs). Same class of Samba server-side limitation as LsarEnumerateAccounts / NetrShareGetInfo;
+  can't be live-validated here, so deferred until a Windows capture target is available.
