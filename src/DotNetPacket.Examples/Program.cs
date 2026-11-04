@@ -1204,6 +1204,11 @@ switch (args[0])
                 {
                     Console.WriteLine($"  reverse: LUID {high}:{low} -> {back}");
                 }
+                (string display, _, uint dstatus) = Lsarpc.LookupPrivilegeDisplayName(pipe, policy.Handle, target);
+                if (dstatus == 0 && !string.IsNullOrEmpty(display))
+                {
+                    Console.WriteLine($"  display: \"{display}\"");
+                }
             }
             else
             {

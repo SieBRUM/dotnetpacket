@@ -150,6 +150,11 @@ Windows capture as the third column:
   *loop* DotNetPacket implements (resume from the last Index on STATUS_MORE_ENTRIES) is Windows-like
   and protocol-driven; the one-shot `0xFFFFFFFF` first request is the discretionary bit left ≈ impacket
   until a Windows capture shows a real page size.
+- **`LsarLookupPrivilegeDisplayName` `ClientLanguage` / `ClientSystemDefaultLanguage` = `0x0409` (en-US).**
+  The call takes the caller's preferred and system-default LANGIDs; impacket has no helper/default,
+  so DotNetPacket sends en-US. A real Windows client sends its actual locale (and the server's
+  `LanguageReturned` echoes what it could supply). Protocol-valid and the server returns English
+  regardless on this lab; revisit if a Windows capture shows a different default locale.
 - **samr open-handle `DesiredAccess` = `MAXIMUM_ALLOWED` (`0x02000000`).** All the samr open
   calls (SamrConnect, SamrOpenDomain, SamrOpenUser, SamrOpenAlias) request MAXIMUM_ALLOWED, taken
   from impacket convention. It is protocol-valid and the server grants whatever the caller is

@@ -92,6 +92,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       marshalling as the lsat name lookups); the name response is a referenced RPC_UNICODE_STRING.
       Validated live against the DC (SeDebugPrivilege<->20, SeBackupPrivilege<->17, round-trips
       agree; an unknown name returns STATUS_NO_SUCH_PRIVILEGE). Both responses pinned by known-bytes tests.
+- [x] lsarpc `LsarLookupPrivilegeDisplayName` (opnum 33) — the localized human-readable privilege
+      description (`Lsarpc.LookupPrivilegeDisplayName` / `ParsePrivilegeDisplayName`; `rpc-privlookup`
+      also prints it). Request is the name (RPC_UNICODE_STRING) + client/system LANGIDs; response is
+      a referenced RPC_UNICODE_STRING + a UCHAR LanguageReturned. Validated live against the DC
+      (SeDebugPrivilege -> "Debug processes", SeBackupPrivilege -> "Back up files and directories").
+      Known-bytes test pins the stub.
 - [x] lsarpc `LsarEnumerateAccountRights` (opnum 36) — rights/privileges granted to one account SID
       (`Lsarpc.EnumerateAccountRights`, `rpc-accountrights`). Request is handle + an embedded
       conformant RPC_SID (no referent, no discretionary fields); response is an

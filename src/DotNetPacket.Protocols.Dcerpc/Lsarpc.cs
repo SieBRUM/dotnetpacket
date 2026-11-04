@@ -52,6 +52,11 @@ public static class Lsarpc
     private const ushort OpnumLsarQueryInformationPolicy = 7;
     private const ushort OpnumLsarLookupPrivilegeValue = 31;
     private const ushort OpnumLsarLookupPrivilegeName = 32;
+    private const ushort OpnumLsarLookupPrivilegeDisplayName = 33;
+
+    // LANGID en-US. The call takes a client language and a system-default language; a real client
+    // sends its actual locale, so this is a discretionary value (see WIRE_DIFF.md).
+    private const ushort LangIdEnUs = 0x0409;
     private const ushort OpnumLsarEnumerateAccountRights = 36;
     private const ushort OpnumLsarOpenPolicy2 = 44;
     private const ushort OpnumLsarQueryInformationPolicy2 = 46;
@@ -203,6 +208,47 @@ public static class Lsarpc
         string name = bufRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
         uint status = reader.ReadUInt32();     // ErrorCode
         return (name, status);
+    }
+
+    /// <summary>
+    /// LsarLookupPrivilegeDisplayName (opnum 33): resolve a privilege name to its localized,
+    /// human-readable display name (e.g. <c>SeDebugPrivilege</c> -> "Debug processes"). Port of
+    /// impacket's <c>LsarLookupPrivilegeDisplayName</c>. The Name goes out as an RPC_UNICODE_STRING
+    /// plus the client's preferred and system-default language ids.
+    /// </summary>
+    public static (string DisplayName, byte Language, uint Status) LookupPrivilegeDisplayName(
+        DcerpcPipe pipe, byte[] policyHandle, string name)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle);   // PolicyHandle [in]
+        ndr.WriteUnicodeStringHeader(name);      // Name header
+        ndr.WriteUnicodeStringBuffer(name);      // Name buffer (conformant-varying, no NUL)
+        ndr.WriteUInt16(LangIdEnUs);             // ClientLanguage
+        ndr.WriteUInt16(LangIdEnUs);             // ClientSystemDefaultLanguage
+        return ParsePrivilegeDisplayName(pipe.Call(OpnumLsarLookupPrivilegeDisplayName, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses an LsarLookupPrivilegeDisplayName response: a referenced RPC_UNICODE_STRING display
+    /// name, a UCHAR LanguageReturned, then the NTSTATUS. Exposed for tests / offline analysis.
+    /// </summary>
+    public static (string DisplayName, byte Language, uint Status) ParsePrivilegeDisplayName(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        if (reader.ReadReferent() == 0)        // Name pointer
+        {
+            // No display name: LanguageReturned (UCHAR) then NTSTATUS.
+            byte lang0 = reader.ReadByte();
+            return (string.Empty, lang0, reader.ReadUInt32());
+        }
+
+        reader.ReadUInt16();                   // Name.Length (bytes)
+        reader.ReadUInt16();                   // Name.MaximumLength
+        uint bufRef = reader.ReadReferent();   // Name.Buffer pointer
+        string display = bufRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        byte language = reader.ReadByte();     // LanguageReturned (UCHAR)
+        uint status = reader.ReadUInt32();     // ErrorCode (ReadUInt32 realigns past the UCHAR pad)
+        return (display, language, status);
     }
 
     /// <summary>
