@@ -96,7 +96,7 @@ src/
     DcerpcSecTrailer.cs            #   8-byte auth verifier header (sec_trailer)
     DcerpcRequest.cs               #   REQUEST / RESPONSE / FAULT PDUs (+ sign/seal path)
     Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, handles, strings)
-    Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo
+    Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo (levels 101 + 102)
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account domain/SID + DNS/forest info + privilege enumeration + name<->LUID lookup + per-SID account rights
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
@@ -168,6 +168,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-svcconfig <lab-host> <user
 dotnet run --project src/DotNetPacket.Examples -- rpc-svcstatus <lab-host> <user> <password> <service> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- rpc-srvinfo <lab-host> <user> <password> [domain]   # srvsvc NetrServerGetInfo level 102 (server tunables)
 dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-privs <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-accountrights <lab-host> <user> <password> <sid> [domain]   # LsarEnumerateAccountRights (rights granted to a SID)

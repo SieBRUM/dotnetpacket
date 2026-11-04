@@ -78,6 +78,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       Validated live against the DC (Spooler RUNNING/accepts STOP, NETLOGON/RemoteRegistry).
 - [x] Level-union → struct → deferred unique-string-pointer NDR (host-info parsers)
 - [x] wkssvc `NetrWkstaGetInfo` (level 100) + srvsvc `NetrServerGetInfo` (level 101) — host/OS recon
+- [x] srvsvc `NetrServerGetInfo` level 102 — the 101 fields plus the server announce/session
+      tunables (user limit, auto-disconnect, hidden, announce interval + delta, license count,
+      user path) (`Srvsvc.NetrServerGetInfo102` / `ParseServerInfo102`, `rpc-srvinfo`). Validated
+      live against the DC (name VM, 6.1, comment "vm server (Samba, Ubuntu)", users unlimited,
+      disc 15, announce 240/3000, licenses 100000, path C:\). Known-bytes test pins the stub.
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
 - [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
@@ -211,6 +216,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-svcstatus <host> <user> <password> <service> [domain] [port]` — svcctl live service status (RQueryServiceStatus)
 - [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
 - [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
+- [x] `rpc-srvinfo <host> <user> <password> [domain] [port]` — srvsvc NetrServerGetInfo level 102
 - [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
 - [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
 - [x] `rpc-accountrights <host> <user> <password> <sid> [domain] [port]` — lsarpc rights granted to a SID
@@ -558,3 +564,9 @@ captures here (what differs, why, and whether it is detection-relevant).
   both the BUILTIN and account-domain handles (tried Administrator/Domain Admins/Enterprise Admins
   SIDs). Same class of Samba server-side limitation as LsarEnumerateAccounts / NetrShareGetInfo;
   can't be live-validated here, so deferred until a Windows capture target is available.
+- **2026-11-04 — srvsvc NetrServerGetInfo level 102 validated on the DC.** `rpc-srvinfo` reads the
+  101 fields plus the server's announce/session tunables. Clean single call (no Samba quirk).
+- **2026-11-04 — observed: wkssvc NetrWkstaUserEnum (opnum 2) not implemented on this Samba build.**
+  Stock impacket's `hNetrWkstaUserEnum` returns `nca_s_op_rng_error` (opnum out of range) at levels
+  0 and 1 — Samba's wkssvc implements NetrWkstaGetInfo (opnum 0) but not the logged-on-user
+  enumeration. Can't be live-validated here; deferred until a Windows capture target is available.

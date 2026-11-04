@@ -909,6 +909,53 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-srvinfo":
+    {
+        // Server info via srvsvc NetrServerGetInfo level 102: the 101 fields plus the server's
+        // announce/session tunables (user limit, auto-disconnect, hidden, announce, licenses, path).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-srvinfo <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe srvsvc = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Srvsvc.Pipe);
+        srvsvc.Bind(DcerpcInterface.Srvsvc);
+        ServerInfo102 server = Srvsvc.NetrServerGetInfo102(srvsvc);
+        srvsvc.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"srvsvc NetrServerGetInfo(102) for {host}:");
+        Console.WriteLine($"  Name:         {server.Name}");
+        Console.WriteLine($"  OS version:   {server.VersionMajor}.{server.VersionMinor} (platform {server.PlatformId})");
+        Console.WriteLine($"  Server type:  0x{server.Type:x8}");
+        Console.WriteLine($"  Comment:      {server.Comment}");
+        Console.WriteLine($"  Users (max):  {(server.Users == 0xFFFFFFFF ? "unlimited" : server.Users.ToString())}");
+        Console.WriteLine($"  Auto-disc:    {server.Disc}");
+        Console.WriteLine($"  Hidden:       {server.Hidden}");
+        Console.WriteLine($"  Announce:     {server.Announce} (delta {server.AnnDelta})");
+        Console.WriteLine($"  Licenses:     {server.Licenses}");
+        Console.WriteLine($"  User path:    {server.UserPath}");
+        return 0;
+    }
+
     case "rpc-lsa":
     {
         // Domain recon via lsarpc: open the LSA policy and read the account domain + SID.
@@ -2512,6 +2559,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
+    Console.WriteLine("  rpc-srvinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.");
     Console.WriteLine("  rpc-lsa <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");

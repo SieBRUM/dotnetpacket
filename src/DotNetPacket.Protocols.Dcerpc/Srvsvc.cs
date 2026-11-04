@@ -27,6 +27,26 @@ public sealed record ServerInfo101(
     string Comment);
 
 /// <summary>
+/// SERVER_INFO_102 (MS-SRVS 2.2.4.41) — the level-101 fields plus the server's tunable
+/// announce/session settings: concurrent user limit, auto-disconnect timeout, hidden flag,
+/// announce interval + delta, client-license count, and the user directory path.
+/// </summary>
+public sealed record ServerInfo102(
+    uint PlatformId,
+    string Name,
+    uint VersionMajor,
+    uint VersionMinor,
+    uint Type,
+    string Comment,
+    uint Users,
+    uint Disc,
+    uint Hidden,
+    uint Announce,
+    uint AnnDelta,
+    uint Licenses,
+    string UserPath);
+
+/// <summary>
 /// Minimal srvsvc client (MS-SRVS). Port of the parts of impacket's
 /// <c>dcerpc.v5.srvs</c> needed for recon — share enumeration and server info.
 /// The pipe must already be bound to the srvsvc interface.
@@ -68,6 +88,60 @@ public static class Srvsvc
         string comment = commentReferent != 0 ? reader.ReadConformantVaryingString() : string.Empty;
 
         return new ServerInfo101(platformId, name, versionMajor, versionMinor, type, comment);
+    }
+
+    /// <summary>
+    /// NetrServerGetInfo level 102 (MS-SRVS 3.1.4.17): the level-101 fields plus the server's
+    /// announce/session tunables (user limit, auto-disconnect, hidden flag, announce interval,
+    /// license count, user path). Port of impacket's <c>hNetrServerGetInfo</c> at level 102.
+    /// </summary>
+    public static ServerInfo102 NetrServerGetInfo102(DcerpcPipe pipe)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteUniqueString(null); // ServerName [in,string,unique]
+        ndr.WriteUInt32(102);        // Level
+        byte[] stub = pipe.Call(OpnumNetrServerGetInfo, ndr.ToArray());
+        return ParseServerInfo102(stub);
+    }
+
+    /// <summary>
+    /// Parses a NetrServerGetInfo level-102 response stub: union tag (102) + a SERVER_INFO_102
+    /// referent (platform id; name referent; version major/minor; type; comment referent; the six
+    /// ULONG tunables; userpath referent), then the deferred name/comment/userpath buffers in
+    /// field order. Exposed for tests / offline analysis.
+    /// </summary>
+    public static ServerInfo102 ParseServerInfo102(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        reader.ReadUInt32();                 // union discriminant (Level == 102)
+        uint infoReferent = reader.ReadReferent();
+        if (infoReferent == 0)
+        {
+            return new ServerInfo102(0, string.Empty, 0, 0, 0, string.Empty, 0, 0, 0, 0, 0, 0, string.Empty);
+        }
+
+        uint platformId = reader.ReadUInt32();
+        uint nameReferent = reader.ReadReferent();
+        uint versionMajor = reader.ReadUInt32();
+        uint versionMinor = reader.ReadUInt32();
+        uint type = reader.ReadUInt32();
+        uint commentReferent = reader.ReadReferent();
+        uint users = reader.ReadUInt32();
+        uint disc = reader.ReadUInt32();
+        uint hidden = reader.ReadUInt32();
+        uint announce = reader.ReadUInt32();
+        uint annDelta = reader.ReadUInt32();
+        uint licenses = reader.ReadUInt32();
+        uint userPathReferent = reader.ReadReferent();
+
+        // Deferred conformant-varying buffers, in field order.
+        string name = nameReferent != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string comment = commentReferent != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string userPath = userPathReferent != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+
+        return new ServerInfo102(
+            platformId, name, versionMajor, versionMinor, type, comment,
+            users, disc, hidden, announce, annDelta, licenses, userPath);
     }
 
     /// <summary>
