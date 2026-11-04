@@ -150,6 +150,12 @@ Windows capture as the third column:
   *loop* DotNetPacket implements (resume from the last Index on STATUS_MORE_ENTRIES) is Windows-like
   and protocol-driven; the one-shot `0xFFFFFFFF` first request is the discretionary bit left ≈ impacket
   until a Windows capture shows a real page size.
+- **samr open-handle `DesiredAccess` = `MAXIMUM_ALLOWED` (`0x02000000`).** All the samr open
+  calls (SamrConnect, SamrOpenDomain, SamrOpenUser, SamrOpenAlias) request MAXIMUM_ALLOWED, taken
+  from impacket convention. It is protocol-valid and the server grants whatever the caller is
+  entitled to, but a real Windows admin tool often requests a *specific* access mask (e.g.
+  ALIAS_LIST_MEMBERS `0x0004` for a members read) rather than MAXIMUM_ALLOWED. Left ≈ impacket
+  across all the opens for consistency; revisit when a Windows capture shows the real masks.
 - **`SamrLookupNamesInDomain` / `SamrLookupIdsInDomain` array `MaxCount` = 1000.** This
   one is **IDL-mandated** (`size_is(1000)`) — every client including Windows sends
   1000, so it is *not* a fingerprint. Noted here only to record that it was checked.

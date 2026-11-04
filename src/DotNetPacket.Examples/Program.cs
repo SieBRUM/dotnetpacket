@@ -1561,6 +1561,127 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-aliasmem":
+    {
+        // Alias (local group) membership via samr SamrOpenAlias (opnum 27) + SamrGetMembersInAlias
+        // (opnum 33), against the BUILTIN domain where the well-known aliases live. Resolves the
+        // member SIDs to names via lsat. Defaults to Administrators (RID 544).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]");
+            Console.Error.WriteLine("  e.g. rpc-aliasmem 127.0.0.1 Administrator 'pass' Administrators LAB");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string aliasArg = args.Length >= 5 ? args[4] : "Administrators";
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        // Open the BUILTIN domain (S-1-5-32) directly — that's where the well-known aliases live.
+        var builtinSid = new SamrSid(1, new byte[] { 0, 0, 0, 0, 0, 5 }, new uint[] { 32 });
+        SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, builtinSid);
+
+        // Resolve the alias argument (name or RID) to a RID via the BUILTIN alias list.
+        SamrEnumResult aliases = Samr.EnumerateAliases(pipe, dom.Handle);
+        uint rid;
+        if (!uint.TryParse(aliasArg, out rid))
+        {
+            SamrRidEntry? match = aliases.Entries.FirstOrDefault(
+                a => string.Equals(a.Name, aliasArg, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                Console.Error.WriteLine($"Alias '{aliasArg}' not found in BUILTIN. Available: {string.Join(", ", aliases.Entries.Select(a => a.Name))}");
+                Samr.CloseHandle(pipe, dom.Handle);
+                Samr.CloseHandle(pipe, server.Handle);
+                pipe.Close();
+                client.TreeDisconnect(ipc.TreeId);
+                return 1;
+            }
+            rid = match.Rid;
+        }
+
+        string aliasName = aliases.Entries.FirstOrDefault(a => a.Rid == rid)?.Name ?? aliasArg;
+
+        SamrHandleResult alias = Samr.OpenAlias(pipe, dom.Handle, rid);
+        if (!alias.Success)
+        {
+            Console.Error.WriteLine($"OpenAlias(RID {rid}) failed: 0x{alias.ReturnCode:X8}");
+            Samr.CloseHandle(pipe, dom.Handle);
+            Samr.CloseHandle(pipe, server.Handle);
+            pipe.Close();
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        (IReadOnlyList<SamrSid> members, uint status) = Samr.GetMembersInAlias(pipe, alias.Handle);
+        Samr.CloseHandle(pipe, alias.Handle);
+        Samr.CloseHandle(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+
+        if (status != 0)
+        {
+            Console.Error.WriteLine($"GetMembersInAlias failed: 0x{status:X8}");
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        // Resolve the member SIDs to domain\name via lsat on a fresh lsarpc pipe.
+        var names = new Dictionary<string, string>();
+        if (members.Count > 0)
+        {
+            DcerpcPipe lsa = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+            lsa.Bind(DcerpcInterface.Lsarpc);
+            ScHandleResult policy = Lsarpc.OpenPolicy2(lsa);
+            if (policy.Success)
+            {
+                var sidStrings = members.Select(m => m.ToString()).ToList();
+                foreach (LsaResolvedSid resolved in Lsat.LookupSids(lsa, policy.Handle, sidStrings))
+                {
+                    string label = string.IsNullOrEmpty(resolved.Domain)
+                        ? resolved.Name
+                        : $"{resolved.Domain}\\{resolved.Name}";
+                    if (!string.IsNullOrEmpty(label))
+                    {
+                        names[resolved.InputSid] = label;
+                    }
+                }
+                Lsarpc.Close(lsa, policy.Handle);
+            }
+            lsa.Close();
+        }
+
+        client.TreeDisconnect(ipc.TreeId);
+
+        Console.WriteLine($"BUILTIN\\{aliasName} (RID {rid}) on {host} — {members.Count} members:");
+        foreach (SamrSid m in members)
+        {
+            string sid = m.ToString();
+            string label = names.TryGetValue(sid, out string? n) ? $"  {n}" : string.Empty;
+            Console.WriteLine($"  {sid}{label}");
+        }
+
+        return 0;
+    }
+
     case "rpc-userinfo":
     {
         // Per-user detail via samr SamrQueryInformationUser2 class 21 (SAMPR_USER_ALL_INFORMATION) —
@@ -2406,6 +2527,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-dispinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-dispgroups <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-domaininfo <host> <user> <password> [domain] [port]");
+    Console.WriteLine("  rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");
     Console.WriteLine("                   Per-user detail via samr QueryInformationUser2 level 21 (flags, timestamps).");

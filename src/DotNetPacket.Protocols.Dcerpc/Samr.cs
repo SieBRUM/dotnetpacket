@@ -208,6 +208,8 @@ public static class Samr
     private const ushort OpnumEnumerateGroups = 11;
     private const ushort OpnumEnumerateUsers = 13;
     private const ushort OpnumEnumerateAliases = 15;
+    private const ushort OpnumOpenAlias = 27;
+    private const ushort OpnumGetMembersInAlias = 33;
     private const ushort OpnumOpenUser = 34;
     private const ushort OpnumGetGroupsForUser = 39;
     private const ushort OpnumQueryInformationUser2 = 47;
@@ -466,6 +468,73 @@ public static class Samr
         var reader = new NdrReader(stub);
         byte[] handle = reader.ReadContextHandle();
         return new SamrHandleResult(handle, reader.ReadUInt32());
+    }
+
+    /// <summary>
+    /// SamrOpenAlias (opnum 27): open a handle to one alias (local group) by its RID within an
+    /// open domain. Port of impacket's <c>hSamrOpenAlias</c>; same request shape as SamrOpenUser.
+    /// </summary>
+    public static SamrHandleResult OpenAlias(DcerpcPipe pipe, byte[] domainHandle, uint rid, uint desiredAccess = MaximumAllowed)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt32(desiredAccess);
+        ndr.WriteUInt32(rid);
+        byte[] stub = pipe.Call(OpnumOpenAlias, ndr.ToArray());
+
+        var reader = new NdrReader(stub);
+        byte[] handle = reader.ReadContextHandle();
+        return new SamrHandleResult(handle, reader.ReadUInt32());
+    }
+
+    /// <summary>
+    /// SamrGetMembersInAlias (opnum 33): the SIDs that are members of an open alias (local group).
+    /// Port of impacket's <c>hSamrGetMembersInAlias</c>. The request is just the alias handle; the
+    /// response is a SAMPR_PSID_ARRAY_OUT (Count + a referenced conformant array of
+    /// SAMPR_SID_INFORMATION — each a pointer to an RPC_SID).
+    /// </summary>
+    public static (IReadOnlyList<SamrSid> Members, uint Status) GetMembersInAlias(DcerpcPipe pipe, byte[] aliasHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(aliasHandle);
+        return ParseMembersInAlias(pipe.Call(OpnumGetMembersInAlias, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses a SamrGetMembersInAlias response: a SAMPR_PSID_ARRAY_OUT (Count + a referent to a
+    /// conformant SAMPR_SID_INFORMATION array — inline SID-pointer referents, then the deferred
+    /// RPC_SIDs in order), then the NTSTATUS. Exposed for tests / offline analysis.
+    /// </summary>
+    public static (IReadOnlyList<SamrSid> Members, uint Status) ParseMembersInAlias(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        uint count = reader.ReadUInt32();     // Count
+        if (reader.ReadReferent() == 0)       // Sids array pointer
+        {
+            return (Array.Empty<SamrSid>(), reader.ReadUInt32());
+        }
+
+        reader.ReadUInt32();                  // conformant max_count
+
+        // Inline SAMPR_SID_INFORMATION.SidPointer referents first.
+        var sidRefs = new uint[count];
+        for (uint i = 0; i < count; i++)
+        {
+            sidRefs[i] = reader.ReadReferent();
+        }
+
+        // Then the deferred RPC_SIDs, in order.
+        var members = new List<SamrSid>((int)count);
+        for (uint i = 0; i < count; i++)
+        {
+            if (sidRefs[i] != 0)
+            {
+                members.Add(ReadSid(reader));
+            }
+        }
+
+        uint status = reader.ReadUInt32();    // ErrorCode (NTSTATUS)
+        return (members, status);
     }
 
     /// <summary>

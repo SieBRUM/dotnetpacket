@@ -114,6 +114,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       users / 12 groups / 5 aliases, Oem "Provisioned by SAMBA 4.19.5-Ubuntu"; Samba returns a
       non-standard DomainServerState 0, surfaced as the raw value). Known-bytes test pins the stub.
 - [x] samr `SamrEnumerateGroupsInDomain` (opnum 11) + `SamrEnumerateAliasesInDomain` (opnum 15) — group/alias enum (reuses the RID-enumeration parser)
+- [x] samr `SamrOpenAlias` (opnum 27) + `SamrGetMembersInAlias` (opnum 33) — open an alias (local
+      group) by RID and list its member SIDs (`Samr.OpenAlias` / `GetMembersInAlias` /
+      `ParseMembersInAlias`, `rpc-aliasmem`). Response is a SAMPR_PSID_ARRAY_OUT (conformant SID
+      array), parsed with the existing `ReadSid`. The example opens the BUILTIN domain (S-1-5-32)
+      and resolves the member SIDs to names via lsat. Validated live against the DC
+      (BUILTIN\Administrators → Domain Admins/Enterprise Admins/Administrator; BUILTIN\Users →
+      NT AUTHORITY\INTERACTIVE, Authenticated Users, LAB\Domain Users; an empty alias → 0 members).
+      Known-bytes test pins the verbatim response.
 - [x] samr `SamrGetGroupsForUser` (opnum 39) — a user's domain group memberships
       (`Samr.GetGroupsForUser`; `rpc-userinfo` now lists them). Request is just the user handle;
       response is a SAMPR_GET_GROUPS_BUFFER (count + conformant GROUP_MEMBERSHIP array of
@@ -217,6 +225,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-domaininfo <host> <user> <password> [domain] [port]` — samr domain general info (role + counts)
+- [x] `rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]` — samr alias (local group) membership
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
 - [x] `rpc-regenum <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's values
