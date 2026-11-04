@@ -1489,6 +1489,78 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-domaininfo":
+    {
+        // Domain general info via samr SamrQueryInformationDomain level 2 (DomainGeneralInformation):
+        // server role/state and live user/group/alias object counts — the quick domain-size recon.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-domaininfo <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is null)
+        {
+            Console.Error.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+            Samr.CloseHandle(pipe, server.Handle);
+            pipe.Close();
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+        SamrDomainGeneral info = Samr.QueryDomainGeneralInfo(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        if (!info.Success)
+        {
+            Console.Error.WriteLine($"QueryInformationDomain(General) failed: 0x{info.Status:X8}");
+            return 1;
+        }
+
+        Console.WriteLine($"Domain general info for {accountDomain} ({sid}) on {host}:");
+        Console.WriteLine($"  DomainName:   {info.DomainName}");
+        Console.WriteLine($"  ServerRole:   {info.ServerRoleText}");
+        Console.WriteLine($"  ServerState:  {info.ServerStateText}");
+        Console.WriteLine($"  UAS-compat:   {info.UasCompatibilityRequired}");
+        Console.WriteLine($"  Users:        {info.UserCount}");
+        Console.WriteLine($"  Groups:       {info.GroupCount}");
+        Console.WriteLine($"  Aliases:      {info.AliasCount}");
+        if (!string.IsNullOrEmpty(info.OemInformation))
+        {
+            Console.WriteLine($"  OemInfo:      {info.OemInformation}");
+        }
+
+        return 0;
+    }
+
     case "rpc-userinfo":
     {
         // Per-user detail via samr SamrQueryInformationUser2 class 21 (SAMPR_USER_ALL_INFORMATION) —
@@ -2333,6 +2405,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-dispinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-dispgroups <host> <user> <password> [domain] [port]");
+    Console.WriteLine("  rpc-domaininfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");
     Console.WriteLine("                   Per-user detail via samr QueryInformationUser2 level 21 (flags, timestamps).");

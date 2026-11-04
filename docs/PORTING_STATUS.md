@@ -108,6 +108,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       EnumerateUsersInDomain, OpenUser, QueryInformationUser2 (general info), CloseHandle
       — the full samrdump behavior (enumerate + per-user attributes)
 - [x] samr `SamrQueryInformationDomain` levels 1 (password info) + 12 (lockout info) — domain password policy
+- [x] samr `SamrQueryInformationDomain` level 2 (DomainGeneralInformation) — domain name, server
+      role/state, UAS-compat flag, and live user/group/alias counts (`Samr.QueryDomainGeneralInfo`
+      / `ParseDomainGeneral`, `rpc-domaininfo`). Validated live against the DC (role Primary, 4
+      users / 12 groups / 5 aliases, Oem "Provisioned by SAMBA 4.19.5-Ubuntu"; Samba returns a
+      non-standard DomainServerState 0, surfaced as the raw value). Known-bytes test pins the stub.
 - [x] samr `SamrEnumerateGroupsInDomain` (opnum 11) + `SamrEnumerateAliasesInDomain` (opnum 15) — group/alias enum (reuses the RID-enumeration parser)
 - [x] samr `SamrGetGroupsForUser` (opnum 39) — a user's domain group memberships
       (`Samr.GetGroupsForUser`; `rpc-userinfo` now lists them). Request is just the user handle;
@@ -211,6 +216,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-dispgroups <host> <user> <password> [domain] [port]` — samr group display enumeration
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
+- [x] `rpc-domaininfo <host> <user> <password> [domain] [port]` — samr domain general info (role + counts)
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
 - [x] `rpc-regenum <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's values

@@ -75,6 +75,45 @@ public sealed record SamrDisplayGroup(
 }
 
 /// <summary>
+/// SAMPR_DOMAIN_GENERAL_INFORMATION (MS-SAMR 2.2.3.3) — the domain's general state: name, the
+/// server's OEM description, replica source, server role/state, UAS-compat flag, and the live
+/// user / group / alias object counts. The counts are the quick domain-size recon enum4linux /
+/// samrdump print.
+/// </summary>
+public sealed record SamrDomainGeneral(
+    string DomainName,
+    string OemInformation,
+    string ReplicaSourceNodeName,
+    uint ServerState,
+    uint ServerRole,
+    bool UasCompatibilityRequired,
+    uint UserCount,
+    uint GroupCount,
+    uint AliasCount,
+    long ForceLogoff,
+    long DomainModifiedCount,
+    uint Status)
+{
+    public bool Success => Status == 0;
+
+    /// <summary>DOMAIN_SERVER_ROLE (MS-SAMR 2.2.3.1): 2 = Backup (BDC), 3 = Primary (PDC).</summary>
+    public string ServerRoleText => ServerRole switch
+    {
+        2 => "Backup",
+        3 => "Primary",
+        _ => $"({ServerRole})",
+    };
+
+    /// <summary>DOMAIN_SERVER_ENABLE_STATE (MS-SAMR 2.2.3.2): 1 = Enabled, 2 = Disabled.</summary>
+    public string ServerStateText => ServerState switch
+    {
+        1 => "Enabled",
+        2 => "Disabled",
+        _ => $"({ServerState})",
+    };
+}
+
+/// <summary>
 /// A GROUP_MEMBERSHIP entry (MS-SAMR 2.2.7.2): one domain group the user belongs to — the
 /// group RID and its SE_GROUP_* attribute flags. <see cref="GroupName"/> names the well-known
 /// RIDs; <see cref="AttributesText"/> decodes the flag bits.
@@ -183,6 +222,7 @@ public static class Samr
     private const ushort UserGeneralInformation = 1;
     private const ushort UserAllInformation = 21;
     private const ushort DomainPasswordInformation = 1;
+    private const ushort DomainGeneralInformation = 2;
     private const ushort DomainLockoutInformation = 12;
 
     /// <summary>SamrConnect (opnum 0): connect to the SAM server and get a server handle.</summary>
@@ -835,6 +875,55 @@ public static class Samr
 
         uint status = reader.ReadUInt32();           // ErrorCode (NTSTATUS)
         return (groups, totalAvailable, status);
+    }
+
+    /// <summary>
+    /// SamrQueryInformationDomain (opnum 8), class DomainGeneralInformation (level 2): the domain's
+    /// name, server role/state, and live user/group/alias object counts. Port of impacket's
+    /// <c>hSamrQueryInformationDomain</c> at this level.
+    /// </summary>
+    public static SamrDomainGeneral QueryDomainGeneralInfo(DcerpcPipe pipe, byte[] domainHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteUInt16(DomainGeneralInformation);
+        return ParseDomainGeneral(pipe.Call(OpnumQueryInformationDomain, ndr.ToArray()));
+    }
+
+    /// <summary>
+    /// Parses a DomainGeneralInformation response buffer: referent + union tag (2), a
+    /// SAMPR_DOMAIN_GENERAL_INFORMATION (ForceLogoff; three RPC_UNICODE_STRING headers for
+    /// Oem/DomainName/ReplicaSource; DomainModifiedCount; ServerState; ServerRole; a UCHAR
+    /// UAS-compat flag; and the User/Group/Alias counts), then the deferred string buffers in
+    /// field order, then the NTSTATUS. Exposed for tests / offline analysis.
+    /// </summary>
+    public static SamrDomainGeneral ParseDomainGeneral(byte[] stub)
+    {
+        var reader = new NdrReader(stub);
+        reader.ReadReferent();                 // Buffer pointer
+        reader.ReadUInt32();                   // union discriminant (== 2)
+
+        long forceLogoff = reader.ReadInt64(); // ForceLogoff (relative time)
+        uint oemRef = ReadUnicodeStringHeader(reader);     // OemInformation
+        uint nameRef = ReadUnicodeStringHeader(reader);    // DomainName
+        uint replicaRef = ReadUnicodeStringHeader(reader); // ReplicaSourceNodeName
+        long modifiedCount = reader.ReadInt64();           // DomainModifiedCount
+        uint serverState = reader.ReadUInt32();            // DomainServerState
+        uint serverRole = reader.ReadUInt32();             // DomainServerRole
+        bool uas = reader.ReadByte() != 0;                 // UasCompatibilityRequired (UCHAR)
+        uint userCount = reader.ReadUInt32();              // UserCount (ReadUInt32 realigns past the UCHAR pad)
+        uint groupCount = reader.ReadUInt32();             // GroupCount
+        uint aliasCount = reader.ReadUInt32();             // AliasCount
+
+        // Deferred conformant-varying buffers, in field order.
+        string oem = oemRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string name = nameRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+        string replica = replicaRef != 0 ? reader.ReadConformantVaryingString() : string.Empty;
+
+        uint status = reader.ReadUInt32();     // ErrorCode (NTSTATUS)
+        return new SamrDomainGeneral(
+            name, oem, replica, serverState, serverRole, uas,
+            userCount, groupCount, aliasCount, forceLogoff, modifiedCount, status);
     }
 
     /// <summary>SamrQueryInformationDomain (opnum 8), class DomainPasswordInformation (level 1).</summary>
