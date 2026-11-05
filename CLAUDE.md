@@ -71,6 +71,7 @@ src/
     DirectTcpTransport.cs          #   4-byte length-framed messages over TCP
   DotNetPacket.Protocols.Smb/         # SMB1 (legacy) + SMB2/3 (realistic transport)
     SmbHeader.cs                   #   SMBv1 header  (impacket smb.SMB.SMBHeader)
+    Smb1NegotiateProbe.cs          #   SMBv1-enabled probe (DumpNTLMInfo IsSmb1Enabled; the one deliberate SMB1 use)
     NetBiosSessionHeader.cs        #   NBSS header   (big-endian example)
     Smb2/Smb2Constants.cs          #   SMB2 commands, dialects, caps, context types
     Smb2/Smb2Header.cs             #   SMB2 64-byte header (declarative)
@@ -196,6 +197,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-regquery <lab-host> <user>
 dotnet run --project src/DotNetPacket.Examples -- rpc-regenum <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-regkeys <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind

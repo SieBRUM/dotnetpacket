@@ -224,6 +224,17 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       Validated live against the DC (signing required = True, result 8). Known-bytes tests pin the
       captured saslBindInProgress + strongerAuthRequired BindResponses.
 
+- [x] `DumpNTLMInfo.py` → `smb-ntlminfo <host> [port]` — credential-less host recon from the NTLM
+      handshake over SMB2. SMB2 NEGOTIATE (dialect, signing mode, max read/write, system/boot time)
+      + an anonymous SESSION_SETUP whose NTLM CHALLENGE discloses NetBIOS/DNS names and the OS
+      version block, then a true anonymous (null-session) AUTHENTICATE to test whether null
+      sessions are allowed. Also probes SMBv1 (`Smb1NegotiateProbe`). Validated live against the
+      DC — every field matches impacket (VM / LAB / lab.local / vm.lab.local, Windows NT 6.1
+      Build 0, null session = True) except the negotiated dialect (see WIRE_DIFF). Known-bytes
+      tests pin the captured NTLM CHALLENGE and assert the decoded host/OS/DNS fields.
+      The **RPC (ncacn_ip_tcp:135) transport** variant of this tool is deferred — the SMB path
+      is the default and covers the same disclosure; the RPC path adds a bind-ack challenge route.
+
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
 - [x] `smb2-negotiate <host> [port]` — live SMB2 NEGOTIATE, dumps both directions

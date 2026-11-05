@@ -151,6 +151,23 @@ public sealed class NtlmClient
         return BuildType3(lm, nt, domain, string.Empty, string.Empty, sessionKey);
     }
 
+    /// <summary>
+    /// Builds a true anonymous (null-session) NTLM AUTHENTICATE (Type 3), per MS-NLMP
+    /// 3.2.5.1.2: an empty NT response, a single-NUL LM response (Z(1)), the
+    /// NEGOTIATE_ANONYMOUS flag, and no exchanged session key. No NTLMv2 is computed. This is
+    /// what a Windows client sends for an anonymous SMB bind; a server that allows null
+    /// sessions answers SUCCESS, one that forbids them LOGON_FAILURE. Used by DumpNTLMInfo's
+    /// null-session test. Unlike <see cref="CreateAnonymousAuthenticate"/> (the GSS sign/seal
+    /// probe), it negotiates neither SEAL nor key exchange, so it is a plain anonymous bind.
+    /// </summary>
+    public byte[] CreateNullSessionAuthenticate()
+    {
+        Flags |= NtlmNegotiateFlags.NegotiateAnonymous;
+        byte[] lm = new byte[1];                             // Z(1): single NUL
+        byte[] nt = Array.Empty<byte>();                     // empty NT response = anonymous
+        return BuildType3(lm, nt, string.Empty, string.Empty, Workstation, Array.Empty<byte>());
+    }
+
     private byte[] BuildType3(byte[] lm, byte[] nt, string domain, string user, string workstation, byte[] sessionKey)
     {
         byte[] domainBytes = Encoding.Unicode.GetBytes(domain);

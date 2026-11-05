@@ -39,6 +39,29 @@ public sealed class Smb2LoginResult
     public required byte[] Round2Response { get; init; }
 }
 
+/// <summary>
+/// Outcome of the credential-less NTLM-info probe (DumpNTLMInfo.py): the parsed NTLM
+/// CHALLENGE the server returned to an anonymous SESSION_SETUP, plus the status of a
+/// follow-up blank-credential AUTHENTICATE (the "null session" test).
+/// </summary>
+public sealed class Smb2NtlmInfoResult
+{
+    public required NtlmChallenge Challenge { get; init; }
+
+    /// <summary>Status of the blank-credential AUTHENTICATE: SUCCESS means a null session is allowed.</summary>
+    public required uint NullSessionStatus { get; init; }
+
+    public bool NullSession => NullSessionStatus == NtStatus.Success;
+
+    public required byte[] ChallengeRequest { get; init; }
+
+    public required byte[] ChallengeResponse { get; init; }
+
+    public required byte[] NullSessionRequest { get; init; }
+
+    public required byte[] NullSessionResponse { get; init; }
+}
+
 /// <summary>Outcome of a TREE_CONNECT: the granted share info and whether the server's reply verified.</summary>
 public sealed class Smb2TreeConnectResult
 {
@@ -185,6 +208,51 @@ public sealed class Smb2Client : IDisposable
             Round1Response = response1,
             Round2Request = request2,
             Round2Response = response2,
+        };
+    }
+
+    /// <summary>
+    /// Runs the credential-less NTLM-info probe (impacket <c>DumpNTLMInfo.py</c>): an
+    /// anonymous SESSION_SETUP whose CHALLENGE discloses the host/domain/DNS names and OS
+    /// build, followed by a blank-credential AUTHENTICATE to test whether a null session is
+    /// allowed. Call after <see cref="Negotiate"/>. No signing key is derived (there is no
+    /// authenticated session), so nothing here is signed — matching a pre-auth probe.
+    /// </summary>
+    public Smb2NtlmInfoResult ProbeNtlmInfo()
+    {
+        var ntlm = new NtlmClient();
+
+        // Round 1: anonymous NTLM NEGOTIATE (Type 1), empty user/workstation, like the probe.
+        byte[] spnegoInit = Spnego.WrapInitialToken(ntlm.CreateNegotiate());
+        (byte[] request1, byte[] response1) = SendSessionSetup(spnegoInit, sessionId: 0);
+
+        var header1 = new Smb2Header();
+        header1.Unpack(response1);
+        _sessionId = header1.SessionId;
+
+        var setup1 = new Smb2SessionSetupResponse();
+        setup1.Unpack(response1);
+        byte[] challengeBytes = Spnego.ExtractResponseToken(setup1.SecurityBuffer);
+        NtlmChallenge challenge = NtlmChallenge.Parse(challengeBytes);
+
+        // Round 2: a true anonymous (null-session) AUTHENTICATE (Type 3) — empty NT response
+        // + NEGOTIATE_ANONYMOUS. A DC that forbids null sessions answers LOGON_FAILURE; one
+        // that allows it answers SUCCESS.
+        byte[] nullAuth = ntlm.CreateNullSessionAuthenticate();
+        byte[] spnegoResp = Spnego.WrapResponseToken(nullAuth);
+        (byte[] request2, byte[] response2) = SendSessionSetup(spnegoResp, _sessionId);
+
+        var header2 = new Smb2Header();
+        header2.Unpack(response2);
+
+        return new Smb2NtlmInfoResult
+        {
+            Challenge = challenge,
+            NullSessionStatus = header2.Status,
+            ChallengeRequest = request1,
+            ChallengeResponse = response1,
+            NullSessionRequest = request2,
+            NullSessionResponse = response2,
         };
     }
 

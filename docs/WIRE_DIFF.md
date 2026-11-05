@@ -79,6 +79,23 @@ Samba AD DC (`tools/lab-addc.sh`).
 | --- | --- | --- | --- |
 | Returned tower host floor (IP) | `0.0.0.0` | the server's actual address | A **server** fingerprint (not a client one): Samba's mapper returns `0.0.0.0`, Windows returns the real IP. Useful for telling the responder apart, independent of the client. |
 
+### DumpNTLMInfo credential-less recon (`smb-ntlminfo`, SMB2 path) — 2026-11-05
+
+Both tools pull the same host facts from the server's NTLM CHALLENGE (NetBIOS name `VM`,
+domain `LAB`, DNS `lab.local` / `vm.lab.local`, OS `Windows NT 6.1 Build 0`) and both get
+`Null Session = True`. The difference is entirely in *our* request shape:
+
+| Field | DotNetPacket (`smb-ntlminfo`) | stock impacket (`DumpNTLMInfo.py`) | Note |
+| --- | --- | --- | --- |
+| SMB2 NEGOTIATE dialects offered | 2.0.2, 2.1, 3.0, 3.0.2, **3.1.1** (+ 3.1.1 negotiate contexts) | 2.0.2, 2.1, 3.0 + an SMB2 **wildcard (`0x02ff`)** probe | **impacket tell.** Its custom `SMB2Negotiate` hardcodes a dialect list capped at 3.0, so the DC selects **SMB 3.0**; DotNetPacket offers the full modern set and the DC selects **SMB 3.1.1**, like a real Win10/11 client. |
+| Negotiated dialect (result) | **3.1.1** | **3.0** | direct consequence of the row above — a rule keying on "NTLM-recon that lands on SMB 3.0 with a `0x02ff` wildcard offer" catches impacket, not DotNetPacket or a real client. |
+| Null-session AUTHENTICATE (Type 3) | NT response empty, LM `00`, user NULL, `NEGOTIATE_ANONYMOUS` | NT response empty, LM `00`, user NULL | **same** — a true anonymous bind looks identical in both (and in Windows); the anonymous shape is not a usable tell. |
+| SMBv1 probe | one SMB1 NEGOTIATE offering only `NT LM 0.12` | same | both detect SMBv1 the same way (server answered → enabled). |
+
+The takeaway mirrors the other SMB findings: the **host-disclosure result is identical**
+(it comes from the server), while impacket's **limited dialect offer** is the fingerprint —
+and DotNetPacket diverges from it by looking *more* like Windows, not by evasion.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

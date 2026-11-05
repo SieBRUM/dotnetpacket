@@ -404,6 +404,85 @@ switch (args[0])
         return 0;
     }
 
+    case "smb-ntlminfo":
+    {
+        // DumpNTLMInfo.py: dump remote host info from the NTLM handshake, no credentials.
+        // SMB2 NEGOTIATE (dialect, signing, I/O sizes, times) + an anonymous SESSION_SETUP
+        // whose NTLM CHALLENGE discloses host/domain/DNS names and OS build; then a
+        // blank-credential AUTHENTICATE to test for a null session. Also probes SMBv1.
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: smb-ntlminfo <host> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        int port = args.Length >= 3 ? int.Parse(args[2]) : 445;
+
+        bool smb1 = Smb1NegotiateProbe.IsEnabled(host, port);
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        Smb2NegotiateResponse nego = client.Negotiate().Response;
+        Smb2NtlmInfoResult info = client.ProbeNtlmInfo();
+        NtlmChallenge challenge = info.Challenge;
+        AvPairs av = AvPairs.Parse(challenge.TargetInfo);
+
+        static string Utf16(byte[]? v) => v is null ? string.Empty : System.Text.Encoding.Unicode.GetString(v);
+        static string FormatSize(uint bytes)
+        {
+            if (bytes == 0) return "0 B";
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            double size = bytes;
+            int i = 0;
+            while (size >= 1024 && i < units.Length - 1) { size /= 1024; i++; }
+            return $"{size:0.##} {units[i]}";
+        }
+        static string FileTime(ulong ft) =>
+            ft == 0 ? "(not provided)" : DateTime.FromFileTimeUtc((long)ft).ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+
+        string signing = (nego.SecurityMode & Smb2SecurityMode.SigningRequired) != 0
+            ? "signing enabled | required"
+            : (nego.SecurityMode & Smb2SecurityMode.SigningEnabled) != 0
+                ? "signing enabled (not required)"
+                : "signing off";
+
+        Console.WriteLine($"NTLM info for {host}:{port} (DumpNTLMInfo.py, no credentials)");
+        Console.WriteLine($"  SMBv1 enabled    : {smb1}");
+        Console.WriteLine($"  Preferred dialect: 0x{(ushort)nego.DialectRevision:x4} ({nego.DialectRevision})");
+        Console.WriteLine($"  Server security  : {signing}");
+        Console.WriteLine($"  Max read size    : {FormatSize(nego.MaxReadSize)} ({nego.MaxReadSize} bytes)");
+        Console.WriteLine($"  Max write size   : {FormatSize(nego.MaxWriteSize)} ({nego.MaxWriteSize} bytes)");
+        Console.WriteLine($"  Current time     : {FileTime(nego.SystemTime)}");
+        if (nego.ServerStartTime != 0)
+        {
+            Console.WriteLine($"  Boot time        : {FileTime(nego.ServerStartTime)}");
+        }
+
+        // Print each name only when the server actually disclosed that AV pair (like impacket).
+        void Av(string label, NtlmAvId id)
+        {
+            byte[]? value = av.Get(id);
+            if (value is not null)
+            {
+                Console.WriteLine($"  {label}: {Utf16(value)}");
+            }
+        }
+
+        Av("Name            ", NtlmAvId.NbComputerName);
+        Av("Domain          ", NtlmAvId.NbDomainName);
+        Av("DNS tree name   ", NtlmAvId.DnsTreeName);
+        Av("DNS domain name ", NtlmAvId.DnsDomainName);
+        Av("DNS host name   ", NtlmAvId.DnsComputerName);
+        if (challenge.HasVersion)
+        {
+            Console.WriteLine($"  OS               : Windows NT {challenge.OsMajor}.{challenge.OsMinor} Build {challenge.OsBuild}");
+        }
+
+        Console.WriteLine($"  Null session     : {info.NullSession} ({NtStatus.Describe(info.NullSessionStatus)})");
+        return 0;
+    }
+
     case "ldap-signing":
     {
         // CheckLDAPStatus.py (signing portion): probe whether the DC enforces LDAP signing.
@@ -2686,6 +2765,7 @@ static void PrintUsage()
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
+    Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
