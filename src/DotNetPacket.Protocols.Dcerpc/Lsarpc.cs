@@ -62,6 +62,7 @@ public static class Lsarpc
     private const ushort OpnumLsarQueryInformationPolicy2 = 46;
 
     private const uint MaximumAllowed = 0x02000000;
+    private const ushort PolicyPrimaryDomainInformation = 3;
     private const ushort PolicyAccountDomainInformation = 5;
     private const ushort PolicyDnsDomainInformation = 12;
 
@@ -92,6 +93,22 @@ public static class Lsarpc
         var ndr = new NdrWriter();
         ndr.WriteContextHandle(policyHandle);          // PolicyHandle [in]
         ndr.WriteUInt16(PolicyAccountDomainInformation); // InformationClass (enum16)
+        byte[] stub = pipe.Call(OpnumLsarQueryInformationPolicy, ndr.ToArray());
+        return ParseAccountDomain(stub);
+    }
+
+    /// <summary>
+    /// LsarQueryInformationPolicy (opnum 7), class PolicyPrimaryDomainInformation (3): the primary
+    /// domain the host is a member of — its name and SID (LSAPR_POLICY_PRIMARY_DOM_INFO). Same
+    /// Name+Sid wire shape as the account-domain class, so it reuses <see cref="ParseAccountDomain"/>.
+    /// On a member/standalone host this is the joined domain (vs the local account domain); on a DC
+    /// both name the domain itself. Port of impacket's hLsarQueryInformationPolicy at this class.
+    /// </summary>
+    public static LsaAccountDomain QueryPrimaryDomain(DcerpcPipe pipe, byte[] policyHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(policyHandle);            // PolicyHandle [in]
+        ndr.WriteUInt16(PolicyPrimaryDomainInformation); // InformationClass (enum16)
         byte[] stub = pipe.Call(OpnumLsarQueryInformationPolicy, ndr.ToArray());
         return ParseAccountDomain(stub);
     }

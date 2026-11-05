@@ -85,6 +85,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       disc 15, announce 240/3000, licenses 100000, path C:\). Known-bytes test pins the stub.
 - [x] NDR `RPC_UNICODE_STRING`, `RPC_SID`, enum-switched union (lsarpc parser)
 - [x] lsarpc `LsarOpenPolicy2` + `LsarQueryInformationPolicy` (account domain + SID) — `Lsarpc`
+- [x] lsarpc `LsarQueryInformationPolicy` class 3 (PolicyPrimaryDomainInformation) — the primary
+      domain the host belongs to, name + SID (`Lsarpc.QueryPrimaryDomain`; `rpc-lsa` prints it).
+      Same Name+Sid wire shape as the account-domain class, so it reuses `ParseAccountDomain`.
+      Validated live against the DC (primary domain LAB + SID). Known-bytes test pins the stub.
 - [x] lsarpc `LsarEnumeratePrivileges` (list LSA privileges: name + LUID) — `Lsarpc`
 - [x] lsarpc `LsarLookupPrivilegeValue` (opnum 31) + `LsarLookupPrivilegeName` (opnum 32) — the
       privilege name<->LUID resolver pair (`Lsarpc.LookupPrivilegeValue` / `LookupPrivilegeName`,
@@ -576,3 +580,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   Stock impacket's `hNetrWkstaUserEnum` returns `nca_s_op_rng_error` (opnum out of range) at levels
   0 and 1 — Samba's wkssvc implements NetrWkstaGetInfo (opnum 0) but not the logged-on-user
   enumeration. Can't be live-validated here; deferred until a Windows capture target is available.
+- **2026-11-05 — lsarpc PolicyPrimaryDomainInformation (class 3) validated on the DC.** `rpc-lsa`
+  now also prints the primary domain name + SID. Clean reuse of the account-domain parser.
+- **2026-11-05 — observed: samr SamrQueryInformationUser2 level 5 (UserLogonInformation) diverges on
+  this Samba build (not ported).** The server's response carries eight RPC_UNICODE_STRING fields
+  (an extra AdminComment/description string) where the documented MS-SAMR
+  SAMPR_USER_USER_LOGON_INFORMATION has seven, so a faithful port to the documented layout would
+  not match this server and matching this server would be Samba-specific, not Windows-like.
+  Deferred until a Windows capture confirms the real layout. (Levels 1/5 do return via impacket but
+  the decode does not match the spec — not shipping a guessed parser. The home/script/profile
+  fields are also empty for the lab accounts, so there is little to demonstrate here anyway.)

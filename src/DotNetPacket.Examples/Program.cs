@@ -994,6 +994,14 @@ switch (args[0])
             Console.WriteLine($"  Account domain: {account.Name}");
             Console.WriteLine($"  Account SID:    {account.Sid}");
 
+            // Primary domain (QueryInformationPolicy class 3): the domain the host is a member of.
+            LsaAccountDomain primary = Lsarpc.QueryPrimaryDomain(pipe, policy.Handle);
+            if (primary.Success && !string.IsNullOrEmpty(primary.Name))
+            {
+                Console.WriteLine($"  Primary domain: {primary.Name}");
+                Console.WriteLine($"  Primary SID:    {primary.Sid}");
+            }
+
             // DNS/forest identity (QueryInformationPolicy2 level 12) — only a DC answers.
             try
             {

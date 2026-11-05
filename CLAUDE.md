@@ -98,7 +98,7 @@ src/
     Ndr/NdrWriter.cs / NdrReader.cs #  NDR marshalling (alignment, referents, handles, strings)
     Srvsvc.cs                      #   srvsvc NetrShareEnum + NetrServerGetInfo (levels 101 + 102)
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
-    Lsarpc.cs                      #   lsarpc policy open + account domain/SID + DNS/forest info + privilege enumeration + name<->LUID lookup + privilege display name + per-SID account rights
+    Lsarpc.cs                      #   lsarpc policy open + account/primary domain + SID + DNS/forest info + privilege enumeration + name<->LUID lookup + privilege display name + per-SID account rights
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
     Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open (domain/user/alias) + QueryInfo (user general + level-21 all) + domain info (general + password/lockout policy) + display info users+groups (samrdump) + GetGroupsForUser + alias members
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
