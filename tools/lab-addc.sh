@@ -92,6 +92,20 @@ PY
     fi
 }
 
+# Allow an LDAP *simple* bind over plaintext 389 so the LDAP example ports
+# (get-adcomputers, get-adusers, …) can be validated against this loopback lab.
+# This Samba AD DC rejects an NTLM-over-LDAP bind with "data 52e" even for stock
+# impacket (an environment quirk, not a client bug), so a simple bind is the only
+# LDAP auth this lab accepts. A real/default DC requires sign/seal or LDAPS; that
+# sealed-bind path is tracked as deferred in docs/PORTING_STATUS.md. Idempotent.
+ensure_ldap_simplebind() {
+    [[ -f "$SMBCONF" ]] || return 0
+    if ! grep -q 'ldap server require strong auth' "$SMBCONF"; then
+        sed -i 's/^\(\s*server role = active directory domain controller\)/\1\n\tldap server require strong auth = no/' "$SMBCONF"
+        log "patched $SMBCONF: ldap server require strong auth = no (LDAP example validation)"
+    fi
+}
+
 start() {
     if pgrep -x samba >/dev/null 2>&1; then
         log "AD DC already running"; return
@@ -99,6 +113,7 @@ start() {
     ensure_winbind
     stop_standalone_smbd
     provision
+    ensure_ldap_simplebind
     log "starting samba AD DC daemon"
     /usr/sbin/samba -s "$SMBCONF" || die "samba daemon failed to start"
 

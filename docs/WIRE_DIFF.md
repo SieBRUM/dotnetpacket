@@ -117,6 +117,26 @@ or Windows) the network sees an SMB3 session to SYSVOL and little else, so GPP-c
 detection leans on SYSVOL file-access auditing / the file content at rest rather than payload
 inspection.
 
+### GetADComputers LDAP search (`get-adcomputers`) — 2026-11-05
+
+No stock-impacket diff was possible here: this Samba lab **rejects impacket's NTLM-over-LDAP
+bind with `data 52e`** (SMB NTLMv2 with the same credentials succeeds — an environment quirk,
+not an impacket bug), so impacket never reaches the search. DotNetPacket binds **simple** over
+389 (the lab was set to `ldap server require strong auth = no` to allow it) and the SearchRequest
+was instead validated against Wireshark's LDAP dissector:
+
+| Aspect | DotNetPacket (`get-adcomputers`) | Note |
+| --- | --- | --- |
+| Bind | simple bind, UPN `user@domain`, password in `simple [0]` | lab path. A real/default DC requires sign/seal or LDAPS; impacket uses NTLM-sealed bind (deferred here, and un-validatable on this lab). The *search* that follows is identical regardless of bind. |
+| SearchRequest | base `dc=lab,dc=local`, scope wholeSubtree, deref never, filter `(&(objectCategory=computer)(objectClass=computer))`, attrs sAMAccountName/dNSHostName/operatingSystem/operatingSystemVersion | Wireshark decodes it exactly as intended; the BER (context-tagged `and [0]` of two `equalityMatch [3]`, attrs as `SEQUENCE OF OCTET STRING`) is what any RFC-4511 encoder — impacket's `ldapasn1` included — emits for this filter. |
+| Paging | none (unpaged) | impacket sends a `SimplePagedResultsControl(size=100)`; ours omits it. On a large directory this is a visible difference (no `1.2.840.113556.1.4.319` control, single result set). Tracked as deferred. |
+
+The durable detection signal is the **search shape**: an authenticated client doing a subtree
+search for `(&(objectCategory=computer)(objectClass=computer))` returning OS/DNS attributes —
+identical whatever the bind or runtime. Visible on the wire only for an unencrypted bind (ours);
+an NTLM-sealed or LDAPS bind (impacket / a real client) hides the filter and results, pushing
+detection to LDAP server-side query logging.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

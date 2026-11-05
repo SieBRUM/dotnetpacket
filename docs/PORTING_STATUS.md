@@ -205,9 +205,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       `LdapConnection`.
 - [x] GSS-SPNEGO (NTLM) SASL bind reusing the existing NTLM/SPNEGO stack; anonymous NTLM
       AUTHENTICATE (`NtlmClient.CreateAnonymousAuthenticate`) for credential-less probes.
+- [x] LDAP **simple bind** (`SimpleBind`, name + password in the `simple [0]` CHOICE) — the lab
+      auth path for the search examples (the DC rejects NTLM-over-LDAP with data 52e; see below).
+- [x] LDAP **search** (`Search` / `EncodeSearchRequest` / `ParseSearchEntry`, `LdapFilter`,
+      `SearchEntry`): SearchRequest (base/scope/deref/limits/typesOnly/filter/attrs), filters
+      (and/or/equality/present), SearchResultEntry/Done parsing, referral skip. Byte-validated via
+      Wireshark + known-bytes tests.
+- [ ] **NTLM-sealed LDAP bind** (impacket's default) — deferred. Would need the NTLM GSS SASL
+      sign/seal layer wrapping post-bind PDUs. Cannot be validated on this lab anyway: the Samba DC
+      answers an NTLM LDAP bind with `data 52e` even for stock impacket (SMB NTLMv2 works), so the
+      examples use a simple bind instead.
 - [ ] LDAPS (TLS on 636) + channel-binding probe (the second half of CheckLDAPStatus) — needs a
-      TLS transport + CBT; deferred.
-- [ ] Search / other LDAP operations (only bind is ported so far).
+      TLS transport + CBT; deferred. (The lab DC does not expose 636.)
+- [ ] Paged results (SimplePagedResultsControl) — searches are currently unpaged.
 
 ### GPP (`DotNetPacket.Protocols.Gpp`)
 
@@ -256,6 +266,22 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       SMB3 encryption (see WIRE_DIFF) — observable by design, and the known SMB3-encryption gap.
       `LOCAL` file-parse mode and the `-hashes`/Kerberos auth variants are not ported (lab uses
       password auth).
+
+- [x] `GetADComputers.py` → `get-adcomputers <host> <user> <password> <domain-fqdn> [port]`
+      — LDAP-search a DC for computer objects (`(&(objectCategory=computer)(objectClass=computer))`)
+      and print sAMAccountName / dNSHostName / operatingSystem / operatingSystemVersion. Added the
+      LDAP **search** path (SearchRequest/SearchResultEntry/Done, filters, simple bind) to
+      `DotNetPacket.Protocols.Ldap`. Validated live against the lab DC: found `VM$` /
+      `vm.lab.local` / Samba-4.19.5-Ubuntu / 6.1 (7600). The request bytes are byte-identical to
+      a Wireshark-decoded LDAP SearchRequest (filter + attributes exactly as intended); known-bytes
+      tests pin both the encoded request and a captured SearchResultEntry.
+      **Lab limitation / divergence:** this Samba DC rejects an NTLM-over-LDAP bind with `data 52e`
+      *even for stock impacket* (SMB NTLMv2 works fine — an environment quirk), so the example
+      binds **simple** over plaintext 389, which needed `ldap server require strong auth = no`
+      (now set idempotently by `tools/lab-addc.sh`). The realistic NTLM-sealed LDAP bind and LDAPS
+      are deferred (tracked under the Ldap area). Paged results (SimplePagedResultsControl) not
+      implemented — the lab directory is small; noted for larger targets. `-resolveIP` (DNS A
+      lookup per host) not ported.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE

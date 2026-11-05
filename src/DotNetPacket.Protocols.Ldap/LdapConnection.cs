@@ -25,7 +25,12 @@ public sealed class LdapConnection : IDisposable
     private static readonly Asn1Tag BindRequestTag = new(TagClass.Application, 0, isConstructed: true);
     private static readonly Asn1Tag BindResponseTag = new(TagClass.Application, 1, isConstructed: true);
     private static readonly Asn1Tag SaslCredentialsTag = new(TagClass.ContextSpecific, 3, isConstructed: true);
+    private static readonly Asn1Tag SimplePasswordTag = new(TagClass.ContextSpecific, 0, isConstructed: false);
     private static readonly Asn1Tag ServerSaslCredsTag = new(TagClass.ContextSpecific, 7, isConstructed: false);
+    private static readonly Asn1Tag SearchRequestTag = new(TagClass.Application, 3, isConstructed: true);
+    private static readonly Asn1Tag SearchResultEntryTag = new(TagClass.Application, 4, isConstructed: true);
+    private static readonly Asn1Tag SearchResultDoneTag = new(TagClass.Application, 5, isConstructed: true);
+    private static readonly Asn1Tag SearchResultReferenceTag = new(TagClass.Application, 19, isConstructed: true);
 
     private const string GssSpnego = "GSS-SPNEGO";
 
@@ -70,6 +75,144 @@ public sealed class LdapConnection : IDisposable
         Spnego.ExtractResponseToken(first.ServerSaslCreds);           // NTLM Type 2 (challenge, unused for anon)
         byte[] authenticate = ntlm.CreateAnonymousAuthenticate(domain); // anonymous NTLM Type 3
         return SaslBind(GssSpnego, Spnego.WrapResponseToken(authenticate)); // NTLM Type 3
+    }
+
+    /// <summary>
+    /// Performs an LDAP simple bind (RFC 4511 4.2): name (a DN or UPN) + password in the
+    /// <c>simple [0]</c> CHOICE. The password crosses the wire in cleartext, so a real
+    /// deployment does this only under TLS; the lab allows it on plaintext 389 for validation
+    /// (see docs). Returns the parsed BindResponse (ResultCode 0 = success).
+    /// </summary>
+    public LdapBindResponse SimpleBind(string name, string password)
+    {
+        int id = ++_messageId;
+        var writer = new AsnWriter(AsnEncodingRules.BER);
+        using (writer.PushSequence())                       // LDAPMessage
+        {
+            writer.WriteInteger(id);                         // messageID
+            using (writer.PushSequence(BindRequestTag))     // BindRequest [APPLICATION 0]
+            {
+                writer.WriteInteger(3);                      // version
+                writer.WriteOctetString(Encoding.UTF8.GetBytes(name)); // name (LDAPDN / UPN)
+                writer.WriteOctetString(Encoding.UTF8.GetBytes(password), SimplePasswordTag); // simple [0]
+            }
+        }
+
+        _stream.Write(writer.Encode());
+        return ParseBindResponse(ReadMessage());
+    }
+
+    /// <summary>
+    /// Runs an LDAP search (RFC 4511 4.5) and returns every SearchResultEntry. Reads messages
+    /// until the SearchResultDone. Referrals/continuations are skipped. This is an unpaged
+    /// search (sizeLimit as given); the ported examples target a small lab directory, so paged
+    /// results (SimplePagedResultsControl) are not implemented — noted in PORTING_STATUS.
+    /// </summary>
+    public IReadOnlyList<SearchEntry> Search(
+        string baseObject,
+        LdapFilter filter,
+        IReadOnlyList<string> attributes,
+        LdapSearchScope scope = LdapSearchScope.WholeSubtree,
+        int sizeLimit = 0,
+        int timeLimit = 0)
+    {
+        int id = ++_messageId;
+        _stream.Write(EncodeSearchRequest(id, baseObject, filter, attributes, scope, sizeLimit, timeLimit));
+
+        var entries = new List<SearchEntry>();
+        while (true)
+        {
+            var top = new AsnReader(ReadMessage(), AsnEncodingRules.BER);
+            AsnReader message = top.ReadSequence();
+            message.ReadInteger();                           // messageID
+            Asn1Tag tag = message.PeekTag();
+
+            if (tag.HasSameClassAndValue(SearchResultEntryTag))
+            {
+                entries.Add(ParseSearchEntry(message.ReadSequence(SearchResultEntryTag)));
+            }
+            else if (tag.HasSameClassAndValue(SearchResultDoneTag))
+            {
+                break; // the search is complete (result code ignored here)
+            }
+            else
+            {
+                message.ReadEncodedValue(); // SearchResultReference or anything else — skip
+            }
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// Encodes a SearchRequest LDAPMessage (RFC 4511 4.5.1) to its BER bytes (exposed for
+    /// tests / offline analysis). Deterministic for a given message id and search.
+    /// </summary>
+    public static byte[] EncodeSearchRequest(
+        int messageId,
+        string baseObject,
+        LdapFilter filter,
+        IReadOnlyList<string> attributes,
+        LdapSearchScope scope = LdapSearchScope.WholeSubtree,
+        int sizeLimit = 0,
+        int timeLimit = 0)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.BER);
+        using (writer.PushSequence())                       // LDAPMessage
+        {
+            writer.WriteInteger(messageId);                  // messageID
+            using (writer.PushSequence(SearchRequestTag))   // SearchRequest [APPLICATION 3]
+            {
+                writer.WriteOctetString(Encoding.UTF8.GetBytes(baseObject)); // baseObject
+                writer.WriteEnumeratedValue(scope);                          // scope
+                writer.WriteEnumeratedValue(LdapDerefAliases.NeverDerefAliases); // derefAliases
+                writer.WriteInteger(sizeLimit);              // sizeLimit
+                writer.WriteInteger(timeLimit);              // timeLimit
+                writer.WriteBoolean(false);                  // typesOnly
+                filter.Write(writer);                        // filter
+                using (writer.PushSequence())                // attributes (SEQUENCE OF LDAPString)
+                {
+                    foreach (string attr in attributes)
+                    {
+                        writer.WriteOctetString(Encoding.UTF8.GetBytes(attr));
+                    }
+                }
+            }
+        }
+
+        return writer.Encode();
+    }
+
+    /// <summary>Parses a SearchResultEntry LDAPMessage (exposed for tests / offline analysis).</summary>
+    public static SearchEntry ParseSearchEntry(byte[] message)
+    {
+        var top = new AsnReader(message, AsnEncodingRules.BER);
+        AsnReader ldapMessage = top.ReadSequence();
+        ldapMessage.ReadInteger();                           // messageID
+        return ParseSearchEntry(ldapMessage.ReadSequence(SearchResultEntryTag));
+    }
+
+    private static SearchEntry ParseSearchEntry(AsnReader entry)
+    {
+        string objectName = Encoding.UTF8.GetString(entry.ReadOctetString()); // objectName LDAPDN
+
+        var attributes = new List<SearchAttribute>();
+        AsnReader attrList = entry.ReadSequence();           // PartialAttributeList
+        while (attrList.HasData)
+        {
+            AsnReader attr = attrList.ReadSequence();
+            string type = Encoding.UTF8.GetString(attr.ReadOctetString()); // type
+            var values = new List<byte[]>();
+            AsnReader vals = attr.ReadSetOf();               // vals SET OF AttributeValue
+            while (vals.HasData)
+            {
+                values.Add(vals.ReadOctetString());
+            }
+
+            attributes.Add(new SearchAttribute(type, values));
+        }
+
+        return new SearchEntry(objectName, attributes);
     }
 
     /// <summary>Sends one SASL BindRequest (RFC 4511 4.2) and returns the parsed BindResponse.</summary>

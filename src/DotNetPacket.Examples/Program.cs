@@ -599,6 +599,56 @@ switch (args[0])
         return 0;
     }
 
+    case "get-adcomputers":
+    {
+        // GetADComputers.py: LDAP-search a DC for all computer objects and print
+        // sAMAccountName / dNSHostName / operatingSystem / operatingSystemVersion.
+        // Binds simple (lab path; see docs) and searches (&(objectCategory=computer)(objectClass=computer)).
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: get-adcomputers <host> <user> <password> <domain-fqdn> [port]");
+            Console.Error.WriteLine("  e.g. get-adcomputers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 389;
+
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, port);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        LdapFilter filter = LdapFilter.AllOf(
+            LdapFilter.Equal("objectCategory", "computer"),
+            LdapFilter.Equal("objectClass", "computer"));
+        string[] attrs = { "sAMAccountName", "dNSHostName", "operatingSystem", "operatingSystemVersion" };
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs);
+
+        Console.WriteLine($"Querying {host} ({baseDn}) for computer objects (GetADComputers.py)");
+        Console.WriteLine();
+        Console.WriteLine($"{"SAM AcctName",-20} {"DNS Hostname",-28} {"OS Version",-14} OS");
+        Console.WriteLine($"{new string('-', 20)} {new string('-', 28)} {new string('-', 14)} {new string('-', 20)}");
+        foreach (SearchEntry e in entries)
+        {
+            Console.WriteLine($"{e.Get("sAMAccountName"),-20} {e.Get("dNSHostName"),-28} " +
+                $"{e.Get("operatingSystemVersion"),-14} {e.Get("operatingSystem")}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{entries.Count} computer object(s).");
+        return 0;
+    }
+
     case "ldap-signing":
     {
         // CheckLDAPStatus.py (signing portion): probe whether the DC enforces LDAP signing.
@@ -2896,6 +2946,7 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
     Console.WriteLine("  gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]   # Get-GPPPassword: find+decrypt GPP cpasswords");
+    Console.WriteLine("  get-adcomputers <host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
