@@ -209,6 +209,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       TLS transport + CBT; deferred.
 - [ ] Search / other LDAP operations (only bind is ported so far).
 
+### GPP (`DotNetPacket.Protocols.Gpp`)
+
+- [x] GPP `cpassword` decryption (MS-GPPREF): AES-256-CBC under Microsoft's published key +
+      fixed zero IV, base64 re-padding, PKCS7 unpad, UTF-16LE. `GppCrypto`. Vectors cross-checked
+      against impacket.
+- [x] GPP XML parsing (`GppPreferences`): walks `<Properties cpassword=…>` across Groups /
+      ScheduledTasks / Services / etc., reads userName/newName/runAs/name + parent `changed`.
+      External-entity resolution disabled.
+
 ### Kerberos (`DotNetPacket.Protocols.Krb5` — not created yet)
 
 - [ ] ASN.1 helper strategy (decide: library vs. hand-rolled) before porting
@@ -234,6 +243,19 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       tests pin the captured NTLM CHALLENGE and assert the decoded host/OS/DNS fields.
       The **RPC (ncacn_ip_tcp:135) transport** variant of this tool is deferred — the SMB path
       is the default and covers the same disclosure; the RPC path adds a bind-ack challenge route.
+
+- [x] `Get-GPPPassword.py` → `gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]`
+      — authenticated SMB2 crawl of a share (default SYSVOL) for Group Policy Preferences XML,
+      carving every `cpassword` and decrypting it with Microsoft's published GPP key
+      (AES-256-CBC, fixed zero IV; MS14-025 made this a misconfiguration signal, not a secret).
+      Breadth-first QUERY_DIRECTORY recursion + READ of each `*.xml`; decrypt + XML parse in
+      `DotNetPacket.Protocols.Gpp`. Validated live against the lab DC with a planted Groups.xml:
+      recovered `Passw0rd!Lab`, byte-identical plaintext to impacket. Known-bytes tests pin four
+      authentic cpassword vectors (incl. the canonical published one) cross-checked against
+      impacket, plus Groups.xml parsing. Note: our crawl is cleartext+signed where impacket uses
+      SMB3 encryption (see WIRE_DIFF) — observable by design, and the known SMB3-encryption gap.
+      `LOCAL` file-parse mode and the `-hashes`/Kerberos auth variants are not ported (lab uses
+      password auth).
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE

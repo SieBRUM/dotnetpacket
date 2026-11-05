@@ -113,6 +113,9 @@ src/
   DotNetPacket.Protocols.Ldap/        # LDAP (RFC 4511) bind path over TCP
     LdapResultCode.cs              #   bind result codes (strongerAuthRequired, saslBindInProgress)
     LdapConnection.cs              #   BER LDAPMessage/BindRequest + GSS-SPNEGO NTLM bind (CheckLDAPStatus signing probe)
+  DotNetPacket.Protocols.Gpp/         # Group Policy Preferences (MS-GPPREF)
+    GppCrypto.cs                   #   cpassword AES-256-CBC decrypt (Microsoft's published key; Get-GPPPassword)
+    GppPreferences.cs              #   GPP XML cpassword carving (Groups/ScheduledTasks/… -> findings)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer

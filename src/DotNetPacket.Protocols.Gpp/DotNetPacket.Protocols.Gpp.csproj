@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Group Policy Preferences (MS-GPPREF) cpassword parsing + decryption for DotNetPacket's Get-GPPPassword port.</Description>
+  </PropertyGroup>
+
+</Project>

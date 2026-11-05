@@ -96,6 +96,27 @@ The takeaway mirrors the other SMB findings: the **host-disclosure result is ide
 (it comes from the server), while impacket's **limited dialect offer** is the fingerprint —
 and DotNetPacket diverges from it by looking *more* like Windows, not by evasion.
 
+### Get-GPPPassword SYSVOL crawl (`gpp-passwords`) — 2026-11-05
+
+Both tools authenticate, crawl the share for `*.xml`, and decrypt any `cpassword` with the
+same published GPP key — recovering byte-identical plaintext (`Passw0rd!Lab` from a planted
+Groups.xml). The decryption is offline and identical; the wire difference is the transport:
+
+| Aspect | DotNetPacket (`gpp-passwords`) | stock impacket (`Get-GPPPassword.py`) | Note |
+| --- | --- | --- | --- |
+| SMB3 encryption of the crawl | **off** — all 112 SMB2 messages cleartext (signed) | **on** — 168 `SMB2_TRANSFORM` (encrypted) messages; tree/filenames opaque to tshark | **Biggest difference.** impacket encrypts the whole SYSVOL crawl, so a network sensor cannot see which files are read or that a cpassword crossed the wire. Ours is observable by design (lab-first) — and reflects the known SMB3-encryption gap (tracked in PORTING_STATUS). A *real* Windows client would encrypt when the server offers it, so here impacket is closer to Windows; the SOC should treat the cleartext crawl as a lab convenience, not the on-wire truth. |
+| Negotiated dialect | SMB 3.1.1 | SMB 3.1.1 | same (unlike DumpNTLMInfo, this path uses the full modern negotiate in both) |
+| Pre-crawl `srvsvc` share enumeration | not sent | `list_shares()` (NetrShareEnum over IPC$) before crawling | cosmetic recon step impacket prints; not part of the GPP read itself |
+| Directory walk | BFS QUERY_DIRECTORY from the share root, READ each `*.xml` | BFS `listPath` + `getFile` (streamed, no mount) | same behavioral shape |
+| cpassword decryption | AES-256-CBC, published key, zero IV, offline | identical | the key is public (MS14-025); not a secret and not on the wire |
+
+The durable detection signal here is **behavioral and partly host/endpoint-side**: an
+authenticated client doing a recursive SYSVOL walk that opens GPP `*.xml` files. On the wire
+that is only visible when the session is unencrypted; against an encrypting client (impacket
+or Windows) the network sees an SMB3 session to SYSVOL and little else, so GPP-cpassword
+detection leans on SYSVOL file-access auditing / the file content at rest rather than payload
+inspection.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

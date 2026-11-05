@@ -1,5 +1,6 @@
 using DotNetPacket.Core;
 using DotNetPacket.Protocols.Dcerpc;
+using DotNetPacket.Protocols.Gpp;
 using DotNetPacket.Protocols.Ldap;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Smb;
@@ -401,6 +402,121 @@ switch (args[0])
             Console.WriteLine($"  {iface}");
         }
 
+        return 0;
+    }
+
+    case "gpp-passwords":
+    {
+        // Get-GPPPassword.py: recursively crawl an SMB share (default SYSVOL) for GPP XML
+        // files, carve every cpassword, and decrypt it with Microsoft's published GPP key.
+        // Finding a cpassword is a misconfiguration signal; the key is public (MS14-025, 2014).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        string share = args.Length >= 6 ? args[5] : "SYSVOL";
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult tree = client.TreeConnect($@"\\{host}\{share}");
+        if (!tree.Connected)
+        {
+            Console.Error.WriteLine($"TREE_CONNECT to {share} failed: {NtStatus.Describe(tree.Status)}");
+            return 1;
+        }
+
+        Console.WriteLine($"Crawling \\\\{host}\\{share} for GPP cpasswords (Get-GPPPassword.py)...");
+        int xmlCount = 0;
+        int findingCount = 0;
+
+        // Breadth-first walk of the share, like impacket, listing each directory for *.xml.
+        var queue = new Queue<string>();
+        queue.Enqueue(string.Empty); // share root
+        var seen = new HashSet<string>();
+        while (queue.Count > 0)
+        {
+            string dir = queue.Dequeue();
+            if (!seen.Add(dir) || seen.Count > 20_000)
+            {
+                continue;
+            }
+
+            IReadOnlyList<Smb2DirectoryEntry> entries;
+            try
+            {
+                entries = client.ListDirectory(tree.TreeId, dir);
+            }
+            catch (IOException)
+            {
+                continue; // unreadable subtree — skip, keep crawling (impacket does the same)
+            }
+
+            foreach (Smb2DirectoryEntry entry in entries)
+            {
+                if (entry.Name is "." or "..")
+                {
+                    continue;
+                }
+
+                string childPath = dir.Length == 0 ? entry.Name : $@"{dir}\{entry.Name}";
+                if (entry.IsDirectory)
+                {
+                    queue.Enqueue(childPath);
+                }
+                else if (entry.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    xmlCount++;
+                    byte[] raw;
+                    try
+                    {
+                        raw = client.ReadFile(tree.TreeId, childPath);
+                    }
+                    catch (IOException)
+                    {
+                        continue;
+                    }
+
+                    string content = DecodeXml(raw);
+                    if (!GppPreferences.ContainsCpassword(content))
+                    {
+                        continue;
+                    }
+
+                    foreach (GppFinding f in GppPreferences.Parse(childPath, content))
+                    {
+                        findingCount++;
+                        Console.WriteLine();
+                        Console.WriteLine($"[+] Found a {f.Type} GPP cpassword:");
+                        Console.WriteLine($"    file     : \\\\{host}\\{share}\\{f.File}");
+                        if (!string.IsNullOrEmpty(f.Name)) Console.WriteLine($"    name     : {f.Name}");
+                        if (!string.IsNullOrEmpty(f.UserName)) Console.WriteLine($"    userName : {f.UserName}");
+                        if (!string.IsNullOrEmpty(f.NewName)) Console.WriteLine($"    newName  : {f.NewName}");
+                        if (!string.IsNullOrEmpty(f.RunAs)) Console.WriteLine($"    runAs    : {f.RunAs}");
+                        Console.WriteLine($"    password : {f.Password}");
+                        if (!string.IsNullOrEmpty(f.Changed)) Console.WriteLine($"    changed  : {f.Changed}");
+                    }
+                }
+            }
+        }
+
+        client.TreeDisconnect(tree.TreeId);
+        Console.WriteLine();
+        Console.WriteLine($"Scanned {xmlCount} XML file(s); {findingCount} cpassword finding(s).");
         return 0;
     }
 
@@ -2736,6 +2852,19 @@ switch (args[0])
         return 1;
 }
 
+// Decode a GPP XML file's bytes to text, honoring a UTF-8/UTF-16 BOM (GPP files are
+// typically UTF-8; some are UTF-16). Falls back to UTF-8 without a BOM.
+static string DecodeXml(byte[] raw)
+{
+    if (raw.Length >= 2 && raw[0] == 0xFF && raw[1] == 0xFE)
+        return System.Text.Encoding.Unicode.GetString(raw, 2, raw.Length - 2);
+    if (raw.Length >= 2 && raw[0] == 0xFE && raw[1] == 0xFF)
+        return System.Text.Encoding.BigEndianUnicode.GetString(raw, 2, raw.Length - 2);
+    if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
+        return System.Text.Encoding.UTF8.GetString(raw, 3, raw.Length - 3);
+    return System.Text.Encoding.UTF8.GetString(raw);
+}
+
 static void PrintUsage()
 {
     Console.WriteLine("DotNetPacket examples (SOC lab harness)");
@@ -2766,6 +2895,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
+    Console.WriteLine("  gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]   # Get-GPPPassword: find+decrypt GPP cpasswords");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
