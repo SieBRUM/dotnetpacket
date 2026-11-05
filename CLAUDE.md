@@ -179,6 +179,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <lab-host> <user
 dotnet run --project src/DotNetPacket.Examples -- rpc-dispinfo <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation (samrdump display path)
 dotnet run --project src/DotNetPacket.Examples -- rpc-dispgroups <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation level 3 (group display)
 dotnet run --project src/DotNetPacket.Examples -- rpc-domaininfo <lab-host> <user> <password> [domain]   # SamrQueryInformationDomain level 2 (role + user/group/alias counts)
+dotnet run --project src/DotNetPacket.Examples -- rpc-samrdump <lab-host> <user> <password> [domain]   # full samrdump.py-style dump (domain info + policy + users + groups)
 dotnet run --project src/DotNetPacket.Examples -- rpc-aliasmem <lab-host> <user> <password> [alias-name|rid] [domain]   # SamrOpenAlias + SamrGetMembersInAlias (alias members)
 dotnet run --project src/DotNetPacket.Examples -- rpc-userinfo <lab-host> <user> <password> <target-user> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookuprid <lab-host> <user> <password> <names-csv> [domain]

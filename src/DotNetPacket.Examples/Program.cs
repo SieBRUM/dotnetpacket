@@ -1742,6 +1742,110 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-samrdump":
+    {
+        // Faithful port of impacket examples/samrdump.py: the full SAMR recon dump in one run —
+        // connect, open the account domain, then print the domain's general info, password/lockout
+        // policy, every user (display info) and every group. Chains the already-validated SAMR
+        // calls into the single labelled sequence a SOC wants for behavioral detection.
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: rpc-samrdump <host> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domain = args.Length >= 5 ? args[4] : string.Empty;
+        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+
+        static string Days(double? d) => d is null ? "none" : $"{d.Value:0.##} days";
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+
+        Console.WriteLine($"=== SAMR dump of {host} ===");
+        Console.WriteLine($"SAM domains: {string.Join(", ", domains.Entries.Select(d => d.Name))}");
+        Console.WriteLine();
+
+        (SamrSid? sid, uint lookupRc) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is null)
+        {
+            Console.Error.WriteLine($"LookupDomain failed: 0x{lookupRc:X8}");
+            Samr.CloseHandle(pipe, server.Handle);
+            pipe.Close();
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+
+        // --- domain general info ---
+        SamrDomainGeneral gi = Samr.QueryDomainGeneralInfo(pipe, dom.Handle);
+        Console.WriteLine($"Domain: {accountDomain}  ({sid})");
+        if (gi.Success)
+        {
+            Console.WriteLine($"  Role: {gi.ServerRoleText}   Users: {gi.UserCount}  Groups: {gi.GroupCount}  Aliases: {gi.AliasCount}");
+            if (!string.IsNullOrEmpty(gi.OemInformation))
+            {
+                Console.WriteLine($"  Server: {gi.OemInformation}");
+            }
+        }
+
+        // --- password / lockout policy ---
+        SamrPasswordPolicy pw = Samr.QueryPasswordPolicy(pipe, dom.Handle);
+        SamrLockoutPolicy lk = Samr.QueryLockoutPolicy(pipe, dom.Handle);
+        bool complex = (pw.PasswordProperties & 0x1) != 0;
+        Console.WriteLine("  Password policy:");
+        Console.WriteLine($"    Min length {pw.MinPasswordLength}, history {pw.PasswordHistoryLength}, complexity {complex}");
+        Console.WriteLine($"    Max age {Days(Samr.RelativeTimeToDays(pw.MaxPasswordAge))}, min age {Days(Samr.RelativeTimeToDays(pw.MinPasswordAge))}");
+        Console.WriteLine($"    Lockout threshold {(lk.LockoutThreshold == 0 ? "none" : lk.LockoutThreshold.ToString())}, duration {Days(Samr.RelativeTimeToDays(lk.LockoutDuration))}");
+        Console.WriteLine();
+
+        // --- users (display info) ---
+        IReadOnlyList<SamrDisplayUser> users = Samr.QueryDisplayUsers(pipe, dom.Handle);
+        Console.WriteLine($"Users ({users.Count}):");
+        foreach (SamrDisplayUser u in users)
+        {
+            Console.WriteLine($"  RID {u.Rid,-6} {u.AccountName}  [{u.AccountControlText}]");
+            if (!string.IsNullOrEmpty(u.AdminComment))
+            {
+                Console.WriteLine($"         {u.AdminComment}");
+            }
+        }
+        Console.WriteLine();
+
+        // --- groups (display info) ---
+        IReadOnlyList<SamrDisplayGroup> groups = Samr.QueryDisplayGroups(pipe, dom.Handle);
+        Console.WriteLine($"Groups ({groups.Count}):");
+        foreach (SamrDisplayGroup g in groups)
+        {
+            Console.WriteLine($"  RID {g.Rid,-6} {g.AccountName}");
+        }
+
+        Samr.CloseHandle(pipe, dom.Handle);
+        Samr.CloseHandle(pipe, server.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+        return 0;
+    }
+
     case "rpc-userinfo":
     {
         // Per-user detail via samr SamrQueryInformationUser2 class 21 (SAMPR_USER_ALL_INFORMATION) —
@@ -2588,6 +2692,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-dispinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-dispgroups <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-domaininfo <host> <user> <password> [domain] [port]");
+    Console.WriteLine("  rpc-samrdump <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]");
     Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
     Console.WriteLine("  rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");

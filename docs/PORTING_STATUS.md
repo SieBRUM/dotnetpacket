@@ -241,6 +241,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
 - [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
 - [x] `rpc-domaininfo <host> <user> <password> [domain] [port]` — samr domain general info (role + counts)
+- [x] `rpc-samrdump <host> <user> <password> [domain] [port]` — full samrdump.py-style SAMR dump
+      (domain info + password/lockout policy + users + groups) chaining the validated SAMR calls
 - [x] `rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]` — samr alias (local group) membership
 - [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
 - [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
@@ -582,6 +584,12 @@ captures here (what differs, why, and whether it is detection-relevant).
   enumeration. Can't be live-validated here; deferred until a Windows capture target is available.
 - **2026-11-05 — lsarpc PolicyPrimaryDomainInformation (class 3) validated on the DC.** `rpc-lsa`
   now also prints the primary domain name + SID. Clean reuse of the account-domain parser.
+- **2026-11-05 — samrdump.py ported as `rpc-samrdump`.** One command runs the full SAMR recon
+  dump (domain general info + password/lockout policy + display users + display groups) by
+  chaining already-validated calls — the labelled end-to-end sequence for behavioral detection.
+  Validated live against the DC. (The user count from DomainGeneralInformation (4) can exceed the
+  DisplayInformation user list (3) because the display path omits certain accounts — faithful to
+  impacket's samrdump behavior.)
 - **2026-11-05 — observed: samr SamrQueryInformationUser2 level 5 (UserLogonInformation) diverges on
   this Samba build (not ported).** The server's response carries eight RPC_UNICODE_STRING fields
   (an extra AdminComment/description string) where the documented MS-SAMR
