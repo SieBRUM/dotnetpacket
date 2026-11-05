@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>LDAP (RFC 4511) client — bind path for DotNetPacket's impacket example ports.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
+  </ItemGroup>
+
+</Project>

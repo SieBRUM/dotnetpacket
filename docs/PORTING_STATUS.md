@@ -198,12 +198,31 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] epmapper `ept_lookup` (enumerate ALL endpoints) — Samba returns ept_s_not_registered
       for the blanket query, so unvalidatable on this lab (needs a Windows host)
 
+### LDAP (`DotNetPacket.Protocols.Ldap`)
+
+- [x] LDAP bind path (RFC 4511) over TCP/389 — BER-encoded LDAPMessage/BindRequest via
+      `System.Formats.Asn1`, BindResponse parser (result code + diagnostic + serverSaslCreds).
+      `LdapConnection`.
+- [x] GSS-SPNEGO (NTLM) SASL bind reusing the existing NTLM/SPNEGO stack; anonymous NTLM
+      AUTHENTICATE (`NtlmClient.CreateAnonymousAuthenticate`) for credential-less probes.
+- [ ] LDAPS (TLS on 636) + channel-binding probe (the second half of CheckLDAPStatus) — needs a
+      TLS transport + CBT; deferred.
+- [ ] Search / other LDAP operations (only bind is ported so far).
+
 ### Kerberos (`DotNetPacket.Protocols.Krb5` — not created yet)
 
 - [ ] ASN.1 helper strategy (decide: library vs. hand-rolled) before porting
 - [ ] AS-REQ / AS-REP, TGS-REQ / TGS-REP
 
 ## Examples (`DotNetPacket.Examples`)
+
+Porting impacket's `examples/` top to bottom (as listed on GitHub):
+
+- [~] `CheckLDAPStatus.py` → `ldap-signing` — the **LDAP signing** probe is done (unsigned
+      GSS-SPNEGO anonymous NTLM bind on 389; a signing-required DC answers strongerAuthRequired).
+      The **LDAPS channel-binding** half (TLS on 636 + CBT) is deferred pending a TLS transport.
+      Validated live against the DC (signing required = True, result 8). Known-bytes tests pin the
+      captured saslBindInProgress + strongerAuthRequired BindResponses.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE

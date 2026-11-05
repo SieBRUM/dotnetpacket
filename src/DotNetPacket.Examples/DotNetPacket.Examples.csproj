@@ -10,6 +10,7 @@
     <ProjectReference Include="..\DotNetPacket.Protocols.Smb\DotNetPacket.Protocols.Smb.csproj" />
     <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
     <ProjectReference Include="..\DotNetPacket.Protocols.Dcerpc\DotNetPacket.Protocols.Dcerpc.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Ldap\DotNetPacket.Protocols.Ldap.csproj" />
   </ItemGroup>
 
 </Project>

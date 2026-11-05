@@ -133,6 +133,24 @@ public sealed class NtlmClient
         return new NtlmAuthResult(authenticate, exportedSessionKey);
     }
 
+    /// <summary>
+    /// Builds an anonymous NTLM AUTHENTICATE (Type 3) with an empty NT response (and a single-NUL
+    /// LM response) — the shape a credential-less probe sends, e.g. CheckLDAPStatus's signing
+    /// check. No NTLMv2 is computed. A server evaluates its signing policy on this bind before it
+    /// would validate credentials, so a signing-required DC answers with strongerAuthRequired
+    /// rather than invalidCredentials. SEAL + KEY_EXCH are negotiated to match a real client's
+    /// GSS-SPNEGO bind; the 16-byte MIC field is left zero (the policy check precedes MIC
+    /// validation).
+    /// </summary>
+    public byte[] CreateAnonymousAuthenticate(string domain)
+    {
+        Flags |= NtlmNegotiateFlags.NegotiateSeal | NtlmNegotiateFlags.NegotiateKeyExchange;
+        byte[] lm = new byte[1];                             // single NUL (impacket's anonymous LM)
+        byte[] nt = Array.Empty<byte>();                     // empty NT response = anonymous
+        byte[] sessionKey = RandomNumberGenerator.GetBytes(16);
+        return BuildType3(lm, nt, domain, string.Empty, string.Empty, sessionKey);
+    }
+
     private byte[] BuildType3(byte[] lm, byte[] nt, string domain, string user, string workstation, byte[] sessionKey)
     {
         byte[] domainBytes = Encoding.Unicode.GetBytes(domain);

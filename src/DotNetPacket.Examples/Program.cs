@@ -1,5 +1,6 @@
 using DotNetPacket.Core;
 using DotNetPacket.Protocols.Dcerpc;
+using DotNetPacket.Protocols.Ldap;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Smb;
 
@@ -400,6 +401,32 @@ switch (args[0])
             Console.WriteLine($"  {iface}");
         }
 
+        return 0;
+    }
+
+    case "ldap-signing":
+    {
+        // CheckLDAPStatus.py (signing portion): probe whether the DC enforces LDAP signing.
+        // Does an unsigned GSS-SPNEGO NTLM bind on 389; a DC that requires signing answers the
+        // final bind with strongerAuthRequired (result 8). No credentials needed.
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("usage: ldap-signing <host> <domain> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string domain = args[2];
+        int port = args.Length >= 4 ? int.Parse(args[3]) : 389;
+
+        using LdapConnection ldap = LdapConnection.Connect(host, port);
+        LdapBindResponse result = ldap.NtlmSigningProbe(domain);
+        bool required = result.StrongerAuthRequired;
+
+        Console.WriteLine($"LDAP signing on {host}:389");
+        Console.WriteLine($"  Signing required: {required}");
+        Console.WriteLine($"  Final bind result: {result.ResultCode}" +
+            (string.IsNullOrEmpty(result.DiagnosticMessage) ? string.Empty : $" ({result.DiagnosticMessage})"));
         return 0;
     }
 
@@ -2659,6 +2686,7 @@ static void PrintUsage()
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
+    Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
     Console.WriteLine("  rpc-getarch <host> [port]");

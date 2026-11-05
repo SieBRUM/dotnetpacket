@@ -109,6 +109,9 @@ src/
     SmbPipeTransport.cs            #   ncacn_np: PDUs over an SMB2 named pipe (IPC$)
     TcpDcerpcTransport.cs          #   ncacn_ip_tcp: PDUs framed directly on a TCP socket (e.g. epmapper:135)
     DcerpcPipe.cs                  #   drives bind/sign-seal/call over an IDcerpcTransport
+  DotNetPacket.Protocols.Ldap/        # LDAP (RFC 4511) bind path over TCP
+    LdapResultCode.cs              #   bind result codes (strongerAuthRequired, saslBindInProgress)
+    LdapConnection.cs              #   BER LDAPMessage/BindRequest + GSS-SPNEGO NTLM bind (CheckLDAPStatus signing probe)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -193,6 +196,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-regquery <lab-host> <user>
 dotnet run --project src/DotNetPacket.Examples -- rpc-regenum <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-regkeys <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind
 dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interface] [port]  # endpoint mapper ept_map
