@@ -117,6 +117,8 @@ src/
   DotNetPacket.Protocols.Gpp/         # Group Policy Preferences (MS-GPPREF)
     GppCrypto.cs                   #   cpassword AES-256-CBC decrypt (Microsoft's published key; Get-GPPPassword)
     GppPreferences.cs              #   GPP XML cpassword carving (Groups/ScheduledTasks/… -> findings)
+  DotNetPacket.Protocols.Laps/        # LAPS (MS-LAPS) password attributes
+    LapsPassword.cs                #   msLAPS-Password cleartext JSON parse (GetLAPSPassword; DPAPI-NG decrypt deferred)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -204,6 +206,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <pa
 dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)
 dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
+dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind

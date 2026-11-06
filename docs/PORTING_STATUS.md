@@ -229,6 +229,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       ScheduledTasks / Services / etc., reads userName/newName/runAs/name + parent `changed`.
       External-entity resolution disabled.
 
+### LAPS (`DotNetPacket.Protocols.Laps`)
+
+- [x] `msLAPS-Password` Windows LAPS cleartext JSON parse (`LapsPassword.ParseWindowsLapsCleartext`,
+      `{"n","p","t"}` -> user/password). ms-Mcs-AdmPwd (LAPS v1) is a plain string handled in the
+      example.
+- [ ] `msLAPS-EncryptedPassword` DPAPI-NG decryption (compute_kek / unwrap_cek / MS-GKDI
+      GetKey) — deferred; the blob is observed and reported, not decrypted.
+
 ### Kerberos (`DotNetPacket.Protocols.Krb5` — not created yet)
 
 - [ ] ASN.1 helper strategy (decide: library vs. hand-rolled) before porting
@@ -295,6 +303,17 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       not/extensibleMatch filter) and a captured user SearchResultEntry. Same lab bind limitation
       as GetADComputers (simple bind; NTLM-over-LDAP fails even for impacket). `-resolveIP` not
       ported.
+
+- [~] `GetLAPSPassword.py` → `get-laps <host> <user> <password> <domain-fqdn> [computer] [port]`
+      — LDAP-search a DC for computer objects carrying a LAPS password and print it. Filter
+      `(&(objectCategory=computer)(|(msLAPS-EncryptedPassword=*)(ms-MCS-AdmPwd=*)(msLAPS-Password=*)))`
+      (+ optional `(name=…)`). Reads **ms-Mcs-AdmPwd** (LAPS v1 cleartext) and **msLAPS-Password**
+      (Windows LAPS cleartext JSON `{"n","p","t"}`) directly; **msLAPS-EncryptedPassword**
+      (Windows LAPS, DPAPI-NG) is observed and reported but **not decrypted — deferred** (DPAPI-NG
+      / MS-GKDI is a sizeable crypto build). Validated live against the lab DC: bind + search
+      accepted (searchResDone resultCode 0), 0 entries (Samba has no LAPS schema populated); the
+      nested and/or/present filter was confirmed via Wireshark. Known-bytes test pins the request
+      encoding; the cleartext-JSON parse is unit-tested. Same simple-bind lab path as GetADUsers.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE

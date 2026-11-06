@@ -1,6 +1,7 @@
 using DotNetPacket.Core;
 using DotNetPacket.Protocols.Dcerpc;
 using DotNetPacket.Protocols.Gpp;
+using DotNetPacket.Protocols.Laps;
 using DotNetPacket.Protocols.Ldap;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Smb;
@@ -720,6 +721,124 @@ switch (args[0])
 
         Console.WriteLine();
         Console.WriteLine($"{shown} user account(s).");
+        return 0;
+    }
+
+    case "get-laps":
+    {
+        // GetLAPSPassword.py: LDAP-search a DC for computer objects carrying a LAPS password
+        // attribute and print it. Filter (&(objectCategory=computer)(|(msLAPS-EncryptedPassword=*)
+        // (ms-MCS-AdmPwd=*)(msLAPS-Password=*))). ms-Mcs-AdmPwd (LAPS v1) and msLAPS-Password
+        // (Windows LAPS cleartext JSON) are read directly; msLAPS-EncryptedPassword (DPAPI-NG) is
+        // observed but not decrypted (deferred). Reading LAPS is an ACL/privilege signal.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: get-laps <host> <user> <password> <domain-fqdn> [computer] [port]");
+            Console.Error.WriteLine("  e.g. get-laps 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        string? targetComputer = null;
+        int port = 389;
+        foreach (string a in args.Skip(5))
+        {
+            if (int.TryParse(a, out int p)) port = p;
+            else targetComputer = a;
+        }
+
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, port);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        // (&(objectCategory=computer)(|(msLAPS-EncryptedPassword=*)(ms-MCS-AdmPwd=*)(msLAPS-Password=*))[(name=…)])
+        var conj = new List<LdapFilter>
+        {
+            LdapFilter.Equal("objectCategory", "computer"),
+            LdapFilter.AnyOf(
+                LdapFilter.PresentOf("msLAPS-EncryptedPassword"),
+                LdapFilter.PresentOf("ms-MCS-AdmPwd"),
+                LdapFilter.PresentOf("msLAPS-Password")),
+        };
+        if (targetComputer is not null)
+        {
+            conj.Add(LdapFilter.Equal("name", targetComputer));
+        }
+
+        LdapFilter filter = LdapFilter.AllOf(conj.ToArray());
+        string[] attrs =
+        {
+            "msLAPS-EncryptedPassword", "msLAPS-PasswordExpirationTime", "msLAPS-Password",
+            "sAMAccountName", "ms-Mcs-AdmPwdExpirationTime", "ms-MCS-AdmPwd",
+        };
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs);
+
+        static string FileTime(string raw)
+        {
+            if (!long.TryParse(raw, out long ft) || ft == 0) return "N/A";
+            try { return DateTime.FromFileTimeUtc(ft).ToString("yyyy-MM-dd HH:mm:ss"); }
+            catch { return "N/A"; }
+        }
+
+        Console.WriteLine($"Querying {host} ({baseDn}) for LAPS passwords (GetLAPSPassword.py)");
+        Console.WriteLine();
+        Console.WriteLine($"{"Host",-18} {"LAPS Username",-18} {"LAPS Password",-26} {"Expiration",-19} LAPSv2");
+        Console.WriteLine($"{new string('-', 18)} {new string('-', 18)} {new string('-', 26)} {new string('-', 19)} ------");
+
+        int found = 0;
+        foreach (SearchEntry e in entries)
+        {
+            string hostName = e.Get("sAMAccountName");
+            string? lapsUser = null, lapsPass = null, note = null;
+            bool v2 = false;
+
+            string v1 = e.Get("ms-MCS-AdmPwd");
+            string winCleartext = e.Get("msLAPS-Password");
+            string encrypted = e.Get("msLAPS-EncryptedPassword");
+
+            if (!string.IsNullOrEmpty(v1))
+            {
+                lapsPass = v1; // LAPS v1 stores the password in cleartext
+            }
+            else if (!string.IsNullOrEmpty(winCleartext))
+            {
+                v2 = true;
+                (lapsUser, lapsPass) = LapsPassword.ParseWindowsLapsCleartext(winCleartext);
+            }
+            else if (!string.IsNullOrEmpty(encrypted))
+            {
+                v2 = true;
+                note = $"<encrypted (DPAPI-NG), {encrypted.Length} bytes — decryption not ported>";
+                lapsPass = note;
+            }
+
+            string exp = FileTime(string.IsNullOrEmpty(e.Get("ms-Mcs-AdmPwdExpirationTime"))
+                ? e.Get("msLAPS-PasswordExpirationTime")
+                : e.Get("ms-Mcs-AdmPwdExpirationTime"));
+
+            if (lapsPass is null)
+            {
+                continue;
+            }
+
+            found++;
+            Console.WriteLine($"{hostName,-18} {lapsUser ?? "N/A",-18} {lapsPass,-26} {exp,-19} {v2}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(found == 0
+            ? "No LAPS passwords returned (no LAPS attributes populated / not readable)."
+            : $"{found} LAPS password(s).");
         return 0;
     }
 
@@ -3022,6 +3141,7 @@ static void PrintUsage()
     Console.WriteLine("  gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]   # Get-GPPPassword: find+decrypt GPP cpasswords");
     Console.WriteLine("  get-adcomputers <host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects");
     Console.WriteLine("  get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts");
+    Console.WriteLine("  get-laps <host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");

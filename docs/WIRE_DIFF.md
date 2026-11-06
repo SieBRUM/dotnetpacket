@@ -155,6 +155,18 @@ impacket. The only cosmetic nit: impacket's default filter string literally spel
 usable fingerprint. Detection takeaway is the same as GetADComputers: the durable signal is the
 **user-enumeration search shape**, visible only when the bind is unencrypted.
 
+### GetLAPSPassword LDAP search (`get-laps`) — 2026-11-06
+
+Same simple-bind lab path as the other LDAP examples. The LAPS search filter
+`(&(objectCategory=computer)(|(msLAPS-EncryptedPassword=*)(ms-MCS-AdmPwd=*)(msLAPS-Password=*)))`
+and the six LAPS attributes are identical to impacket; the DC accepted the search (searchResDone
+resultCode 0) and returned nothing (Samba carries no LAPS schema). Wireshark confirmed the nested
+`and`/`or`/`present` structure. The one deliberate divergence is at the decrypt layer, not the
+wire: impacket decrypts `msLAPS-EncryptedPassword` (DPAPI-NG / MS-GKDI), while this port observes
+and reports the blob but does not decrypt it (deferred). The cleartext paths (ms-Mcs-AdmPwd,
+msLAPS-Password JSON) are read directly, identically to impacket. Detection signal: a client
+searching computer objects for LAPS attributes — visible on the wire only for an unencrypted bind.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

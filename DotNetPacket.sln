@@ -22,6 +22,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetPacket.Protocols.Ldap
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetPacket.Protocols.Gpp", "src\DotNetPacket.Protocols.Gpp\DotNetPacket.Protocols.Gpp.csproj", "{88BF0335-9E1E-4862-A354-049B5EA79975}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetPacket.Protocols.Laps", "src\DotNetPacket.Protocols.Laps\DotNetPacket.Protocols.Laps.csproj", "{86AA8C02-82E1-403B-BD8C-1E59EBC765DA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -64,6 +66,10 @@ Global
 		{88BF0335-9E1E-4862-A354-049B5EA79975}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{88BF0335-9E1E-4862-A354-049B5EA79975}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{88BF0335-9E1E-4862-A354-049B5EA79975}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86AA8C02-82E1-403B-BD8C-1E59EBC765DA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86AA8C02-82E1-403B-BD8C-1E59EBC765DA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86AA8C02-82E1-403B-BD8C-1E59EBC765DA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86AA8C02-82E1-403B-BD8C-1E59EBC765DA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -71,5 +77,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{0DDE85D8-8042-4AF4-AD35-AB5DF6FF0B93} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
 		{88BF0335-9E1E-4862-A354-049B5EA79975} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
+		{86AA8C02-82E1-403B-BD8C-1E59EBC765DA} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
 	EndGlobalSection
 EndGlobal

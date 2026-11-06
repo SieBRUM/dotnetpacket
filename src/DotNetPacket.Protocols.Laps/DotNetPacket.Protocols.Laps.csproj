@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>LAPS (MS-LAPS) password attribute parsing for DotNetPacket's GetLAPSPassword port.</Description>
+  </PropertyGroup>
+
+</Project>
