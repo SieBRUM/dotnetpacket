@@ -267,6 +267,17 @@ is a verbatim port of impacket's template. The durable detection signal is behav
 bind + SchRpcRegisterTask → SchRpcRun → SchRpcDelete burst — identical in shape whatever the
 runtime; a Windows capture would add the on-wire third column.
 
+### changepasswd SAMR self-service password change (`rpc-changepw`) — 2026-11-06
+
+Benign SAMR over the sealed pipe. SamrUnicodeChangePasswordUser2 carries the new password
+RC4-encrypted under the old NT hash and the old NT hash DES-encrypted under the new NT hash — all
+**deterministic for fixed passwords** (no random salt), so the crypto buffers are byte-identical to
+impacket's (NT hashes, SamEncryptNTLMHash all match). The request is sealed on the wire, so a
+sensor sees the sealed `\samr` call, not the fields; the server validated the old-password proof
+and the new password (it returned STATUS_PASSWORD_RESTRICTION under the default 1-day min password
+age, then succeeded once that was relaxed). The NDR framing differs from impacket only in the
+documented referent-id scheme and zero pad-fill; total request length is identical (616 bytes).
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

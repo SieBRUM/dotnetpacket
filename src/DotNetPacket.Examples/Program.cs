@@ -2056,6 +2056,50 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-changepw":
+    {
+        // changepasswd.py (SAMR / NetUserChangePassword path): a user changes their OWN password
+        // over SAMR via SamrUnicodeChangePasswordUser2 — proving the old password, no admin rights.
+        // Benign (normal password change). Authenticates the SMB session with the old password.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: rpc-changepw <host> <user> <oldpassword> <newpassword> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string oldPassword = args[3];
+        string newPassword = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, oldPassword);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        Console.WriteLine($"changepasswd (SAMR) on {host}: changing password for {user}");
+        uint rc = Samr.UnicodeChangePasswordUser2(pipe, user, oldPassword, newPassword);
+        if (rc == NtStatus.Success)
+        {
+            Console.WriteLine($"[+] Password for {user} changed via SamrUnicodeChangePasswordUser2.");
+            return 0;
+        }
+
+        Console.Error.WriteLine($"[-] SamrUnicodeChangePasswordUser2 failed: {NtStatus.Describe(rc)}");
+        return 1;
+    }
+
     case "atexec":
     {
         // atexec.py: remote command execution via the Task Scheduler (MS-TSCH over \atsvc).
@@ -3659,6 +3703,7 @@ static void PrintUsage()
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
     Console.WriteLine("  rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)");
     Console.WriteLine("  atexec <host> <user> <password> <command> [domain] [port]   # atexec: run a command via the Task Scheduler (MS-TSCH, Windows-only)");
+    Console.WriteLine("  rpc-changepw <host> <user> <oldpassword> <newpassword> [domain] [port]   # changepasswd (SAMR): change your own password");
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");

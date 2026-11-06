@@ -370,6 +370,25 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       includes it (RFC 4120) and succeeds (see WIRE_DIFF). Known-bytes tests pin the TGS-REQ encoding,
       the `$krb5tgs$` format, and a captured TGS-REP parse. AES etypes / ccache output not ported.
 
+- [~] `changepasswd.py` (SAMR NetUserChangePassword path) → `rpc-changepw <host> <user>
+      <oldpassword> <newpassword> [domain] [port]` — a user changes their OWN password over SAMR via
+      **SamrUnicodeChangePasswordUser2** (opnum 55), proving the old password (no admin, no handle).
+      Benign. The new password is RC4-encrypted under the old NT hash; the old NT hash is
+      DES-encrypted under the new NT hash (`NtlmCrypto.SamEncryptNtlmHash`, MS-SAMR 2.2.11.1.1).
+      **Validated live** against the lab: changed a test user's password; the new password then
+      authenticates where it failed before (the old one lingers only via NTLM's previous-password
+      grace window). Crypto matches impacket byte-for-byte; known-bytes tests pin the NT hashes,
+      SamEncrypt, and the request shape. Note: the lab's default **min password age = 1 day** returns
+      STATUS_PASSWORD_RESTRICTION on a just-created account — validation used
+      `samba-tool domain passwordsettings set --min-pwd-age=0`. The Kerberos (kpasswd) and LDAP
+      change/reset paths, and the NTLM-hash (SamrChangePasswordUser) path, are not ported.
+
+- [ ] `badsuccessor.py` — **NOT ported; raised with the owner.** Its own description is "a tool for
+      dMSA exploitation" / the BadSuccessor attack (a 2025 Windows Server dMSA privilege-escalation
+      with no benign analog). Per the CLAUDE.md scope gate ("if the main value is attacking … stop
+      and raise it"), this is held for an explicit decision rather than implemented by default. It
+      also cannot be validated here — Samba has no dMSA (Server 2025) schema.
+
 - [~] `atexec.py` → `atexec <host> <user> <password> <command> [domain] [port]` — remote command
       execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register an
       XML task that runs `cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`, run it, poll

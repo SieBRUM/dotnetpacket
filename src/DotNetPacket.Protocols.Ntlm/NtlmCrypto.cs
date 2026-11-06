@@ -141,6 +141,53 @@ public static class NtlmCrypto
         return output;
     }
 
+    /// <summary>
+    /// Encrypts a 16-byte NT hash with another 16-byte key hash using two single-DES blocks
+    /// (MS-SAMR 2.2.11.1.1 SamEncryptNTLMHash). Used by SamrUnicodeChangePasswordUser2 to prove
+    /// knowledge of the old hash. Port of impacket's <c>crypto.SamEncryptNTLMHash</c>.
+    /// </summary>
+    public static byte[] SamEncryptNtlmHash(byte[] hash16, byte[] key16)
+    {
+        byte[] k1 = ExpandDesKey(key16[..7]);
+        byte[] k2 = ExpandDesKey(key16[7..14]);
+        byte[] o1 = DesEncryptBlock(k1, hash16[..8]);
+        byte[] o2 = DesEncryptBlock(k2, hash16[8..16]);
+        return o1.Concat(o2).ToArray();
+    }
+
+    // Expand a 7-byte key into the 8-byte DES key (the classic LM/MS "str_to_key"), with the
+    // parity bit in the LSB (where .NET's DES expects it).
+    private static byte[] ExpandDesKey(byte[] k)
+    {
+        byte[] b =
+        {
+            (byte)(k[0] >> 1),
+            (byte)(((k[0] & 0x01) << 6) | (k[1] >> 2)),
+            (byte)(((k[1] & 0x03) << 5) | (k[2] >> 3)),
+            (byte)(((k[2] & 0x07) << 4) | (k[3] >> 4)),
+            (byte)(((k[3] & 0x0F) << 3) | (k[4] >> 5)),
+            (byte)(((k[4] & 0x1F) << 2) | (k[5] >> 6)),
+            (byte)(((k[5] & 0x3F) << 1) | (k[6] >> 7)),
+            (byte)(k[6] & 0x7F),
+        };
+        for (int i = 0; i < 8; i++)
+        {
+            b[i] <<= 1; // move the 7-bit value up, leaving the LSB as the (ignored) parity bit
+        }
+
+        return b;
+    }
+
+    private static byte[] DesEncryptBlock(byte[] key8, byte[] block8)
+    {
+        using var des = System.Security.Cryptography.DES.Create();
+        des.Mode = System.Security.Cryptography.CipherMode.ECB;
+        des.Padding = System.Security.Cryptography.PaddingMode.None;
+        des.Key = key8;
+        using System.Security.Cryptography.ICryptoTransform e = des.CreateEncryptor();
+        return e.TransformFinalBlock(block8, 0, 8);
+    }
+
     /// <summary>MD4 message digest (RFC 1320). Needed for the NT hash; not available in the BCL.</summary>
     public static byte[] Md4(byte[] input)
     {

@@ -218,6 +218,7 @@ public static class Samr
     private const ushort OpnumOpenUser = 34;
     private const ushort OpnumDeleteUser = 35;
     private const ushort OpnumCreateUser2InDomain = 50;
+    private const ushort OpnumUnicodeChangePasswordUser2 = 55;
 
     /// <summary>ACCOUNT type for a machine/computer account (ACB_WSTRUST).</summary>
     public const uint UserWorkstationTrustAccount = 0x00000080;
@@ -502,6 +503,59 @@ public static class Samr
         uint rid = reader.ReadUInt32();
         uint rc = reader.ReadUInt32();
         return new SamrCreateUserResult(handle, granted, rid, rc);
+    }
+
+    /// <summary>
+    /// SamrUnicodeChangePasswordUser2 (opnum 55): a user changes their OWN password, proving
+    /// knowledge of the old one (no admin rights, no prior handle). Port of impacket's
+    /// <c>hSamrUnicodeChangePasswordUser2</c> (the changepasswd.py NetUserChangePassword path).
+    /// The new password is RC4-encrypted under the old NT hash; the old NT hash is DES-encrypted
+    /// under the new NT hash. Returns the NT status (0 = password changed).
+    /// </summary>
+    public static uint UnicodeChangePasswordUser2(DcerpcPipe pipe, string userName, string oldPassword, string newPassword)
+    {
+        byte[] stub = pipe.Call(OpnumUnicodeChangePasswordUser2, EncodeUnicodeChangePassword(userName, oldPassword, newPassword));
+        var reader = new NdrReader(stub);
+        return reader.ReadUInt32(); // ErrorCode
+    }
+
+    /// <summary>
+    /// Encodes the SamrUnicodeChangePasswordUser2 request (exposed for tests). Deterministic for
+    /// fixed passwords: the password buffers carry no random salt, so the output is reproducible.
+    /// </summary>
+    public static byte[] EncodeUnicodeChangePassword(string userName, string oldPassword, string newPassword)
+    {
+        byte[] oldNt = Ntlm.NtlmCrypto.NtHash(oldPassword);
+        byte[] newNt = Ntlm.NtlmCrypto.NtHash(newPassword);
+
+        // SAMPR_USER_PASSWORD: Buffer[512] (password right-justified, 'A' fill) + Length (bytes).
+        byte[] pwd = System.Text.Encoding.Unicode.GetBytes(newPassword);
+        var buffer = new byte[516];
+        Array.Fill(buffer, (byte)'A', 0, 512 - pwd.Length);
+        Array.Copy(pwd, 0, buffer, 512 - pwd.Length, pwd.Length);
+        BitConverter.GetBytes((uint)pwd.Length).CopyTo(buffer, 512);
+        byte[] newPwdEncOldNt = Ntlm.NtlmCrypto.Rc4(oldNt, buffer);          // 516 bytes
+        byte[] oldNtEncNewNt = Ntlm.NtlmCrypto.SamEncryptNtlmHash(oldNt, newNt); // 16 bytes
+
+        var ndr = new NdrWriter();
+        // ServerName: PRPC_UNICODE_STRING -> a single-NUL string.
+        ndr.WriteReferent(true);                 // ServerName ptr
+        ndr.WriteUInt16(2);                       // Length  (1 char = 2 bytes)
+        ndr.WriteUInt16(2);                       // MaximumLength
+        ndr.WriteReferent(true);                 // Buffer ptr
+        ndr.WriteConformantVaryingString(string.Empty); // -> "\0": max=1,off=0,act=1 + NUL + align
+        // UserName: inline RPC_UNICODE_STRING, no trailing NUL.
+        ndr.WriteRpcUnicodeStringNoNul(userName);
+        // The encrypted password buffers (unique pointers to fixed arrays).
+        ndr.WriteReferent(true);
+        ndr.WriteBytes(newPwdEncOldNt);
+        ndr.WriteReferent(true);
+        ndr.WriteBytes(oldNtEncNewNt);
+        ndr.WriteByte(0);                         // LmPresent
+        ndr.Align(4);
+        ndr.WriteReferent(false);                 // NewPasswordEncryptedWithOldLm = NULL
+        ndr.WriteReferent(false);                 // OldLmOwfPasswordEncryptedWithNewNt = NULL
+        return ndr.ToArray();
     }
 
     /// <summary>Encodes the SamrCreateUser2InDomain request stub (exposed for tests / offline analysis).</summary>

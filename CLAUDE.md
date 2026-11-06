@@ -102,7 +102,7 @@ src/
     Wkssvc.cs                      #   wkssvc NetrWkstaGetInfo (host/OS recon)
     Lsarpc.cs                      #   lsarpc policy open + account/primary domain + SID + DNS/forest info + privilege enumeration + name<->LUID lookup + privilege display name + per-SID account rights
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
-    Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open (domain/user/alias) + QueryInfo (user general + level-21 all) + domain info (general + password/lockout policy) + display info users+groups (samrdump) + GetGroupsForUser + alias members + CreateUser2/DeleteUser (addcomputer, lab)
+    Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open (domain/user/alias) + QueryInfo (user general + level-21 all) + domain info (general + password/lockout policy) + display info users+groups (samrdump) + GetGroupsForUser + alias members + CreateUser2/DeleteUser (addcomputer, lab) + UnicodeChangePasswordUser2 (changepasswd)
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/EnumKey/Close
     Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (Windows-only)
@@ -140,7 +140,7 @@ src/
     NtlmNegotiate.cs               #   NTLMSSP NEGOTIATE (reference structure)
     NtlmChallenge.cs               #   NTLMSSP CHALLENGE (Type 2) parser
     AvPairs.cs                     #   target-info AV_PAIR list
-    NtlmCrypto.cs                  #   MD4/HMAC-MD5/RC4/NTOWFv2/NTLMv2/GSS sign+seal keys
+    NtlmCrypto.cs                  #   MD4/HMAC-MD5/RC4/NTOWFv2/NTLMv2/GSS sign+seal keys + DES SamEncryptNtlmHash (changepasswd)
     NtlmClient.cs                  #   Type 1 / Type 3 builder (NTLMv2 + MIC + optional key exchange)
     Rc4State.cs                    #   stateful RC4 keystream (continuous sign/seal handle)
     NtlmSecurityContext.cs         #   GSS per-message sign/seal (MS-NLMP 3.4) for DCERPC
@@ -223,6 +223,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-regkeys <lab-host> <user> 
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-addcomputer <lab-host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)
 dotnet run --project src/DotNetPacket.Examples -- atexec <lab-host> <user> <password> <command> [domain] [port]   # atexec: Task Scheduler command exec (MS-TSCH, Windows-only)
+dotnet run --project src/DotNetPacket.Examples -- rpc-changepw <lab-host> <user> <oldpassword> <newpassword> [domain] [port]   # changepasswd (SAMR): change your own password
 dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)
 dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
