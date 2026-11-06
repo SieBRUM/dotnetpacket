@@ -383,6 +383,13 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       and removes, it does not leave a usable account. The LDAPS add method needs a TLS transport
       (deferred, as for the other LDAP write paths).
 
+- [x] `attrib.py` → `smb-attrib` (query) / `smb-attrib-set` (set) — read or change a file/directory's
+      DOS attributes over pure SMB2 (QUERY_INFO / **SET_INFO** FileBasicInformation). Benign. Added
+      SMB2 SET_INFO (`Smb2SetInfoRequest`, `Smb2Client.SetInfo`) and `FileBasicInformation`. Validated
+      live against the lab SYSVOL: queried Normal, set ReadOnly+Hidden (0x3), re-queried to confirm,
+      cleared back to Normal; a directory shows the Directory bit; impacket's attrib.py agrees.
+      Known-bytes tests pin the SET_INFO body and the FileBasicInformation buffer.
+
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
 - [x] `smb2-negotiate <host> [port]` — live SMB2 NEGOTIATE, dumps both directions

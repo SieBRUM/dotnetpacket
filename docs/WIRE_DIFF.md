@@ -237,6 +237,15 @@ and leaves a usable account; this port creates then immediately **deletes** (lab
 on-wire sequence is CreateUser2 → DeleteUser rather than CreateUser2 → SetInformationUser2(×2).
 The password-set is deferred (see PORTING_STATUS).
 
+### attrib DOS-attribute query/set (`smb-attrib`) — 2026-11-06
+
+Benign SMB2. The query is SMB2 QUERY_INFO FileBasicInformation; the set is SMB2 SET_INFO
+FileBasicInformation with the four timestamps 0 ("unchanged") and the new FileAttributes. The
+SET_INFO body matches impacket's (StructureSize 0x21, InfoType File, class 4, BufferOffset 0x60,
+40-byte FILE_BASIC_INFORMATION) and the DC applied it (ReadOnly+Hidden round-tripped). This rides
+the ordinary signed SMB2 session (not encrypted here), so the fields are visible on the wire; no
+client-fingerprint divergence from impacket on this call.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

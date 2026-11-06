@@ -84,6 +84,7 @@ src/
     Smb2/Smb2QueryDirectory.cs     #   SMB2 QUERY_DIRECTORY (dir listing)
     Smb2/Smb2QueryInfo.cs          #   SMB2 QUERY_INFO (file / filesystem metadata)
     Smb2/Smb2Write.cs              #   SMB2 WRITE request/response
+    Smb2/Smb2SetInfo.cs            #   SMB2 SET_INFO + FILE_BASIC_INFORMATION (attrib)
     Smb2/Smb2Ioctl.cs              #   SMB2 IOCTL + FSCTL codes (pipe transceive)
     Smb2/Smb2Flags.cs              #   header/session/share flag + enum coverage
     Smb2/Smb2CreateConstants.cs    #   access mask, disposition, options, file attributes
@@ -184,6 +185,8 @@ dotnet run --project src/DotNetPacket.Examples -- smb2-connect <lab-host> <share
 dotnet run --project src/DotNetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- smb2-ls <lab-host> <share> <user> <password> [path] [domain]
 dotnet run --project src/DotNetPacket.Examples -- smb2-info <lab-host> <share> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- smb-attrib <lab-host> <share> <path> <user> <password> [domain]   # attrib: query DOS attributes
+dotnet run --project src/DotNetPacket.Examples -- smb-attrib-set <lab-host> <share> <path> <user> <password> <attrs> [domain]   # attrib: set DOS attributes
 dotnet run --project src/DotNetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-shares-sealed <lab-host> <user> <password> [seal|sign] [domain]

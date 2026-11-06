@@ -3396,6 +3396,117 @@ switch (args[0])
         return 0;
     }
 
+    case "smb-attrib":
+    case "smb-attrib-set":
+    {
+        // attrib.py: query or set a file/directory's DOS attributes over pure SMB2
+        // (QUERY_INFO / SET_INFO FileBasicInformation). Benign.
+        //   smb-attrib     <host> <share> <path> <user> <password> [domain] [port]
+        //   smb-attrib-set <host> <share> <path> <user> <password> <attrs> [domain] [port]
+        // <attrs>: letters among R(eadonly) H(idden) S(ystem) A(rchive) N(ormal) T(emporary), or "clear".
+        bool setMode = args[0] == "smb-attrib-set";
+        int minArgs = setMode ? 7 : 6;
+        if (args.Length < minArgs)
+        {
+            Console.Error.WriteLine(setMode
+                ? "usage: smb-attrib-set <host> <share> <path> <user> <password> <attrs> [domain] [port]"
+                : "usage: smb-attrib <host> <share> <path> <user> <password> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string share = args[2];
+        string path = args[3].Replace('/', '\\').TrimStart('\\');
+        string user = args[4];
+        string password = args[5];
+        string attrSpec = setMode ? args[6] : string.Empty;
+        int tail = setMode ? 7 : 6;
+        string domain = args.Length > tail ? args[tail] : string.Empty;
+        int port = args.Length > tail + 1 ? int.Parse(args[tail + 1]) : 445;
+
+        static string Format(Smb2FileAttributes a) =>
+            (a.HasFlag(Smb2FileAttributes.ReadOnly) ? "R" : "-") +
+            (a.HasFlag(Smb2FileAttributes.Hidden) ? "H" : "-") +
+            (a.HasFlag(Smb2FileAttributes.System) ? "S" : "-") +
+            (a.HasFlag(Smb2FileAttributes.Directory) ? "D" : "-") +
+            (a.HasFlag(Smb2FileAttributes.Archive) ? "A" : "-") +
+            (a.HasFlag(Smb2FileAttributes.Normal) ? "N" : "-") +
+            (a.HasFlag(Smb2FileAttributes.Temporary) ? "T" : "-");
+
+        static Smb2FileAttributes Parse(string spec)
+        {
+            if (spec.Equals("clear", StringComparison.OrdinalIgnoreCase) || spec.Equals("none", StringComparison.OrdinalIgnoreCase))
+                return Smb2FileAttributes.Normal;
+            Smb2FileAttributes a = 0;
+            foreach (char c in spec.ToUpperInvariant())
+            {
+                a |= c switch
+                {
+                    'R' => Smb2FileAttributes.ReadOnly,
+                    'H' => Smb2FileAttributes.Hidden,
+                    'S' => Smb2FileAttributes.System,
+                    'A' => Smb2FileAttributes.Archive,
+                    'N' => Smb2FileAttributes.Normal,
+                    'T' => Smb2FileAttributes.Temporary,
+                    _ => 0,
+                };
+            }
+            return a == 0 ? Smb2FileAttributes.Normal : a;
+        }
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult tree = client.TreeConnect($@"\\{host}\{share}");
+        // Open with only the access we need, and no create-option restriction (works on a dir too).
+        Smb2AccessMask access = setMode ? Smb2AccessMask.FileWriteAttributes : Smb2AccessMask.FileReadAttributes;
+        Smb2CreateResult open = client.Create(tree.TreeId, path, access, Smb2CreateDisposition.Open, 0);
+        if (!open.Succeeded)
+        {
+            Console.Error.WriteLine($"Could not open '{path}': {NtStatus.Describe(open.Status)}");
+            client.TreeDisconnect(tree.TreeId);
+            return 1;
+        }
+
+        try
+        {
+            if (setMode)
+            {
+                Smb2FileAttributes want = Parse(attrSpec);
+                uint rc = client.SetInfo(tree.TreeId, open.Response.FileId, Smb2InfoType.File,
+                    (byte)Smb2FileInfoType.FileBasicInformation, FileBasicInformation.ForAttributes(want));
+                if (rc != NtStatus.Success)
+                {
+                    Console.Error.WriteLine($"SET_INFO failed: {NtStatus.Describe(rc)}");
+                    return 1;
+                }
+
+                Console.WriteLine($@"Set {Format(want)}  \\{host}\{share}\{path}");
+            }
+            else
+            {
+                byte[] buf = client.QueryInfo(tree.TreeId, open.Response.FileId, Smb2InfoType.File,
+                    (byte)Smb2FileInfoType.FileBasicInformation);
+                Smb2FileAttributes attrs = FileBasicInformation.ParseAttributes(buf);
+                Console.WriteLine($@"{Format(attrs)}  \\{host}\{share}\{path}  (0x{(uint)attrs:x})");
+            }
+        }
+        finally
+        {
+            client.Close(tree.TreeId, open.Response.FileId);
+            client.TreeDisconnect(tree.TreeId);
+        }
+
+        return 0;
+    }
+
     case "-h":
     case "--help":
     case "help":
@@ -3440,6 +3551,8 @@ static void PrintUsage()
     Console.WriteLine("  smb2-ls <host> <share> <user> <password> [path] [domain] [port]");
     Console.WriteLine("                   List a directory over SMB2: CREATE(dir) + QUERY_DIRECTORY.");
     Console.WriteLine("  smb2-info <host> <share> <user> <password> [domain] [port]");
+    Console.WriteLine("  smb-attrib <host> <share> <path> <user> <password> [domain] [port]   # attrib: query DOS attributes");
+    Console.WriteLine("  smb-attrib-set <host> <share> <path> <user> <password> <attrs> [domain] [port]   # attrib: set DOS attributes (RHSATN/clear)");
     Console.WriteLine("                   Filesystem info over SMB2: QUERY_INFO (volume label/serial, size).");
     Console.WriteLine("  dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
     Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");

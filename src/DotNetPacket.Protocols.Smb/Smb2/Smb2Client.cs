@@ -447,6 +447,17 @@ public sealed class Smb2Client : IDisposable
         return Smb2QueryInfoResponse.ExtractOutput(response);
     }
 
+    /// <summary>
+    /// Issues a SET_INFO on an open handle, writing <paramref name="buffer"/> for the given info
+    /// type/class (e.g. FileBasicInformation to change attributes). Returns the NT status.
+    /// </summary>
+    public uint SetInfo(uint treeId, byte[] fileId, Smb2InfoType infoType, byte infoClass, byte[] buffer)
+    {
+        var body = new Smb2SetInfoRequest { InfoType = infoType, FileInfoClass = infoClass, FileId = fileId, Buffer = buffer };
+        (_, Smb2Header header) = Exchange(Smb2Command.SetInfo, treeId, body.Pack());
+        return header.Status;
+    }
+
     /// <summary>Writes <paramref name="data"/> at <paramref name="offset"/> to an open FileId; returns bytes written.</summary>
     public uint Write(uint treeId, byte[] fileId, long offset, byte[] data)
     {
