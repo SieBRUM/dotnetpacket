@@ -143,6 +143,24 @@ public sealed class NdrWriter
         Align(4);
     }
 
+    /// <summary>
+    /// Writes an RPC_UNICODE_STRING whose counted buffer has NO trailing NUL (Length = 2*chars) —
+    /// the form SAMR uses for account names (e.g. SamrCreateUser2InDomain). Header + deferred buffer
+    /// are written together (single inline string).
+    /// </summary>
+    public void WriteRpcUnicodeStringNoNul(string value)
+    {
+        uint count = (uint)value.Length;
+        WriteUInt16((ushort)(count * 2)); // Length (bytes, no NUL)
+        WriteUInt16((ushort)(count * 2)); // MaximumLength
+        WriteReferent(true);               // Buffer pointer
+        WriteUInt32(count);                // MaxCount
+        WriteUInt32(0);                    // Offset
+        WriteUInt32(count);                // ActualCount
+        _buffer.AddRange(Encoding.Unicode.GetBytes(value));
+        Align(4);
+    }
+
     /// <summary>Writes a conformant-varying wide string (max/offset/actual + UTF-16LE incl. terminator).</summary>
     public void WriteConformantVaryingString(string value)
     {

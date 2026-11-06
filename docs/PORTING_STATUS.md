@@ -370,6 +370,19 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       includes it (RFC 4120) and succeeds (see WIRE_DIFF). Known-bytes tests pin the TGS-REQ encoding,
       the `$krb5tgs$` format, and a captured TGS-REP parse. AES etypes / ccache output not ported.
 
+- [~] `addcomputer.py` (SAMR method) → `rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]`
+      — create a machine account via **SamrCreateUser2InDomain** (WORKSTATION_TRUST_ACCOUNT) over
+      the sealed SAMR-over-SMB pipe: the account-creation event a SOC detects (noPac / RBCD
+      primitive). **First write example** — lab-first and **self-cleaning**: it creates the
+      (disabled) account, reports the RID, then **deletes it** (SamrDeleteUser) so the DC is left
+      unchanged. Validated live: created `PWNLAB01$` (RID 1105), deleted it, LDAP confirms it is
+      gone; stock impacket's full SAMR addcomputer also works on the lab. Known-bytes test pins the
+      CreateUser2 request NDR. **Deferred:** the password-set (SamrSetPasswordInternal4New, needs the
+      big `SAMPR_USER_ALL_INFORMATION` NDR struct + the SMB session key threaded through for the RC4
+      password buffer) and the enable (SamrSetInformationUser2 UserControl) — so this port creates
+      and removes, it does not leave a usable account. The LDAPS add method needs a TLS transport
+      (deferred, as for the other LDAP write paths).
+
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
 - [x] `smb2-negotiate <host> [port]` — live SMB2 NEGOTIATE, dumps both directions

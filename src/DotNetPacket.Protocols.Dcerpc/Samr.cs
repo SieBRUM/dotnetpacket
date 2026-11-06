@@ -29,6 +29,11 @@ public sealed record SamrNameMapping(string Name, uint Rid, uint Use)
 }
 
 /// <summary>Result of a handle-returning samr call.</summary>
+public sealed record SamrCreateUserResult(byte[] Handle, uint GrantedAccess, uint Rid, uint ReturnCode)
+{
+    public bool Succeeded => ReturnCode == 0;
+}
+
 public sealed record SamrHandleResult(byte[] Handle, uint ReturnCode)
 {
     public bool Success => ReturnCode == 0;
@@ -211,6 +216,14 @@ public static class Samr
     private const ushort OpnumOpenAlias = 27;
     private const ushort OpnumGetMembersInAlias = 33;
     private const ushort OpnumOpenUser = 34;
+    private const ushort OpnumDeleteUser = 35;
+    private const ushort OpnumCreateUser2InDomain = 50;
+
+    /// <summary>ACCOUNT type for a machine/computer account (ACB_WSTRUST).</summary>
+    public const uint UserWorkstationTrustAccount = 0x00000080;
+
+    /// <summary>DOMAIN_CREATE_USER access right, needed on the domain handle to create an account.</summary>
+    public const uint DomainCreateUser = 0x00000010;
     private const ushort OpnumGetGroupsForUser = 39;
     private const ushort OpnumQueryInformationUser2 = 47;
     private const ushort OpnumQueryDisplayInformation = 40;
@@ -468,6 +481,54 @@ public static class Samr
         var reader = new NdrReader(stub);
         byte[] handle = reader.ReadContextHandle();
         return new SamrHandleResult(handle, reader.ReadUInt32());
+    }
+
+    /// <summary>
+    /// SamrCreateUser2InDomain (opnum 50): create an account in an open domain. Port of impacket's
+    /// <c>hSamrCreateUser2InDomain</c> (used by addcomputer.py). For a machine account pass
+    /// <paramref name="accountType"/> = <see cref="UserWorkstationTrustAccount"/> and a name ending
+    /// in <c>$</c>; the domain handle must have been opened with <see cref="DomainCreateUser"/>. The
+    /// account is created DISABLED until a password is set — this is the SAMR account-creation event
+    /// a SOC detects. Returns the new user handle, granted access, and RID.
+    /// </summary>
+    public static SamrCreateUserResult CreateUser2InDomain(
+        DcerpcPipe pipe, byte[] domainHandle, string name, uint accountType, uint desiredAccess = MaximumAllowed)
+    {
+        byte[] stub = pipe.Call(OpnumCreateUser2InDomain, EncodeCreateUser2Request(domainHandle, name, accountType, desiredAccess));
+
+        var reader = new NdrReader(stub);
+        byte[] handle = reader.ReadContextHandle();
+        uint granted = reader.ReadUInt32();
+        uint rid = reader.ReadUInt32();
+        uint rc = reader.ReadUInt32();
+        return new SamrCreateUserResult(handle, granted, rid, rc);
+    }
+
+    /// <summary>Encodes the SamrCreateUser2InDomain request stub (exposed for tests / offline analysis).</summary>
+    public static byte[] EncodeCreateUser2Request(byte[] domainHandle, string name, uint accountType, uint desiredAccess)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(domainHandle);
+        ndr.WriteRpcUnicodeStringNoNul(name); // Name (no trailing NUL, as SAMR uses)
+        ndr.WriteUInt32(accountType);          // AccountType
+        ndr.WriteUInt32(desiredAccess);        // DesiredAccess
+        return ndr.ToArray();
+    }
+
+    /// <summary>
+    /// SamrDeleteUser (opnum 35): delete the account referenced by <paramref name="userHandle"/>.
+    /// Port of impacket's <c>hSamrDeleteUser</c>; used here to clean up a lab-created account.
+    /// Returns the NT status.
+    /// </summary>
+    public static uint DeleteUser(DcerpcPipe pipe, byte[] userHandle)
+    {
+        var ndr = new NdrWriter();
+        ndr.WriteContextHandle(userHandle);
+        byte[] stub = pipe.Call(OpnumDeleteUser, ndr.ToArray());
+
+        var reader = new NdrReader(stub);
+        reader.ReadContextHandle(); // the (now-null) handle is echoed back
+        return reader.ReadUInt32();
     }
 
     /// <summary>

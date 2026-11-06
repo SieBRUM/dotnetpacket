@@ -223,6 +223,20 @@ sname as the SPN (NT-SRV-INST), RC4 etype, and the `$krb5tgs$` format (incl. the
 SPN) is byte-compatible with impacket's. Detection signal: a flurry of TGS-REQs for many SPNs from
 one client — behavioral, independent of the checksum nuance.
 
+### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
+
+The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted
+on the wire (SMB3 + NTLMSSP seal) — not readable from a capture, same as the other sealed RPC
+calls. What a sensor sees is the sealed DCERPC to `\samr` and the SMB3 session; the detectable
+event is behavioral: a client calling **SamrCreateUser2InDomain** with AccountType
+WORKSTATION_TRUST_ACCOUNT (0x80). DotNetPacket's request NDR matches impacket's
+`hSamrCreateUser2InDomain` (name as an RPC_UNICODE_STRING with **no trailing NUL**, AccountType 0x80,
+DesiredAccess MAXIMUM_ALLOWED), validated by the DC accepting it and by a pinned known-bytes test.
+Difference from impacket: impacket follows the create with SamrSetPasswordInternal4New + an enable
+and leaves a usable account; this port creates then immediately **deletes** (lab hygiene), so the
+on-wire sequence is CreateUser2 → DeleteUser rather than CreateUser2 → SetInformationUser2(×2).
+The password-set is deferred (see PORTING_STATUS).
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

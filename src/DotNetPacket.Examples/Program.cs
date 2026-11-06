@@ -2056,6 +2056,74 @@ switch (args[0])
         return 0;
     }
 
+    case "rpc-addcomputer":
+    {
+        // addcomputer.py (SAMR method): create a machine account via SamrCreateUser2InDomain -
+        // the account-creation event a SOC detects (noPac / RBCD primitive). Lab-first and
+        // self-cleaning: it creates the (disabled) account, reports the RID, then DELETES it so
+        // the DC is left unchanged. The password-set (SamrSetPasswordInternal4New) and enable
+        // (SamrSetInformationUser2 UserControl) are deferred (see PORTING_STATUS).
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string computerName = args[4].EndsWith('$') ? args[4] : args[4] + "$";
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Samr.Pipe);
+        pipe.Bind(DcerpcInterface.Samr);
+
+        SamrHandleResult server = Samr.Connect(pipe);
+        SamrEnumResult domains = Samr.EnumerateDomains(pipe, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? sid, _) = Samr.LookupDomain(pipe, server.Handle, accountDomain);
+        if (sid is null)
+        {
+            Console.Error.WriteLine($"Could not resolve account domain '{accountDomain}'.");
+            return 1;
+        }
+
+        SamrHandleResult dom = Samr.OpenDomain(pipe, server.Handle, sid);
+
+        Console.WriteLine($"addcomputer (SAMR) on {host}: creating machine account {computerName} in {accountDomain}");
+        SamrCreateUserResult created = Samr.CreateUser2InDomain(
+            pipe, dom.Handle, computerName, Samr.UserWorkstationTrustAccount);
+        if (!created.Succeeded)
+        {
+            Console.Error.WriteLine($"[-] SamrCreateUser2InDomain failed: {NtStatus.Describe(created.ReturnCode)}");
+            Samr.CloseHandle(pipe, dom.Handle);
+            return 1;
+        }
+
+        Console.WriteLine($"[+] Created {computerName} — RID {created.Rid} (0x{created.Rid:x}), granted access 0x{created.GrantedAccess:x} (account is disabled until a password is set)");
+
+        // Lab hygiene: remove the account we just created.
+        uint delRc = Samr.DeleteUser(pipe, created.Handle);
+        Console.WriteLine(delRc == 0
+            ? $"[+] Deleted {computerName} again (lab left clean)."
+            : $"[!] Could not delete {computerName}: {NtStatus.Describe(delRc)} — remove it manually.");
+
+        Samr.CloseHandle(pipe, dom.Handle);
+        return 0;
+    }
+
     case "rpc-enumusers":
     {
         // Domain user enumeration via samr (the samrdump / enumdomusers behavior).
@@ -3379,6 +3447,7 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
     Console.WriteLine("  rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
+    Console.WriteLine("  rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)");
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
