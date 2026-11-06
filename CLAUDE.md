@@ -122,12 +122,15 @@ src/
   DotNetPacket.Protocols.Krb5/        # Kerberos v5 (RFC 4120) AS exchange
     Krb5Constants.cs               #   app tags, etypes, kdc-options, PA/error codes
     Der.cs                         #   GeneralString DER helper (what AsnWriter can't emit)
-    Krb5Crypto.cs                  #   RC4-HMAC encryption profile (RFC 4757; reuses NtlmCrypto)
+    Krb5Crypto.cs                  #   RC4-HMAC encryption + keyed checksum (RFC 4757; reuses NtlmCrypto)
     AsReq.cs                       #   AS-REQ builder (no-preauth for GetNPUsers; PA-ENC-TIMESTAMP for getTGT)
+    TgsReq.cs                      #   TGS-REQ builder (AP-REQ + authenticator + req-body checksum; Kerberoast)
     KerberosResponse.cs            #   AS-REP / KRB-ERROR parser (enc-part + ticket)
+    TgsRep.cs                      #   TGS-REP parser -> service-ticket enc-part (the roast material)
     EncKdcRepPart.cs               #   decrypted AS-REP enc-part -> session key + endtime
-    KerberosClient.cs              #   GetTgt orchestration (pre-auth AS exchange -> TGT)
+    KerberosClient.cs              #   GetTgt + Kerberoast orchestration
     AsRepRoast.cs                  #   $krb5asrep$ hashcat/john formatter
+    KerbTgsRoast.cs                #   $krb5tgs$ hashcat formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
@@ -220,6 +223,7 @@ dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> 
 dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
 dotnet run --project src/DotNetPacket.Examples -- get-npusers <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth
 dotnet run --project src/DotNetPacket.Examples -- kerb-tgt <lab-host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 PA-ENC-TIMESTAMP pre-auth)
+dotnet run --project src/DotNetPacket.Examples -- get-userspns <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using DotNetPacket.Protocols.Ntlm;
 
 namespace DotNetPacket.Protocols.Krb5;
@@ -48,6 +50,18 @@ public static class Krb5Crypto
         }
 
         return plaintext[8..]; // drop the confounder
+    }
+
+    /// <summary>
+    /// RC4-HMAC keyed checksum (HMAC-MD5, cksumtype -138; RFC 4757 section 4), ported from
+    /// impacket's <c>_HMACMD5.checksum</c>. Used for the TGS-REQ authenticator checksum over the
+    /// KDC-REQ-BODY (key usage 6), which the Heimdal/Samba KDC requires.
+    /// </summary>
+    public static byte[] Rc4HmacChecksum(byte[] key, int keyUsage, byte[] text)
+    {
+        byte[] ksign = NtlmCrypto.HmacMd5(key, Encoding.ASCII.GetBytes("signaturekey\0"));
+        byte[] md5hash = MD5.HashData(Concat(UsageStr(keyUsage), text));
+        return NtlmCrypto.HmacMd5(ksign, md5hash);
     }
 
     // RFC 4757 key-usage mapping: 3 -> 8, 23 -> 13; everything else unchanged. Packed little-endian.

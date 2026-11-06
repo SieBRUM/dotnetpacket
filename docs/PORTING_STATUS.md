@@ -253,9 +253,11 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
       encrypt/decrypt with the key-usage mapping. Byte-for-byte equal to impacket's `_RC4`.
 - [x] **PA-ENC-TIMESTAMP pre-auth + TGT** (`AsReq.BuildPreauth`, `EncKdcRepPart`, `KerberosClient.GetTgt`):
       the full getTGT path, validated live. TGT ticket bytes + session key are returned for reuse.
-- [ ] **TGS-REQ / TGS-REP** (AP-REQ authenticator, key usages 7/8/11) — for GetUserSPNs / getST;
-      the next Kerberos build, sitting on top of the TGT above.
-- [ ] AES enctypes (RFC 3962), ccache read/write, S4U — deferred.
+- [x] **TGS-REQ / TGS-REP** (`TgsReq`, `TgsRep`, `KerbTgsRoast`): AP-REQ + authenticator (key
+      usage 7) with the **req-body checksum** (HMAC-MD5, key usage 6), service-ticket enc-part
+      extraction, `$krb5tgs$` formatting. `KerberosClient.Kerberoast` orchestrates it.
+- [x] **RC4-HMAC keyed checksum** (`Krb5Crypto.Rc4HmacChecksum`, cksumtype -138).
+- [ ] AES enctypes (RFC 3962), ccache read/write, S4U (getST delegation) — deferred.
 
 ## Examples (`DotNetPacket.Examples`)
 
@@ -355,6 +357,18 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       pre-auth AS-REQ encoding is pinned and Wireshark-decoded. Writing a .ccache and the AES
       enctypes are not ported (RC4 only; the lab accepts it).
       **Next: `GetUserSPNs.py` #8** (Kerberoasting) builds the TGS-REQ on top of this TGT.
+
+- [x] `GetUserSPNs.py` → `get-userspns <host> <user> <password> <domain-fqdn> [target-user] [port]`
+      — Kerberoasting. LDAP-search for accounts with a servicePrincipalName, then (with a TGT)
+      request a service ticket per SPN via a TGS-REQ and format the service ticket's enc-part as a
+      `$krb5tgs$` hash. Built the TGS layer on the TGT foundation: AP-REQ + authenticator (session-key
+      encrypted, key usage 7) + the **authenticator checksum over the KDC-REQ-BODY** (HMAC-MD5, key
+      usage 6). **Validated live, end-to-end**: roasted `svcroast` (SPN MSSQLSvc/db.lab.local:1433)
+      and confirmed the hash decrypts with the known service password (ticket enc-part, key usage 2).
+      Notable: this Heimdal/Samba KDC **rejects a TGS authenticator without the req-body checksum**
+      (`KRB_AP_ERR_INAPP_CKSUM`) — **stock impacket omits it and fails here**, while DotNetPacket
+      includes it (RFC 4120) and succeeds (see WIRE_DIFF). Known-bytes tests pin the TGS-REQ encoding,
+      the `$krb5tgs$` format, and a captured TGS-REP parse. AES etypes / ccache output not ported.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE

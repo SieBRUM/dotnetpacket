@@ -205,6 +205,24 @@ be the **etype choice** (we request RC4; a modern Windows client prefers AES256)
 ordering, not the crypto. Detection signal: an AS-REQ with PA-ENC-TIMESTAMP for a TGT — normal
 Kerberos, so detection keys on context (volume, source), not the bytes.
 
+### GetUserSPNs Kerberoast (`get-userspns`) — 2026-11-06
+
+A rare case where **DotNetPacket is more correct than impacket, and it shows on the wire.** Both
+build a TGS-REQ whose PA-TGS-REQ wraps an AP-REQ (the TGT + an authenticator). The difference is
+the **authenticator checksum over the KDC-REQ-BODY**:
+
+| | DotNetPacket (`get-userspns`) | stock impacket (`GetUserSPNs.py`) |
+| --- | --- | --- |
+| TGS authenticator `cksum [3]` | **present** — HMAC-MD5 (cksumtype -138) over the req-body, key usage 6, per RFC 4120 5.5.1 | **absent** — impacket omits it |
+| Result on this Samba 4.19 (Heimdal) KDC | service ticket returned; `$krb5tgs$` hash produced and verified to crack to the service password | `KRB_AP_ERR_INAPP_CKSUM` (error 50) — **fails to roast** |
+
+Against real Windows AD impacket's omission is tolerated, which is why it normally works; the
+stricter Heimdal KDC rejects it. DotNetPacket includes the checksum a real Windows client sends,
+so it is both RFC-correct and succeeds here. Everything else matches: kdc-options `40810010`,
+sname as the SPN (NT-SRV-INST), RC4 etype, and the `$krb5tgs$` format (incl. the `:`→`~` in the
+SPN) is byte-compatible with impacket's. Detection signal: a flurry of TGS-REQs for many SPNs from
+one client — behavioral, independent of the checksum nuance.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

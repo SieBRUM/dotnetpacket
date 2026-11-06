@@ -9,19 +9,34 @@ public static class Krb5Constants
     // Application tag numbers (the [APPLICATION n] wrapping each message).
     public const int AsReq = 10;
     public const int AsRep = 11;
+    public const int ApReq = 14;
+    public const int TgsReq = 12;
+    public const int TgsRep = 13;
+    public const int Authenticator = 2;
     public const int KrbError = 30;
 
     public const int Pvno = 5;
 
-    // PrincipalName name-types (MS/RFC): NT_PRINCIPAL = 1.
+    // PrincipalName name-types: NT_PRINCIPAL = 1, NT_SRV_INST = 2 (SPN components).
     public const int NtPrincipal = 1;
+    public const int NtSrvInst = 2;
 
     // PA-DATA types.
+    public const int PaTgsReq = 1;
     public const int PaEncTimestamp = 2;
     public const int PaPacRequest = 128;
 
+    /// <summary>
+    /// KDC-Options for a TGS-REQ as impacket sends: forwardable (1) + renewable (8) + canonicalize
+    /// (15) + renewable-ok (27) = 0x40810010.
+    /// </summary>
+    public static readonly byte[] KdcOptionsTgs = { 0x40, 0x81, 0x00, 0x10 };
+
     // Encryption types (RFC 3961 / 4120).
     public const int Rc4Hmac = 23;
+
+    /// <summary>RC4-HMAC keyed checksum type (KERB_CHECKSUM_HMAC_MD5, -138).</summary>
+    public const int Rc4HmacChecksumType = -138;
     public const int Aes128CtsHmacSha1 = 17;
     public const int Aes256CtsHmacSha1 = 18;
 

