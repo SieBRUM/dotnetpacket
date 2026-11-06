@@ -122,8 +122,11 @@ src/
   DotNetPacket.Protocols.Krb5/        # Kerberos v5 (RFC 4120) AS exchange
     Krb5Constants.cs               #   app tags, etypes, kdc-options, PA/error codes
     Der.cs                         #   GeneralString DER helper (what AsnWriter can't emit)
-    AsReq.cs                       #   AS-REQ builder (no-preauth; GetNPUsers)
-    KerberosResponse.cs            #   AS-REP / KRB-ERROR parser
+    Krb5Crypto.cs                  #   RC4-HMAC encryption profile (RFC 4757; reuses NtlmCrypto)
+    AsReq.cs                       #   AS-REQ builder (no-preauth for GetNPUsers; PA-ENC-TIMESTAMP for getTGT)
+    KerberosResponse.cs            #   AS-REP / KRB-ERROR parser (enc-part + ticket)
+    EncKdcRepPart.cs               #   decrypted AS-REP enc-part -> session key + endtime
+    KerberosClient.cs              #   GetTgt orchestration (pre-auth AS exchange -> TGT)
     AsRepRoast.cs                  #   $krb5asrep$ hashcat/john formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
@@ -216,6 +219,7 @@ dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <us
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
 dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
 dotnet run --project src/DotNetPacket.Examples -- get-npusers <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth
+dotnet run --project src/DotNetPacket.Examples -- kerb-tgt <lab-host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 PA-ENC-TIMESTAMP pre-auth)
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind

@@ -1,10 +1,72 @@
+using System.Text;
 using DotNetPacket.Protocols.Krb5;
+using DotNetPacket.Protocols.Ntlm;
 using Xunit;
 
 namespace DotNetPacket.Core.Tests;
 
 public class Krb5Tests
 {
+    // --- RC4-HMAC crypto (RFC 4757), cross-checked byte-for-byte against impacket's _RC4. ---
+
+    [Fact]
+    public void Rc4StringToKey_IsTheNtHash()
+    {
+        // The well-known NT hash of "password".
+        Assert.Equal("8846f7eaee8fb117ad06bdd830b7586c",
+            Convert.ToHexString(Krb5Crypto.Rc4StringToKey("password")).ToLowerInvariant());
+    }
+
+    [Theory]
+    [InlineData(1, "11210b2aa59f7ac229d24029f93079adfdd9ff14704fcbad13261f62fba4019425dd9c0cf0a95020")]
+    [InlineData(3, "95359df3832a62ddd655e06cb14dc23db14d72a0e11a9f68035f798a589833b2cc4a08261f69c192")]
+    public void Encrypt_MatchesImpacketVector(int usage, string expected)
+    {
+        byte[] key = NtlmCrypto.NtHash("password");
+        byte[] confounder = { 0, 1, 2, 3, 4, 5, 6, 7 };
+        byte[] ct = Krb5Crypto.Encrypt(key, usage, Encoding.ASCII.GetBytes("hello kerberos!!"), confounder);
+
+        Assert.Equal(expected, Convert.ToHexString(ct).ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Decrypt_RoundTripsEncrypt_AndRejectsWrongKey()
+    {
+        byte[] key = NtlmCrypto.NtHash("password");
+        byte[] plaintext = Encoding.ASCII.GetBytes("round trips just fine");
+        byte[] ct = Krb5Crypto.Encrypt(key, 1, plaintext, new byte[8]);
+
+        Assert.Equal(plaintext, Krb5Crypto.Decrypt(key, 1, ct));
+        Assert.Throws<InvalidDataException>(() => Krb5Crypto.Decrypt(NtlmCrypto.NtHash("wrong"), 1, ct));
+    }
+
+    // Deterministic PA-ENC-TIMESTAMP AS-REQ (Administrator@LAB.LOCAL, key=NThash("password"),
+    // fixed confounder/nonce/timestamps). The live lab KDC accepts the same request shape (it
+    // returned a TGT), and Wireshark decodes it as krb-as-req with PA-ENC-TIMESTAMP + PA-PAC-REQUEST.
+    private const string PreauthAsReq =
+        "6a81fb3081f8a103020105a20302010aa35f305d3048a103020102a241043f303da003020117a2360434" +
+        "c1ad844a2fa6d4b5790047615d1ac693161e306234633bcdb08680c025b6c3a74234982c026f3b298a58" +
+        "a646ebfb8d72d2281e553011a10402020080a20904073005a0030101ffa4818a308187a0070305005080" +
+        "0000a11a3018a003020101a111300f1b0d41646d696e6973747261746f72a20b1b094c41422e4c4f4341" +
+        "4ca31e301ca003020101a11530131b066b72627467741b094c41422e4c4f43414ca511180f3230323631" +
+        "3130373039303030305aa611180f32303236313130373039303030305aa706020411223344a805300302" +
+        "0117";
+
+    [Fact]
+    public void BuildPreauth_ReproducesTheWireBytes()
+    {
+        byte[] key = NtlmCrypto.NtHash("password");
+        byte[] confounder = { 0, 1, 2, 3, 4, 5, 6, 7 };
+        byte[] req = AsReq.BuildPreauth(
+            "lab.local", "Administrator", key, 0x11223344u,
+            till: new DateTimeOffset(2026, 11, 7, 9, 0, 0, TimeSpan.Zero),
+            now: new DateTimeOffset(2026, 11, 6, 9, 0, 0, TimeSpan.Zero),
+            usec: 123456, confounder: confounder);
+
+        Assert.Equal(PreauthAsReq, Convert.ToHexString(req).ToLowerInvariant());
+    }
+
+
     // AS-REQ built for roastme@LAB.LOCAL with a fixed nonce (0x11223344) and till 2026-11-07T09:00Z.
     // Confirmed by Wireshark's Kerberos dissector against the live lab KDC: krb-as-req, pvno 5,
     // pA-PAC-REQUEST, kdc-options 50800000 (forwardable/proxiable/renewable), cname roastme,

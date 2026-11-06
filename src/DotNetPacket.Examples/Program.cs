@@ -843,6 +843,42 @@ switch (args[0])
         return 0;
     }
 
+    case "kerb-tgt":
+    {
+        // getTGT.py (core path): request a TGT via an RC4-HMAC PA-ENC-TIMESTAMP AS exchange.
+        // Proves the full Kerberos pre-auth + crypto chain: the AS-REP enc-part decrypts with the
+        // client key and yields the TGT session key. This is the foundation the TGS examples
+        // (GetUserSPNs, getST) build on.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: kerb-tgt <host> <user> <password> <domain-fqdn> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string realm = args[4];
+        int kdcPort = args.Length >= 6 ? int.Parse(args[5]) : 88;
+
+        try
+        {
+            Tgt tgt = KerberosClient.GetTgt(host, realm, user, password, kdcPort);
+            Console.WriteLine($"TGT obtained for {tgt.User}@{tgt.Realm} (getTGT.py, RC4-HMAC pre-auth)");
+            Console.WriteLine($"  Service:      {tgt.ServiceName}");
+            Console.WriteLine($"  Session key:  etype {tgt.SessionKeyEtype}, {tgt.SessionKey.Length} bytes" +
+                $" ({Convert.ToHexString(tgt.SessionKey).ToLowerInvariant()})");
+            Console.WriteLine($"  Ticket:       {tgt.Ticket.Length} bytes (encrypted with the krbtgt key)");
+            Console.WriteLine($"  Ends:         {(tgt.EndTime is { } e ? e.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") : "unknown")}");
+            return 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException)
+        {
+            Console.Error.WriteLine($"[-] {ex.Message}");
+            return 1;
+        }
+    }
+
     case "get-npusers":
     {
         // GetNPUsers.py (AS-REP roasting): find accounts with "do not require Kerberos
@@ -3247,6 +3283,7 @@ static void PrintUsage()
     Console.WriteLine("  get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts");
     Console.WriteLine("  get-laps <host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords");
     Console.WriteLine("  get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth");
+    Console.WriteLine("  kerb-tgt <host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 pre-auth)");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");

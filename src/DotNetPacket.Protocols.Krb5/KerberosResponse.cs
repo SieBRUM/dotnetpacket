@@ -18,6 +18,9 @@ public sealed class KerberosResponse
     /// <summary>AS-REP enc-part ciphertext (the material that becomes the AS-REP-roast hash).</summary>
     public byte[] EncPartCipher { get; private init; } = Array.Empty<byte>();
 
+    /// <summary>AS-REP ticket, as its raw DER (the [APPLICATION 1] Ticket) — kept for a later TGS-REQ.</summary>
+    public byte[] Ticket { get; private init; } = Array.Empty<byte>();
+
     private static Asn1Tag Ctx(int n) => new(TagClass.ContextSpecific, n, isConstructed: true);
 
     /// <summary>Parses a raw KDC reply (one DER message) as an AS-REP or a KRB-ERROR.</summary>
@@ -33,8 +36,8 @@ public sealed class KerberosResponse
 
         if (tag.TagClass == TagClass.Application && tag.TagValue == Krb5Constants.AsRep)
         {
-            (int etype, byte[] cipher) = ParseAsRep(top);
-            return new KerberosResponse { IsAsRep = true, EncPartEtype = etype, EncPartCipher = cipher };
+            (int etype, byte[] cipher, byte[] ticket) = ParseAsRep(top);
+            return new KerberosResponse { IsAsRep = true, EncPartEtype = etype, EncPartCipher = cipher, Ticket = ticket };
         }
 
         throw new InvalidDataException($"Unexpected Kerberos reply tag {tag.TagClass}/{tag.TagValue}.");
@@ -58,19 +61,25 @@ public sealed class KerberosResponse
         throw new InvalidDataException("KRB-ERROR without an error-code.");
     }
 
-    // AS-REP ::= [APPLICATION 11] SEQUENCE { ... enc-part [6] EncryptedData }
+    // AS-REP ::= [APPLICATION 11] SEQUENCE { ... ticket [5] Ticket, enc-part [6] EncryptedData }
     // EncryptedData ::= SEQUENCE { etype [0] Int32, kvno [1] UInt32 OPTIONAL, cipher [2] OCTET STRING }
-    private static (int Etype, byte[] Cipher) ParseAsRep(AsnReader top)
+    private static (int Etype, byte[] Cipher, byte[] Ticket) ParseAsRep(AsnReader top)
     {
         AsnReader body = top.ReadSequence(new Asn1Tag(TagClass.Application, Krb5Constants.AsRep)).ReadSequence();
+        int etype = 0;
+        byte[] cipher = Array.Empty<byte>();
+        byte[] ticket = Array.Empty<byte>();
         while (body.HasData)
         {
             Asn1Tag t = body.PeekTag();
-            if (t.TagClass == TagClass.ContextSpecific && t.TagValue == 6)
+            if (t.TagClass == TagClass.ContextSpecific && t.TagValue == 5)
+            {
+                // ticket [5] explicitly wraps the [APPLICATION 1] Ticket; keep its raw DER.
+                ticket = body.ReadSequence(Ctx(5)).ReadEncodedValue().ToArray();
+            }
+            else if (t.TagClass == TagClass.ContextSpecific && t.TagValue == 6)
             {
                 AsnReader enc = body.ReadSequence(Ctx(6)).ReadSequence(); // EncryptedData
-                int etype = 0;
-                byte[] cipher = Array.Empty<byte>();
                 while (enc.HasData)
                 {
                     Asn1Tag et = enc.PeekTag();
@@ -87,14 +96,19 @@ public sealed class KerberosResponse
                         enc.ReadEncodedValue(); // kvno [1] or anything else
                     }
                 }
-
-                return (etype, cipher);
             }
-
-            body.ReadEncodedValue();
+            else
+            {
+                body.ReadEncodedValue();
+            }
         }
 
-        throw new InvalidDataException("AS-REP without an enc-part.");
+        if (cipher.Length == 0)
+        {
+            throw new InvalidDataException("AS-REP without an enc-part.");
+        }
+
+        return (etype, cipher, ticket);
     }
 
     private static BigInteger ReadExplicitInteger(AsnReader reader, Asn1Tag ctx) =>

@@ -193,6 +193,18 @@ signal is the **AS-REQ with no encrypted pre-auth for a TGT** — identical on t
 runtime; the roast hash only appears when the target DC actually allows it. A real Windows capture
 would add the AS-REP side as the third column.
 
+### getTGT AS exchange with pre-auth (`kerb-tgt`) — 2026-11-06
+
+The TGT foundation. Our AS-REQ carries a PA-ENC-TIMESTAMP (RC4-HMAC) + PA-PAC-REQUEST, same as
+impacket's getTGT; Wireshark decodes it as `krb-as-req` with both pa-data, and the KDC returns a
+`krb-as-rep`. Both DotNetPacket and impacket obtain a TGT for the same account, and the recovered
+RC4 session key decrypts cleanly. The RC4-HMAC crypto (string-to-key, encrypt/decrypt, key-usage
+mapping) is **byte-for-byte identical to impacket's `_RC4`** (known-answer tests), so there is no
+client fingerprint to distinguish the runtimes here — the diff, when a Windows capture lands, will
+be the **etype choice** (we request RC4; a modern Windows client prefers AES256) and the pa-data
+ordering, not the crypto. Detection signal: an AS-REQ with PA-ENC-TIMESTAMP for a TGT — normal
+Kerberos, so detection keys on context (volume, source), not the bytes.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

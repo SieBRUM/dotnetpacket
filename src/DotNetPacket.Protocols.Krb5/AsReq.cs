@@ -3,10 +3,14 @@ using System.Formats.Asn1;
 namespace DotNetPacket.Protocols.Krb5;
 
 /// <summary>
-/// Builds a Kerberos AS-REQ (RFC 4120 5.4.1) with no encrypted pre-auth — the request impacket's
-/// <c>GetNPUsers.py</c> sends to roast an account that has "do not require pre-authentication"
-/// set. It carries only a PA-PAC-REQUEST pa-data; the KDC answers with an AS-REP (roastable) or a
-/// KRB-ERROR (pre-auth required / unknown / etc.). All context tags are EXPLICIT, as Kerberos uses.
+/// Builds a Kerberos AS-REQ (RFC 4120 5.4.1). Two shapes:
+/// <list type="bullet">
+/// <item><see cref="Build"/> — no encrypted pre-auth (GetNPUsers / AS-REP roasting): only a
+/// PA-PAC-REQUEST pa-data; the KDC answers AS-REP (roastable) or KRB-ERROR (pre-auth required).</item>
+/// <item><see cref="BuildPreauth"/> — with a PA-ENC-TIMESTAMP (the normal getTGT path): an
+/// encrypted timestamp proving knowledge of the client key, so the KDC returns a usable TGT.</item>
+/// </list>
+/// All context tags are EXPLICIT, as Kerberos uses.
 /// </summary>
 public static class AsReq
 {
@@ -14,16 +18,39 @@ public static class AsReq
 
     private static readonly int[] DefaultEtypes = { Krb5Constants.Rc4Hmac };
 
-    /// <summary>
-    /// Encodes an AS-REQ for <paramref name="user"/>@<paramref name="realm"/>. <paramref name="till"/>
-    /// is the ticket expiry (impacket uses now+1 day); <paramref name="nonce"/> a random 31-bit value.
-    /// <paramref name="etypes"/> defaults to RC4-HMAC (what GetNPUsers tries first).
-    /// </summary>
+    /// <summary>Encodes a no-pre-auth AS-REQ (only PA-PAC-REQUEST).</summary>
     public static byte[] Build(string realm, string user, uint nonce, DateTimeOffset till, int[]? etypes = null, bool requestPac = true)
     {
-        realm = realm.ToUpperInvariant();
-        etypes ??= DefaultEtypes;
+        return Encode(realm, user, nonce, till, etypes ?? DefaultEtypes, w =>
+        {
+            WritePaData(w, Krb5Constants.PaPacRequest, EncodePacRequest(requestPac));
+        });
+    }
 
+    /// <summary>
+    /// Encodes an AS-REQ carrying a PA-ENC-TIMESTAMP (encrypted with <paramref name="clientKey"/>,
+    /// key usage 1) plus PA-PAC-REQUEST. <paramref name="now"/>/<paramref name="usec"/> are the
+    /// timestamp; <paramref name="confounder"/> is the RC4 confounder (fixed for deterministic tests).
+    /// </summary>
+    public static byte[] BuildPreauth(
+        string realm, string user, byte[] clientKey, uint nonce, DateTimeOffset till,
+        DateTimeOffset now, int usec, byte[] confounder, int etype = Krb5Constants.Rc4Hmac, bool requestPac = true)
+    {
+        byte[] tsEnc = EncodePaEncTsEnc(now, usec);
+        byte[] encrypted = Krb5Crypto.Encrypt(clientKey, 1, tsEnc, confounder); // key usage 1
+        byte[] encData = EncodeEncryptedData(etype, encrypted);
+
+        return Encode(realm, user, nonce, till, new[] { etype }, w =>
+        {
+            WritePaData(w, Krb5Constants.PaEncTimestamp, encData);     // PA-ENC-TIMESTAMP [0]
+            WritePaData(w, Krb5Constants.PaPacRequest, EncodePacRequest(requestPac)); // PA-PAC-REQUEST [1]
+        });
+    }
+
+    // Shared AS-REQ / KDC-REQ-BODY skeleton; writePadata emits the PA-DATA entries.
+    private static byte[] Encode(string realm, string user, uint nonce, DateTimeOffset till, int[] etypes, Action<AsnWriter> writePadata)
+    {
+        realm = realm.ToUpperInvariant();
         var w = new AsnWriter(AsnEncodingRules.DER);
         using (w.PushSequence(new Asn1Tag(TagClass.Application, Krb5Constants.AsReq))) // AS-REQ [APPLICATION 10]
         using (w.PushSequence())                                                       // KDC-REQ SEQUENCE
@@ -31,19 +58,13 @@ public static class AsReq
             using (w.PushSequence(Ctx(1))) w.WriteInteger(Krb5Constants.Pvno);          // pvno [1]
             using (w.PushSequence(Ctx(2))) w.WriteInteger(Krb5Constants.AsReq);         // msg-type [2]
 
-            // padata [3] SEQUENCE OF PA-DATA — a single PA-PAC-REQUEST.
-            using (w.PushSequence(Ctx(3)))
+            using (w.PushSequence(Ctx(3)))                                              // padata [3] SEQUENCE OF
             using (w.PushSequence())
             {
-                using (w.PushSequence())                                                // PA-DATA
-                {
-                    using (w.PushSequence(Ctx(1))) w.WriteInteger(Krb5Constants.PaPacRequest); // padata-type [1]
-                    using (w.PushSequence(Ctx(2))) w.WriteOctetString(EncodePacRequest(requestPac)); // padata-value [2]
-                }
+                writePadata(w);
             }
 
-            // req-body [4] KDC-REQ-BODY
-            using (w.PushSequence(Ctx(4)))
+            using (w.PushSequence(Ctx(4)))                                              // req-body [4]
             using (w.PushSequence())
             {
                 using (w.PushSequence(Ctx(0))) w.WriteBitString(Krb5Constants.KdcOptionsForwardableRenewableProxiable); // kdc-options [0]
@@ -67,13 +88,23 @@ public static class AsReq
         return w.Encode();
     }
 
+    // PA-DATA ::= SEQUENCE { padata-type [1] Int32, padata-value [2] OCTET STRING }
+    private static void WritePaData(AsnWriter w, int type, byte[] value)
+    {
+        using (w.PushSequence())
+        {
+            using (w.PushSequence(Ctx(1))) w.WriteInteger(type);
+            using (w.PushSequence(Ctx(2))) w.WriteOctetString(value);
+        }
+    }
+
     // PrincipalName ::= SEQUENCE { name-type [0] Int32, name-string [1] SEQUENCE OF GeneralString }
     private static void WritePrincipalName(AsnWriter w, string[] components)
     {
         using (w.PushSequence())
         {
-            using (w.PushSequence(Ctx(0))) w.WriteInteger(Krb5Constants.NtPrincipal); // name-type [0]
-            using (w.PushSequence(Ctx(1)))                                            // name-string [1]
+            using (w.PushSequence(Ctx(0))) w.WriteInteger(Krb5Constants.NtPrincipal);
+            using (w.PushSequence(Ctx(1)))
             using (w.PushSequence())
             {
                 foreach (string c in components)
@@ -91,6 +122,32 @@ public static class AsReq
         using (w.PushSequence())
         {
             using (w.PushSequence(Ctx(0))) w.WriteBoolean(includePac);
+        }
+
+        return w.Encode();
+    }
+
+    // PA-ENC-TS-ENC ::= SEQUENCE { patimestamp [0] KerberosTime, pausec [1] Microseconds OPTIONAL }
+    private static byte[] EncodePaEncTsEnc(DateTimeOffset now, int usec)
+    {
+        var w = new AsnWriter(AsnEncodingRules.DER);
+        using (w.PushSequence())
+        {
+            using (w.PushSequence(Ctx(0))) w.WriteGeneralizedTime(now, omitFractionalSeconds: true);
+            using (w.PushSequence(Ctx(1))) w.WriteInteger(usec);
+        }
+
+        return w.Encode();
+    }
+
+    // EncryptedData ::= SEQUENCE { etype [0] Int32, kvno [1] UInt32 OPTIONAL, cipher [2] OCTET STRING }
+    private static byte[] EncodeEncryptedData(int etype, byte[] cipher)
+    {
+        var w = new AsnWriter(AsnEncodingRules.DER);
+        using (w.PushSequence())
+        {
+            using (w.PushSequence(Ctx(0))) w.WriteInteger(etype);
+            using (w.PushSequence(Ctx(2))) w.WriteOctetString(cipher);
         }
 
         return w.Encode();

@@ -17,6 +17,7 @@ public static class Krb5Constants
     public const int NtPrincipal = 1;
 
     // PA-DATA types.
+    public const int PaEncTimestamp = 2;
     public const int PaPacRequest = 128;
 
     // Encryption types (RFC 3961 / 4120).
@@ -25,6 +26,7 @@ public static class Krb5Constants
     public const int Aes256CtsHmacSha1 = 18;
 
     // A handful of KDC error codes we care about for AS-REP roasting.
+    public const int KdcErrPreauthFailed = 24;
     public const int KdcErrPreauthRequired = 25;
     public const int KdcErrCPrincipalUnknown = 6;
     public const int KdcErrEtypeNoSupp = 14;
@@ -39,6 +41,7 @@ public static class Krb5Constants
     public static string DescribeError(int code) => code switch
     {
         KdcErrCPrincipalUnknown => "KDC_ERR_C_PRINCIPAL_UNKNOWN (no such user)",
+        KdcErrPreauthFailed => "KDC_ERR_PREAUTH_FAILED (wrong password / bad pre-auth)",
         KdcErrEtypeNoSupp => "KDC_ERR_ETYPE_NOSUPP (no supported etype)",
         KdcErrPreauthRequired => "KDC_ERR_PREAUTH_REQUIRED (pre-auth required — not roastable)",
         KdcErrClientRevoked => "KDC_ERR_CLIENT_REVOKED (account disabled/locked)",

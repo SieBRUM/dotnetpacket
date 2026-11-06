@@ -249,8 +249,13 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
 - [x] **AS-REP roast** formatter (`AsRepRoast`): hashcat + john `$krb5asrep$` strings (RC4 and
       AES layouts), matching impacket's GetNPUsers format expressions.
 - [x] **Kerberos-over-TCP** transport (`KerberosTcpClient`): 4-byte length-prefixed, port 88.
-- [ ] PA-ENC-TIMESTAMP pre-auth (the real getTGT path), TGS-REQ / TGS-REP, S4U — for getTGT.py /
-      getST.py / GetUserSPNs.py; deferred to those examples.
+- [x] **RC4-HMAC** encryption profile (`Krb5Crypto`, RFC 4757): string-to-key (NT hash),
+      encrypt/decrypt with the key-usage mapping. Byte-for-byte equal to impacket's `_RC4`.
+- [x] **PA-ENC-TIMESTAMP pre-auth + TGT** (`AsReq.BuildPreauth`, `EncKdcRepPart`, `KerberosClient.GetTgt`):
+      the full getTGT path, validated live. TGT ticket bytes + session key are returned for reuse.
+- [ ] **TGS-REQ / TGS-REP** (AP-REQ authenticator, key usages 7/8/11) — for GetUserSPNs / getST;
+      the next Kerberos build, sitting on top of the TGT above.
+- [ ] AES enctypes (RFC 3962), ccache read/write, S4U — deferred.
 
 ## Examples (`DotNetPacket.Examples`)
 
@@ -339,6 +344,17 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       check (roast strings match impacket's exact format expressions) and a synthetic AS-REP round-
       trip, not end-to-end. Scope: AS-REP roasting is a standard detection-research technique (the
       signal is the pre-auth-less AS-REQ); lab-only, see CLAUDE.md scope.
+
+- [x] `getTGT.py` (core) → `kerb-tgt <host> <user> <password> <domain-fqdn> [port]` — request a
+      Kerberos TGT via an RC4-HMAC **PA-ENC-TIMESTAMP** AS exchange. Ported ahead of its list
+      position because it is the prerequisite for the TGS examples (GetUserSPNs #8, getST). Proves
+      the whole pre-auth + crypto chain: the AS-REP enc-part decrypts with the client key and yields
+      the TGT session key. **Validated live against the lab KDC** (TGT obtained for Administrator,
+      RC4 session key recovered; wrong password -> KDC_ERR_PREAUTH_FAILED), and **impacket getTGT.py
+      obtains a TGT too**. RC4-HMAC crypto matches impacket byte-for-byte (known-answer tests); the
+      pre-auth AS-REQ encoding is pinned and Wireshark-decoded. Writing a .ccache and the AES
+      enctypes are not ported (RC4 only; the lab accepts it).
+      **Next: `GetUserSPNs.py` #8** (Kerberoasting) builds the TGS-REQ on top of this TGT.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
