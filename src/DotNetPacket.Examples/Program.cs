@@ -649,6 +649,80 @@ switch (args[0])
         return 0;
     }
 
+    case "get-adusers":
+    {
+        // GetADUsers.py: LDAP-search a DC for user accounts and print
+        // Name / Email / PasswordLastSet / LastLogon. Default filter mirrors impacket
+        // (enabled users with a mailbox); pass "all" for every user object.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: get-adusers <host> <user> <password> <domain-fqdn> [all] [port]");
+            Console.Error.WriteLine("  e.g. get-adusers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local all");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        bool all = false;
+        int port = 389;
+        foreach (string a in args.Skip(5))
+        {
+            if (string.Equals(a, "all", StringComparison.OrdinalIgnoreCase)) all = true;
+            else if (int.TryParse(a, out int p)) port = p;
+        }
+
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, port);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        // Default: enabled users that have a mailbox, like impacket
+        // (!(userAccountControl:1.2.840.113556.1.4.803:=2)) is "ACCOUNTDISABLE bit not set".
+        const int UF_ACCOUNTDISABLE = 2;
+        LdapFilter filter = all
+            ? LdapFilter.AllOf(LdapFilter.PresentOf("sAMAccountName"), LdapFilter.Equal("objectCategory", "user"))
+            : LdapFilter.AllOf(
+                LdapFilter.PresentOf("sAMAccountName"),
+                LdapFilter.PresentOf("mail"),
+                LdapFilter.Negate(LdapFilter.Extensible(
+                    "1.2.840.113556.1.4.803", "userAccountControl", UF_ACCOUNTDISABLE.ToString())));
+        string[] attrs = { "sAMAccountName", "pwdLastSet", "mail", "lastLogon" };
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs);
+
+        static string FileTime(string raw)
+        {
+            if (!long.TryParse(raw, out long ft) || ft == 0) return "<never>";
+            try { return DateTime.FromFileTimeUtc(ft).ToString("yyyy-MM-dd HH:mm:ss"); }
+            catch { return "<never>"; }
+        }
+
+        Console.WriteLine($"Querying {host} ({baseDn}) for user objects (GetADUsers.py{(all ? " -all" : string.Empty)})");
+        Console.WriteLine();
+        Console.WriteLine($"{"Name",-20} {"Email",-28} {"PasswordLastSet",-19} {"LastLogon",-19}");
+        Console.WriteLine($"{new string('-', 20)} {new string('-', 28)} {new string('-', 19)} {new string('-', 19)}");
+        int shown = 0;
+        foreach (SearchEntry e in entries)
+        {
+            string sam = e.Get("sAMAccountName");
+            if (sam.EndsWith('$')) continue; // skip machine accounts, like impacket
+            shown++;
+            Console.WriteLine($"{sam,-20} {e.Get("mail"),-28} " +
+                $"{FileTime(e.Get("pwdLastSet")),-19} {FileTime(e.Get("lastLogon")),-19}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{shown} user account(s).");
+        return 0;
+    }
+
     case "ldap-signing":
     {
         // CheckLDAPStatus.py (signing portion): probe whether the DC enforces LDAP signing.
@@ -2947,6 +3021,7 @@ static void PrintUsage()
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
     Console.WriteLine("  gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]   # Get-GPPPassword: find+decrypt GPP cpasswords");
     Console.WriteLine("  get-adcomputers <host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects");
+    Console.WriteLine("  get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");

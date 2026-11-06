@@ -209,8 +209,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       auth path for the search examples (the DC rejects NTLM-over-LDAP with data 52e; see below).
 - [x] LDAP **search** (`Search` / `EncodeSearchRequest` / `ParseSearchEntry`, `LdapFilter`,
       `SearchEntry`): SearchRequest (base/scope/deref/limits/typesOnly/filter/attrs), filters
-      (and/or/equality/present), SearchResultEntry/Done parsing, referral skip. Byte-validated via
-      Wireshark + known-bytes tests.
+      (and/or/equality/present/not/extensibleMatch — the last covers the AD
+      `userAccountControl:1.2.840.113556.1.4.803:=` bit rule), SearchResultEntry/Done parsing,
+      referral skip. Byte-validated via Wireshark + known-bytes tests.
 - [ ] **NTLM-sealed LDAP bind** (impacket's default) — deferred. Would need the NTLM GSS SASL
       sign/seal layer wrapping post-bind PDUs. Cannot be validated on this lab anyway: the Samba DC
       answers an NTLM LDAP bind with `data 52e` even for stock impacket (SMB NTLMv2 works), so the
@@ -282,6 +283,18 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       are deferred (tracked under the Ldap area). Paged results (SimplePagedResultsControl) not
       implemented — the lab directory is small; noted for larger targets. `-resolveIP` (DNS A
       lookup per host) not ported.
+
+- [x] `GetADUsers.py` → `get-adusers <host> <user> <password> <domain-fqdn> [all] [port]`
+      — LDAP-search a DC for user accounts and print Name / Email / PasswordLastSet / LastLogon
+      (AD FILETIME attributes decoded; 0 = never). Default filter mirrors impacket
+      `(&(sAMAccountName=*)(mail=*)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))` (enabled +
+      mailbox); `all` uses `(&(sAMAccountName=*)(objectCategory=user))`. Added the `not` and
+      `extensibleMatch` filter constructs to `LdapFilter`. Validated live against the lab DC:
+      `all` listed krbtgt / Guest / Administrator with pwdLastSet decoded; both filters accepted
+      (searchResDone resultCode 0). Known-bytes tests pin both request encodings (incl. the
+      not/extensibleMatch filter) and a captured user SearchResultEntry. Same lab bind limitation
+      as GetADComputers (simple bind; NTLM-over-LDAP fails even for impacket). `-resolveIP` not
+      ported.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE

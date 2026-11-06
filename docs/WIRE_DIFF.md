@@ -137,6 +137,24 @@ identical whatever the bind or runtime. Visible on the wire only for an unencryp
 an NTLM-sealed or LDAPS bind (impacket / a real client) hides the filter and results, pushing
 detection to LDAP server-side query logging.
 
+### GetADUsers LDAP search (`get-adusers`) — 2026-11-06
+
+Same bind situation as GetADComputers (simple bind; impacket's NTLM LDAP bind fails `data 52e`
+on this lab), so the diff is again at the search layer, and again validated by hand + Wireshark +
+server acceptance rather than an impacket capture. Two filters, both accepted by the DC
+(searchResDone resultCode 0):
+
+| Mode | Filter sent | Note |
+| --- | --- | --- |
+| default | `(&(sAMAccountName=*)(mail=*)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))` | mirrors impacket — present + `not [2]` + `extensibleMatch [9]` (matchingRule `1.2.840.113556.1.4.803`, type `userAccountControl`, value `2`). Note Wireshark's LDAP dissector hits a recursion-depth assertion on the extensibleMatch and won't render it, but the raw BER is exactly the MatchingRuleAssertion and the server honours it. |
+| `all` | `(&(sAMAccountName=*)(objectCategory=user))` | lists every user object. |
+
+Attributes requested (both): `sAMAccountName`, `pwdLastSet`, `mail`, `lastLogon` — identical to
+impacket. The only cosmetic nit: impacket's default filter string literally spells
+`UserAccountControl`; LDAP attribute names are case-insensitive, so the chosen case is not a
+usable fingerprint. Detection takeaway is the same as GetADComputers: the durable signal is the
+**user-enumeration search shape**, visible only when the bind is unencrypted.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

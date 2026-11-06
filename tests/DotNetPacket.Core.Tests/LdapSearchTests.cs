@@ -53,6 +53,73 @@ public class LdapSearchTests
         Assert.Equal(SearchRequest, Convert.ToHexString(encoded).ToLowerInvariant());
     }
 
+    // The exact SearchRequest LDAPMessages (messageID 2) the GetADUsers port put on the wire,
+    // both accepted by the lab DC (searchResDone resultCode 0). Attributes for both:
+    // sAMAccountName / pwdLastSet / mail / lastLogon.
+    private const string AllUsersRequest =
+        "307e0201026379040f64633d6c61622c64633d6c6f63616c0a01020a01000201000201000101" +
+        "00a028870e73414d4163636f756e744e616d65a316040e6f626a65637443617465676f727904" +
+        "0475736572302d040e73414d4163636f756e744e616d65040a7077644c6173745365740404" +
+        "6d61696c04096c6173744c6f676f6e";
+
+    // The default GetADUsers filter: (&(sAMAccountName=*)(mail=*)
+    // (!(userAccountControl:1.2.840.113556.1.4.803:=2))) — exercises present + not + extensibleMatch.
+    private const string EnabledMailUsersRequest =
+        "3081a002010263819a040f64633d6c61622c64633d6c6f63616c0a01020a01000201000201000101" +
+        "00a049870e73414d4163636f756e744e616d6587046d61696ca231a92f8116312e322e3834302e31" +
+        "31333535362e312e342e3830338212757365724163636f756e74436f6e74726f6c830132302d040e" +
+        "73414d4163636f756e744e616d65040a7077644c61737453657404046d61696c04096c6173744c6f" +
+        "676f6e";
+
+    private static readonly string[] UserAttrs = { "sAMAccountName", "pwdLastSet", "mail", "lastLogon" };
+
+    [Fact]
+    public void EncodeSearchRequest_ReproducesAllUsersFilter()
+    {
+        byte[] encoded = LdapConnection.EncodeSearchRequest(
+            messageId: 2, baseObject: "dc=lab,dc=local",
+            filter: LdapFilter.AllOf(
+                LdapFilter.PresentOf("sAMAccountName"),
+                LdapFilter.Equal("objectCategory", "user")),
+            attributes: UserAttrs);
+
+        Assert.Equal(AllUsersRequest, Convert.ToHexString(encoded).ToLowerInvariant());
+    }
+
+    [Fact]
+    public void EncodeSearchRequest_ReproducesEnabledMailUsersFilter()
+    {
+        byte[] encoded = LdapConnection.EncodeSearchRequest(
+            messageId: 2, baseObject: "dc=lab,dc=local",
+            filter: LdapFilter.AllOf(
+                LdapFilter.PresentOf("sAMAccountName"),
+                LdapFilter.PresentOf("mail"),
+                LdapFilter.Negate(LdapFilter.Extensible(
+                    "1.2.840.113556.1.4.803", "userAccountControl", "2"))),
+            attributes: UserAttrs);
+
+        Assert.Equal(EnabledMailUsersRequest, Convert.ToHexString(encoded).ToLowerInvariant());
+    }
+
+    // Verbatim SearchResultEntry for the Administrator user, captured from the lab DC.
+    private const string AdminEntry =
+        "30818c0201026481860429434e3d41646d696e6973747261746f722c434e3d55736572732c44433d" +
+        "6c61622c44433d6c6f63616c3059301004096c6173744c6f676f6e31030401303022040a7077644c" +
+        "617374536574311404123133343337383436333536373138333634303021040e73414d4163636f75" +
+        "6e744e616d65310f040d41646d696e6973747261746f72";
+
+    [Fact]
+    public void ParseSearchEntry_DecodesUserWithTimestamps()
+    {
+        SearchEntry e = LdapConnection.ParseSearchEntry(Convert.FromHexString(AdminEntry));
+
+        Assert.Equal("CN=Administrator,CN=Users,DC=lab,DC=local", e.ObjectName);
+        Assert.Equal("Administrator", e.Get("sAMAccountName"));
+        // AD timestamps come back as decimal FILETIME strings; lastLogon 0 = never.
+        Assert.Equal("134378463567183640", e.Get("pwdLastSet"));
+        Assert.Equal("0", e.Get("lastLogon"));
+    }
+
     [Fact]
     public void PresenceFilter_EncodesAsContextPrimitive()
     {
