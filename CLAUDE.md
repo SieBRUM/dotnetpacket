@@ -119,6 +119,13 @@ src/
     GppPreferences.cs              #   GPP XML cpassword carving (Groups/ScheduledTasks/… -> findings)
   DotNetPacket.Protocols.Laps/        # LAPS (MS-LAPS) password attributes
     LapsPassword.cs                #   msLAPS-Password cleartext JSON parse (GetLAPSPassword; DPAPI-NG decrypt deferred)
+  DotNetPacket.Protocols.Krb5/        # Kerberos v5 (RFC 4120) AS exchange
+    Krb5Constants.cs               #   app tags, etypes, kdc-options, PA/error codes
+    Der.cs                         #   GeneralString DER helper (what AsnWriter can't emit)
+    AsReq.cs                       #   AS-REQ builder (no-preauth; GetNPUsers)
+    KerberosResponse.cs            #   AS-REP / KRB-ERROR parser
+    AsRepRoast.cs                  #   $krb5asrep$ hashcat/john formatter
+    KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -208,6 +215,7 @@ dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]
 dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
 dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
+dotnet run --project src/DotNetPacket.Examples -- get-npusers <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind

