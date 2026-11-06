@@ -6,6 +6,12 @@ lab server and diffing the wire fields a SOC fingerprints on. Where they differ,
 a fingerprint-based detection is keying on a **runtime artifact**, not on protocol
 behavior — exactly the brittleness this project studies.
 
+The realism target, though, is a real domain-joined **Windows** client, which the
+Samba lab cannot produce — so the entries below are two-column (DotNetPacket vs
+impacket) until a Windows capture lands. To capture that third column, follow
+`WINDOWS_CAPTURE.md`; its findings resolve the **"Pending a Windows capture"**
+section near the end of this file.
+
 ## How to reproduce
 
 Capture each client against the same host, then extract and diff the fields with

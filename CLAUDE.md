@@ -139,6 +139,7 @@ docs/
   PORTING_GUIDE.md                 # the mechanical impacket -> .NET recipe
   PORTING_STATUS.md                # tracker: what's ported, what's next
   WIRE_DIFF.md                     # DotNetPacket vs impacket fingerprint diff (the research output)
+  WINDOWS_CAPTURE.md               # step-by-step: capture a real Windows client (the third column)
 tools/
   fingerprint.sh                   # extract SMB2/NTLM fingerprint fields from a capture (for diffing)
   lab-addc.sh                      # stand up a throwaway Samba AD DC lab (epmapper/135, admin, dynamic ports)
