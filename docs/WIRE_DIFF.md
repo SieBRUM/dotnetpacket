@@ -246,6 +246,27 @@ SET_INFO body matches impacket's (StructureSize 0x21, InfoType File, class 4, Bu
 the ordinary signed SMB2 session (not encrypted here), so the fields are visible on the wire; no
 client-fingerprint divergence from impacket on this call.
 
+### atexec Task Scheduler exec (`atexec`) — 2026-11-06
+
+Remote command execution via MS-TSCH (`\atsvc`). Samba doesn't implement the service, so this
+can't run end-to-end on the lab — the `\atsvc` open returns STATUS_OBJECT_NAME_NOT_FOUND (visible
+in the capture; the detectable behavior on this target is just a client *attempting* to open
+`\atsvc`). The request encoding was validated against the **impacket tsch encoder** instead of a
+server. For SchRpcRegisterTask / Run / Delete / GetLastRunInfo the stubs match impacket's
+structure byte-for-byte except:
+
+| Field | DotNetPacket | impacket |
+| --- | --- | --- |
+| LPWSTR/pointer referent ids | `0x00020000`+ (MIDL/Windows sequential) | random per-process |
+| NDR alignment pad fill | `0x00` | `0xAB` / `0xBF` |
+| trailing align after the last string | present (we always align) | omitted |
+
+All three are the project's existing, documented anti-fingerprint / Windows-faithful choices, not
+new divergences. The task XML (hidden task, LocalSystem, run-on-demand, `cmd.exe /C … > tmp 2>&1`)
+is a verbatim port of impacket's template. The durable detection signal is behavioral: an `\atsvc`
+bind + SchRpcRegisterTask → SchRpcRun → SchRpcDelete burst — identical in shape whatever the
+runtime; a Windows capture would add the on-wire third column.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

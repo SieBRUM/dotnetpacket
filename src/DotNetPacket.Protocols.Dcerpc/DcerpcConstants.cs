@@ -93,6 +93,14 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
         new("winreg", new Guid("338cd001-2244-31f1-aaaa-900038001003"), 1, 0, "winreg");
 
     /// <summary>
+    /// The Task Scheduler service (ITaskSchedulerService, MS-TSCH), reached over the
+    /// <c>\atsvc</c> named pipe. Used by atexec for remote command execution. Windows-only —
+    /// Samba does not implement it.
+    /// </summary>
+    public static readonly DcerpcInterface Tsch =
+        new("tsch", new Guid("86d35949-83c9-4044-b424-db363231fd0c"), 1, 0, "atsvc");
+
+    /// <summary>
     /// The DCE remote-management interface (rpc_mgmt). It has no pipe of its own —
     /// it is bound over an existing endpoint (here the srvsvc pipe) — so it is not in
     /// <see cref="WellKnown"/>; its <c>Pipe</c> names the transport pipe to reach it.

@@ -370,6 +370,18 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       includes it (RFC 4120) and succeeds (see WIRE_DIFF). Known-bytes tests pin the TGS-REQ encoding,
       the `$krb5tgs$` format, and a captured TGS-REP parse. AES etypes / ccache output not ported.
 
+- [~] `atexec.py` → `atexec <host> <user> <password> <command> [domain] [port]` — remote command
+      execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register an
+      XML task that runs `cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`, run it, poll
+      SchRpcGetLastRunInfo, read the output from ADMIN$\Temp over SMB, then delete the task + file.
+      **Lab-only exec primitive.** New `Tsch` client (SchRpcRegisterTask/Run/Delete/GetLastRunInfo)
+      + the atexec task-XML builder. **Cannot be validated end-to-end on this lab — Samba does not
+      implement MS-TSCH** (the `\atsvc` open returns STATUS_OBJECT_NAME_NOT_FOUND, which the example
+      reports). The request NDR was instead validated **byte-for-byte against impacket's tsch
+      encoder** (known-bytes tests), matching except our documented referent-id scheme and
+      zero-filled pad. End-to-end run needs a Windows target. The `-session-id` / Author-log
+      tampering options are not ported.
+
 - [~] `addcomputer.py` (SAMR method) → `rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]`
       — create a machine account via **SamrCreateUser2InDomain** (WORKSTATION_TRUST_ACCOUNT) over
       the sealed SAMR-over-SMB pipe: the account-creation event a SOC detects (noPac / RBCD

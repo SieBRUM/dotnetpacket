@@ -105,6 +105,7 @@ src/
     Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open (domain/user/alias) + QueryInfo (user general + level-21 all) + domain info (general + password/lockout policy) + display info users+groups (samrdump) + GetGroupsForUser + alias members + CreateUser2/DeleteUser (addcomputer, lab)
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/EnumKey/Close
+    Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (Windows-only)
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
     Epm.cs                         #   endpoint mapper ept_map (resolve an interface to its TCP port)
     IDcerpcTransport.cs            #   transport abstraction (ncacn_np vs ncacn_ip_tcp)
@@ -221,6 +222,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-regenum <lab-host> <user> 
 dotnet run --project src/DotNetPacket.Examples -- rpc-regkeys <lab-host> <user> <password> [subkey] [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-addcomputer <lab-host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)
+dotnet run --project src/DotNetPacket.Examples -- atexec <lab-host> <user> <password> <command> [domain] [port]   # atexec: Task Scheduler command exec (MS-TSCH, Windows-only)
 dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)
 dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts

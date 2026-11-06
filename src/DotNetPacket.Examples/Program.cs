@@ -2056,6 +2056,103 @@ switch (args[0])
         return 0;
     }
 
+    case "atexec":
+    {
+        // atexec.py: remote command execution via the Task Scheduler (MS-TSCH over \atsvc).
+        // Registers a task that runs `cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`, runs it,
+        // waits, reads the output from ADMIN$\Temp over SMB, then deletes the task + output file.
+        // LAB-ONLY exec primitive. Windows-only on the wire: Samba does not implement MS-TSCH, so
+        // against this lab the \atsvc bind fails (reported) — validate end-to-end on a Windows target.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: atexec <host> <user> <password> <command> [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string command = args[4];
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+
+        string tmpName = new string(Enumerable.Range(0, 8)
+            .Select(_ => "abcdefghijklmnopqrstuvwxyz"[Random.Shared.Next(26)]).ToArray());
+        string tmpFile = tmpName + ".tmp";
+        string taskPath = "\\" + tmpName;
+        string xml = Tsch.BuildTaskXml("cmd.exe", $@"/C {command} > %windir%\Temp\{tmpFile} 2>&1");
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe;
+        try
+        {
+            pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Tsch.Pipe);
+            pipe.Bind(DcerpcInterface.Tsch);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            Console.Error.WriteLine($"[-] Could not reach the Task Scheduler (\\{DcerpcInterface.Tsch.Pipe}): {ex.Message}");
+            Console.Error.WriteLine("    This target does not expose MS-TSCH (expected on Samba); atexec needs a Windows host.");
+            return 1;
+        }
+
+        Console.WriteLine($"atexec on {host}: registering task {taskPath} to run: {command}");
+        uint rc = Tsch.RegisterTask(pipe, taskPath, xml);
+        if (rc != 0)
+        {
+            Console.Error.WriteLine($"[-] SchRpcRegisterTask failed: 0x{rc:x8}");
+            return 1;
+        }
+
+        try
+        {
+            Tsch.Run(pipe, taskPath);
+            Console.WriteLine($"[+] Task started; waiting for it to run...");
+            for (int i = 0; i < 10; i++)
+            {
+                System.Threading.Thread.Sleep(1000);
+                if (Tsch.GetLastRunInfo(pipe, taskPath).HasRun)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            Tsch.Delete(pipe, taskPath);
+            Console.WriteLine($"[+] Task {taskPath} deleted.");
+        }
+
+        // Read the command output from ADMIN$\Temp over SMB, then remove it.
+        try
+        {
+            Smb2TreeConnectResult admin = client.TreeConnect($@"\\{host}\ADMIN$");
+            byte[] output = client.ReadFile(admin.TreeId, $@"Temp\{tmpFile}");
+            Console.WriteLine("---- output ----");
+            Console.Write(System.Text.Encoding.UTF8.GetString(output));
+            Console.WriteLine("----------------");
+            client.Create(admin.TreeId, $@"Temp\{tmpFile}", Smb2AccessMask.Delete,
+                Smb2CreateDisposition.Open, Smb2CreateOptions.DeleteOnClose);
+            client.TreeDisconnect(admin.TreeId);
+        }
+        catch (IOException ex)
+        {
+            Console.Error.WriteLine($"[!] Could not read output file: {ex.Message}");
+        }
+
+        return 0;
+    }
+
     case "rpc-addcomputer":
     {
         // addcomputer.py (SAMR method): create a machine account via SamrCreateUser2InDomain -
@@ -3561,6 +3658,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
     Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
     Console.WriteLine("  rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)");
+    Console.WriteLine("  atexec <host> <user> <password> <command> [domain] [port]   # atexec: run a command via the Task Scheduler (MS-TSCH, Windows-only)");
     Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
