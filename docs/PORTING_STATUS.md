@@ -399,6 +399,17 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
       without it).
 
+- [x] `owneredit.py` → `owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]`
+      — read or change the **Owner (OwnerSid)** of an object's security descriptor. Reuses the dacledit
+      `NtSecurityDescriptor` model and the LDAP SD-flags control plumbing, here with
+      **sdflags=0x01** (OWNER_SECURITY_INFORMATION) so the DC returns/replaces only the owner.
+      **Fully validated against the lab DC:** `read` shows a target's owner (SID resolved to name);
+      `write` sets the owner of a throwaway target to another principal — the DC accepts the
+      ModifyReplace and a follow-up `read` confirms the change. The owner-only SD parse and the
+      re-serialized write SD are **byte-for-byte equal to impacket's getData()** (known-bytes test),
+      and the OWNER control value (`3003020101`) matches ldap3; Wireshark shows our search and modify
+      carrying it. Kerberos/LDAPS out of scope (simple bind over 389, as the other LDAP ports).
+
 - [x] `dacledit.py` → `dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]`
       — read and edit an object's DACL over LDAP. New round-trippable MS-DTYP model in
       `DotNetPacket.Protocols.Ldap`: `NtAce` / `NtAcl` / `NtSecurityDescriptor` (port of

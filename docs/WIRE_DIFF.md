@@ -291,6 +291,19 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### owneredit owner read/set (`owneredit`) — 2026-11-08
+
+The owner-attribute sibling of dacledit, and it reuses the same `NtSecurityDescriptor` model and
+SD-flags control — only the flag differs: **sdflags=0x01** (OWNER_SECURITY_INFORMATION), control value
+`30 03 02 01 01`. The DC then returns/accepts an **owner-only** descriptor (Control 0x8001,
+OffsetOwner=20, group/sacl/dacl offsets 0), so the write re-serializes just a 20-byte header + the new
+OwnerSid. Our parse of that owner-only SD and the re-serialized write SD are byte-identical to
+impacket's `getData()`, verified by a known-bytes test and live against the DC (owner changed, then
+read back). Detection signal: a **modifyReplace of nTSecurityDescriptor carrying the OWNER SD-flags
+control (0x01)** — distinct from dacledit's DACL control (0x04) and a clean behavioral marker for a
+take-ownership step, identical on the wire whatever the runtime. Same one intentional divergence as the
+other LDAP ports: a simple bind over 389 in the lab vs. ldap3's NTLM/Kerberos bind.
+
 ### dacledit DACL read/edit (`dacledit`) — 2026-11-08
 
 Reuses the badsuccessor LDAP write path but adds two things with real on-wire signature:
