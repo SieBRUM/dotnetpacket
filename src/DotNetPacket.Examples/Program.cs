@@ -804,6 +804,305 @@ switch (args[0])
         return 1;
     }
 
+    case "dacledit":
+    {
+        // dacledit.py: read and edit the DACL of an object's security descriptor over LDAP.
+        //   read    — search the target's nTSecurityDescriptor (SD-flags control = DACL only),
+        //             parse the DACL and print each ACE (type / mask / trustee / object GUID).
+        //   write   — append an allowed/denied ACE granting <principal> a right, then ModifyReplace
+        //             nTSecurityDescriptor (same SD-flags control). backup is written first.
+        //   remove  — drop every ACE matching the built template, then ModifyReplace.
+        //   backup  — dump the target's raw SD (hex) to a file.
+        //   restore — push a previously backed-up SD from a file.
+        // The distinctive wire artifacts are the LDAP_SERVER_SD_FLAGS control (0x04) on the search
+        // and on the modify, and the re-serialized security descriptor. LAB-ONLY; see docs.
+        if (args.Length < 7)
+        {
+            Console.Error.WriteLine("usage: dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]");
+            Console.Error.WriteLine("  rights   : FullControl (default) | ResetPassword | WriteMembers | DCSync | 0x<mask>");
+            Console.Error.WriteLine("  ace-type : allowed (default) | denied");
+            Console.Error.WriteLine("  e.g. dacledit read  127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local Administrator");
+            Console.Error.WriteLine("       dacledit write 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local target1 attacker DCSync");
+            return 2;
+        }
+
+        string action = args[1];
+        string host = args[2];
+        string user = args[3];
+        string password = args[4];
+        string domainFqdn = args[5];
+        string target = args[6];
+        string principal = args.Length > 7 ? args[7] : string.Empty;
+        string rights = args.Length > 8 ? args[8] : "FullControl";
+        string aceTypeArg = args.Length > 9 ? args[9] : "allowed";
+        string file = args.Length > 10 ? args[10] : string.Empty;
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        bool denied = aceTypeArg.Equals("denied", StringComparison.OrdinalIgnoreCase);
+
+        // Well-known rights -> ObjectType GUIDs (dacledit RIGHTS_GUID).
+        const string ResetPasswordGuid = "00299570-246d-11d0-a768-00aa006e0529";
+        const string WriteMembersGuid = "bf9679c0-0de6-11d0-a285-00aa003049e2";
+        const string DcSyncGetChanges = "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2";
+        const string DcSyncGetChangesAll = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, 389);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        string ResolveSid(string sam)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", sam)),
+                new[] { "objectSid" });
+            byte[]? raw = es.Count > 0 ? es[0].GetRaw("objectSid") : null;
+            return raw is null ? string.Empty : LdapSid.ToCanonical(raw);
+        }
+
+        string ResolveName(string sidString)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.EqualRaw("objectSid", LdapSid.FromCanonical(sidString)), new[] { "sAMAccountName" });
+            string name = es.Count > 0 ? es[0].Get("sAMAccountName") : string.Empty;
+            return string.IsNullOrEmpty(name) ? sidString : name;
+        }
+
+        // Fetch the target's DN + nTSecurityDescriptor (DACL only, via the SD-flags control).
+        (string Dn, byte[]? Sd) FetchTargetSd()
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", target)),
+                new[] { "distinguishedName", "nTSecurityDescriptor" },
+                sdFlags: LdapConnection.SdFlagsDacl);
+            if (es.Count == 0)
+            {
+                return (string.Empty, null);
+            }
+
+            return (es[0].Get("distinguishedName"), es[0].GetRaw("nTSecurityDescriptor"));
+        }
+
+        // Build the ACE(s) for the requested right, granted to principalSid.
+        List<NtAce> BuildAces(string principalSid)
+        {
+            byte[] sid = LdapSid.FromCanonical(principalSid);
+            NtAce Std(uint mask) => new()
+            {
+                AceType = denied ? NtAce.AccessDenied : NtAce.AccessAllowed,
+                Mask = mask,
+                Sid = sid,
+            };
+            NtAce Obj(uint mask, string guid) => new()
+            {
+                AceType = denied ? NtAce.AccessDeniedObject : NtAce.AccessAllowedObject,
+                Mask = mask,
+                ObjectType = new Guid(guid),
+                Sid = sid,
+            };
+
+            var list = new List<NtAce>();
+            if (rights.Equals("FullControl", StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(Std(0x000F01FF));
+            }
+            else if (rights.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(Std(Convert.ToUInt32(rights, 16)));
+            }
+            else if (rights.Equals("ResetPassword", StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(Obj(NtAce.AdsRightDsControlAccess, ResetPasswordGuid));
+            }
+            else if (rights.Equals("WriteMembers", StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(Obj(NtAce.AdsRightDsReadProp | NtAce.AdsRightDsWriteProp, WriteMembersGuid));
+            }
+            else if (rights.Equals("DCSync", StringComparison.OrdinalIgnoreCase))
+            {
+                list.Add(Obj(NtAce.AdsRightDsControlAccess, DcSyncGetChanges));
+                list.Add(Obj(NtAce.AdsRightDsControlAccess, DcSyncGetChangesAll));
+            }
+            else
+            {
+                Console.Error.WriteLine($"Unknown rights '{rights}'.");
+            }
+
+            return list;
+        }
+
+        string DescribeMask(uint mask)
+        {
+            var names = new List<string>();
+            foreach ((string n, uint v) in new[]
+            {
+                ("FullControl", 0xf01ffu), ("GenericAll", 0x10000000u), ("GenericWrite", 0x40000000u),
+                ("GenericRead", 0x80000000u), ("WriteDACL", 0x00040000u), ("WriteOwner", 0x00080000u),
+                ("ControlAccess", 0x00000100u), ("WriteProp", 0x00000020u), ("ReadProp", 0x00000010u),
+                ("Self", 0x00000008u), ("CreateChild", 0x00000001u),
+            })
+            {
+                if ((mask & v) == v && v != 0)
+                {
+                    names.Add(n);
+                }
+            }
+
+            return names.Count == 0 ? "-" : string.Join(", ", names);
+        }
+
+        if (action is "read")
+        {
+            (string dn, byte[]? sdBytes) = FetchTargetSd();
+            if (sdBytes is null)
+            {
+                Console.Error.WriteLine($"Target not found or no SD: {target}");
+                return 1;
+            }
+
+            string filterSid = string.IsNullOrEmpty(principal) ? string.Empty : ResolveSid(principal);
+            NtSecurityDescriptor sd = NtSecurityDescriptor.Parse(sdBytes);
+            Console.WriteLine($"DACL of {dn} ({sd.Dacl?.Aces.Count ?? 0} ACEs)"
+                + (string.IsNullOrEmpty(filterSid) ? string.Empty : $"  [filtered to {principal} / {filterSid}]"));
+            int i = 0;
+            foreach (NtAce ace in sd.Dacl?.Aces ?? new List<NtAce>())
+            {
+                string aceSid = LdapSid.ToCanonical(ace.Sid);
+                if (!string.IsNullOrEmpty(filterSid) && aceSid != filterSid)
+                {
+                    i++;
+                    continue;
+                }
+
+                string kind = ace.AceType switch
+                {
+                    NtAce.AccessAllowed => "ALLOW     ",
+                    NtAce.AccessDenied => "DENY      ",
+                    NtAce.AccessAllowedObject => "ALLOW-OBJ ",
+                    NtAce.AccessDeniedObject => "DENY-OBJ  ",
+                    _ => $"TYPE 0x{ace.AceType:X2} ",
+                };
+                string guid = ace.ObjectType is { } g ? $"  object={g}" : string.Empty;
+                Console.WriteLine($"  [{i,2}] {kind} 0x{ace.Mask:X8} ({DescribeMask(ace.Mask)})  {ResolveName(aceSid)} ({aceSid}){guid}");
+                i++;
+            }
+
+            return 0;
+        }
+
+        if (action is "backup")
+        {
+            (string dn, byte[]? sdBytes) = FetchTargetSd();
+            if (sdBytes is null)
+            {
+                Console.Error.WriteLine($"Target not found or no SD: {target}");
+                return 1;
+            }
+
+            string path = string.IsNullOrEmpty(file)
+                ? System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dacledit-{DateTime.Now:yyyyMMdd-HHmmss}.bak")
+                : file;
+            System.IO.File.WriteAllText(path, $"{dn}\n{Convert.ToHexString(sdBytes)}");
+            Console.WriteLine($"[+] Backed up DACL of {dn} ({sdBytes.Length} bytes) to {path}");
+            return 0;
+        }
+
+        if (action is "restore")
+        {
+            if (string.IsNullOrEmpty(file) || !System.IO.File.Exists(file))
+            {
+                Console.Error.WriteLine("restore needs an existing <file> (as the 10th argument).");
+                return 2;
+            }
+
+            string[] lines = System.IO.File.ReadAllLines(file);
+            string dn = lines[0];
+            byte[] sdBytes = Convert.FromHexString(lines[1].Trim());
+            LdapResult res = ldap.ModifyReplace(dn, "nTSecurityDescriptor",
+                new[] { sdBytes }, sdFlags: LdapConnection.SdFlagsDacl);
+            Console.WriteLine(res.Success
+                ? $"[+] Restored DACL on {dn}"
+                : $"[-] Restore failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+            return res.Success ? 0 : 1;
+        }
+
+        // write / remove both need a principal.
+        if (string.IsNullOrEmpty(principal))
+        {
+            Console.Error.WriteLine($"'{action}' needs a <principal> (the trustee getting/losing the ACE).");
+            return 2;
+        }
+
+        string pSid = ResolveSid(principal);
+        if (string.IsNullOrEmpty(pSid))
+        {
+            Console.Error.WriteLine($"Principal not found: {principal}");
+            return 1;
+        }
+
+        (string targetDn, byte[]? curSd) = FetchTargetSd();
+        if (curSd is null)
+        {
+            Console.Error.WriteLine($"Target not found or no SD: {target}");
+            return 1;
+        }
+
+        NtSecurityDescriptor desc = NtSecurityDescriptor.Parse(curSd);
+        desc.Dacl ??= new NtAcl();
+        List<NtAce> templates = BuildAces(pSid);
+        if (templates.Count == 0)
+        {
+            return 1;
+        }
+
+        if (action is "write")
+        {
+            // Backup first (mirrors dacledit), then append the ACE(s) and push.
+            string backupPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dacledit-{DateTime.Now:yyyyMMdd-HHmmss}.bak");
+            System.IO.File.WriteAllText(backupPath, $"{targetDn}\n{Convert.ToHexString(curSd)}");
+            foreach (NtAce ace in templates)
+            {
+                desc.Dacl.Aces.Add(ace);
+            }
+
+            LdapResult res = ldap.ModifyReplace(targetDn, "nTSecurityDescriptor",
+                new[] { desc.GetData() }, sdFlags: LdapConnection.SdFlagsDacl);
+            Console.WriteLine(res.Success
+                ? $"[+] Granted {principal} ({pSid}) {rights} on {targetDn} (backup: {backupPath})"
+                : $"[-] Modify failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+            return res.Success ? 0 : 1;
+        }
+
+        if (action is "remove")
+        {
+            int before = desc.Dacl.Aces.Count;
+            bool Matches(NtAce a, NtAce t) =>
+                a.AceType == t.AceType && a.Mask == t.Mask
+                && LdapSid.ToCanonical(a.Sid) == LdapSid.ToCanonical(t.Sid)
+                && a.ObjectType == t.ObjectType;
+            desc.Dacl.Aces.RemoveAll(a => templates.Exists(t => Matches(a, t)));
+            int removed = before - desc.Dacl.Aces.Count;
+            if (removed == 0)
+            {
+                Console.WriteLine("Nothing to remove (no matching ACE).");
+                return 0;
+            }
+
+            LdapResult res = ldap.ModifyReplace(targetDn, "nTSecurityDescriptor",
+                new[] { desc.GetData() }, sdFlags: LdapConnection.SdFlagsDacl);
+            Console.WriteLine(res.Success
+                ? $"[+] Removed {removed} ACE(s) for {principal} ({pSid}) on {targetDn}"
+                : $"[-] Modify failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+            return res.Success ? 0 : 1;
+        }
+
+        Console.Error.WriteLine($"Unknown action '{action}' (use read|write|remove|backup|restore).");
+        return 2;
+    }
+
     case "get-adcomputers":
     {
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
@@ -3986,6 +4285,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
     Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
+    Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");

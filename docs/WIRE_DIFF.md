@@ -291,6 +291,32 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### dacledit DACL read/edit (`dacledit`) — 2026-11-08
+
+Reuses the badsuccessor LDAP write path but adds two things with real on-wire signature:
+
+- **The LDAP_SERVER_SD_FLAGS control.** Both the `read` search and the `write`/`remove` modify carry
+  an LDAPMessage-level `controls [0]` holding OID `1.2.840.113556.1.4.801` with controlValue
+  `30 03 02 01 04` (SEQUENCE { INTEGER 0x04 } = DACL_SECURITY_INFORMATION) and **no criticality**
+  (left at DEFAULT FALSE). This is **byte-identical to ldap3's `security_descriptor_control(sdflags=0x04)`**,
+  which stock dacledit uses — verified by capturing both and by a known-bytes test. The control makes
+  the DC return/replace only the DACL (owner/group/sacl offsets 0), which is why our round-trip never
+  has to reproduce those parts.
+- **The re-serialized security descriptor.** Our `NtSecurityDescriptor.GetData()` reproduces impacket
+  `ldaptypes.SR_SECURITY_DESCRIPTOR.getData()` exactly: self-relative body order Sacl, Dacl, Owner,
+  Group; `NtAce.Serialize()` mirrors impacket's `ACE.getData()` including its AceSize recompute and
+  4-byte alignment, and re-emits SIDs minimally (dropping any trailing pad the DC included). A real
+  50-ACE DACL parses and re-serializes identically; appending a DCSync pair (two object ACEs with
+  CONTROL_ACCESS mask and GUIDs `1131f6aa…`/`1131f6ad…`) produces exactly impacket's bytes.
+
+Detection signal: a `write` is an LDAP **modifyReplace of nTSecurityDescriptor carrying the SD-flags
+control** — a high-signal, runtime-independent artifact. The added ACEs themselves (e.g. the DCSync
+GUID pair, or a FullControl `0x000F01FF` allow ACE for a non-admin principal) are the payload a SOC
+keys on, identical on the wire whatever language emits them. One intentional divergence from impacket
+is inherited from our LDAP stack and already documented above: the bind is a **simple bind over 389**
+(lab), where stock dacledit uses ldap3's NTLM/Kerberos bind — the SD-flags control and the SD bytes
+are identical regardless.
+
 ### checkMSSQLStatus TDS PRELOGIN (`mssql-cbt`) — 2026-11-08
 
 First non-SMB, non-DCERPC protocol in the port: MS-TDS over TCP/1433. The example sends a single

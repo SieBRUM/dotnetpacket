@@ -118,6 +118,7 @@ src/
     LdapSearch.cs                  #   SearchRequest filters (and/or/equality/present/not/extensibleMatch/raw) + SearchResultEntry types
     LdapSid.cs                     #   SID binary <-> canonical string (MS-DTYP)
     LdapSecurityDescriptor.cs      #   SR_SECURITY_DESCRIPTOR + DACL/ACE parse + msDS-GroupMSAMembership build (badsuccessor)
+    NtAce.cs / NtAcl.cs / NtSecurityDescriptor.cs  # round-trippable MS-DTYP SD/ACL/ACE model (dacledit edit path)
   DotNetPacket.Protocols.Gpp/         # Group Policy Preferences (MS-GPPREF)
     GppCrypto.cs                   #   cpassword AES-256-CBC decrypt (Microsoft's published key; Get-GPPPassword)
     GppPreferences.cs              #   GPP XML cpassword carving (Groups/ScheduledTasks/… -> findings)
@@ -243,6 +244,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port] 
 dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interface] [port]  # endpoint mapper ept_map
 dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <lab-host> <user> <password> [domain]  # ept_map -> sealed samr over TCP
 dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
+dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <lab-host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

@@ -34,6 +34,16 @@ public sealed class LdapConnection : IDisposable
     private static readonly Asn1Tag ModifyRequestTag = new(TagClass.Application, 6, isConstructed: true);
     private static readonly Asn1Tag AddRequestTag = new(TagClass.Application, 8, isConstructed: true);
     private static readonly Asn1Tag DelRequestTag = new(TagClass.Application, 10, isConstructed: false);
+    private static readonly Asn1Tag ControlsTag = new(TagClass.ContextSpecific, 0, isConstructed: true);
+
+    /// <summary>LDAP_SERVER_SD_FLAGS_OID (MS-ADTS): scope a security-descriptor read/write to given SD parts.</summary>
+    public const string SdFlagsControlOid = "1.2.840.113556.1.4.801";
+
+    /// <summary>SD flags (LDAP_SERVER_SD_FLAGS): which parts of the security descriptor a request touches.</summary>
+    public const int SdFlagsOwner = 0x01;
+    public const int SdFlagsGroup = 0x02;
+    public const int SdFlagsDacl = 0x04;
+    public const int SdFlagsSacl = 0x08;
 
     private const string GssSpnego = "GSS-SPNEGO";
 
@@ -134,13 +144,23 @@ public sealed class LdapConnection : IDisposable
     /// LDAP ModifyRequest (RFC 4511 4.6) with a single replace of <paramref name="attribute"/> to
     /// <paramref name="values"/>. Returns the LDAPResult.
     /// </summary>
-    public LdapResult ModifyReplace(string dn, string attribute, IReadOnlyList<byte[]> values)
+    public LdapResult ModifyReplace(string dn, string attribute, IReadOnlyList<byte[]> values, int sdFlags = 0)
     {
-        int id = ++_messageId;
+        _stream.Write(EncodeModifyReplace(++_messageId, dn, attribute, values, sdFlags));
+        return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 7, isConstructed: true)); // ModifyResponse
+    }
+
+    /// <summary>
+    /// Encodes a ModifyRequest LDAPMessage replacing <paramref name="attribute"/> (exposed for tests).
+    /// When <paramref name="sdFlags"/> is non-zero an LDAP_SERVER_SD_FLAGS control is attached, as
+    /// dacledit does (sdflags=0x04) to replace only the DACL of nTSecurityDescriptor.
+    /// </summary>
+    public static byte[] EncodeModifyReplace(int messageId, string dn, string attribute, IReadOnlyList<byte[]> values, int sdFlags = 0)
+    {
         var w = new AsnWriter(AsnEncodingRules.BER);
         using (w.PushSequence())
         {
-            w.WriteInteger(id);
+            w.WriteInteger(messageId);
             using (w.PushSequence(ModifyRequestTag))     // ModifyRequest [APPLICATION 6]
             {
                 w.WriteOctetString(Encoding.UTF8.GetBytes(dn)); // object
@@ -161,10 +181,11 @@ public sealed class LdapConnection : IDisposable
                     }
                 }
             }
+
+            WriteSdFlagsControls(w, sdFlags);
         }
 
-        _stream.Write(w.Encode());
-        return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 7, isConstructed: true)); // ModifyResponse
+        return w.Encode();
     }
 
     /// <summary>Encodes an AddRequest LDAPMessage (exposed for tests / offline analysis).</summary>
@@ -231,10 +252,11 @@ public sealed class LdapConnection : IDisposable
         IReadOnlyList<string> attributes,
         LdapSearchScope scope = LdapSearchScope.WholeSubtree,
         int sizeLimit = 0,
-        int timeLimit = 0)
+        int timeLimit = 0,
+        int sdFlags = 0)
     {
         int id = ++_messageId;
-        _stream.Write(EncodeSearchRequest(id, baseObject, filter, attributes, scope, sizeLimit, timeLimit));
+        _stream.Write(EncodeSearchRequest(id, baseObject, filter, attributes, scope, sizeLimit, timeLimit, sdFlags));
 
         var entries = new List<SearchEntry>();
         while (true)
@@ -272,7 +294,8 @@ public sealed class LdapConnection : IDisposable
         IReadOnlyList<string> attributes,
         LdapSearchScope scope = LdapSearchScope.WholeSubtree,
         int sizeLimit = 0,
-        int timeLimit = 0)
+        int timeLimit = 0,
+        int sdFlags = 0)
     {
         var writer = new AsnWriter(AsnEncodingRules.BER);
         using (writer.PushSequence())                       // LDAPMessage
@@ -295,9 +318,48 @@ public sealed class LdapConnection : IDisposable
                     }
                 }
             }
+
+            WriteSdFlagsControls(writer, sdFlags);
         }
 
         return writer.Encode();
+    }
+
+    /// <summary>
+    /// Writes the LDAPMessage-level <c>controls [0]</c> carrying a single LDAP_SERVER_SD_FLAGS control
+    /// (OID 1.2.840.113556.1.4.801) when <paramref name="sdFlags"/> is non-zero. criticality is left
+    /// at its default (FALSE, hence omitted), matching ldap3's <c>security_descriptor_control</c> which
+    /// dacledit uses. No-op when sdFlags == 0. Must be called inside the LDAPMessage SEQUENCE, after
+    /// the protocolOp.
+    /// </summary>
+    private static void WriteSdFlagsControls(AsnWriter w, int sdFlags)
+    {
+        if (sdFlags == 0)
+        {
+            return;
+        }
+
+        using (w.PushSequence(ControlsTag))               // controls [0] Controls
+        using (w.PushSequence())                          // Control
+        {
+            w.WriteOctetString(Encoding.ASCII.GetBytes(SdFlagsControlOid)); // controlType (LDAPOID)
+            w.WriteOctetString(EncodeSdFlagsControlValue(sdFlags));         // controlValue (OCTET STRING)
+        }
+    }
+
+    /// <summary>
+    /// Encodes the LDAP_SERVER_SD_FLAGS controlValue: BER of SEQUENCE { INTEGER sdflags } (e.g. 0x04
+    /// -&gt; 30 03 02 01 04). Exposed for tests / offline analysis.
+    /// </summary>
+    public static byte[] EncodeSdFlagsControlValue(int sdFlags)
+    {
+        var cv = new AsnWriter(AsnEncodingRules.BER);
+        using (cv.PushSequence())
+        {
+            cv.WriteInteger(sdFlags);
+        }
+
+        return cv.Encode();
     }
 
     /// <summary>Parses a SearchResultEntry LDAPMessage (exposed for tests / offline analysis).</summary>

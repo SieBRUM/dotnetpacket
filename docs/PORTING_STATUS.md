@@ -399,6 +399,24 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
       without it).
 
+- [x] `dacledit.py` → `dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]`
+      — read and edit an object's DACL over LDAP. New round-trippable MS-DTYP model in
+      `DotNetPacket.Protocols.Ldap`: `NtAce` / `NtAcl` / `NtSecurityDescriptor` (port of
+      impacket's `ldaptypes` ACE/ACL/SR_SECURITY_DESCRIPTOR), plus LDAP **control** support on
+      search and modify — the `LDAP_SERVER_SD_FLAGS` control (OID 1.2.840.113556.1.4.801,
+      sdflags=0x04 → DACL only). `rights`: FullControl / ResetPassword / WriteMembers / DCSync /
+      `0x<mask>`; `ace-type`: allowed / denied.
+      **Fully validated against the lab DC:** `read` parses Administrator's 50-ACE DACL (types,
+      masks, object GUIDs, trustees resolved to names); `write` grants a principal **DCSync** (two
+      object ACEs, GUIDs 1131f6aa/1131f6ad) on a throwaway target — the DC accepts the
+      ModifyReplace and a filtered `read` shows the two new ACEs (50→52); `remove` drops them
+      (52→50). The ACE/SD bytes and the SD-flags control value are **byte-for-byte equal to
+      impacket/ldap3** (known-bytes tests pin standard + object ACEs, the two-ACE build+append SD,
+      a parse→reserialize identity, and the `3003020104` control value); Wireshark dissects our
+      search and modify as carrying the SD-flags control identically to ldap3. `backup`/`restore`
+      dump/restore the raw SD to a file. Kerberos (`-k`) and LDAPS are out of scope (the lab uses a
+      simple bind over 389, as the other LDAP ports do).
+
 - [~] `checkMSSQLStatus.py` → `mssql-cbt <host> [port]` — probe a SQL Server's TDS **PRELOGIN**
       encryption posture (the channel-binding precondition). New `DotNetPacket.Protocols.Tds`
       project: `TdsPreLogin` (option-table builder/parser, MS-TDS 2.2.6.5) + `TdsClient` (TDS packet
