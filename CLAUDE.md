@@ -147,6 +147,9 @@ src/
     Rc4State.cs                    #   stateful RC4 keystream (continuous sign/seal handle)
     NtlmSecurityContext.cs         #   GSS per-message sign/seal (MS-NLMP 3.4) for DCERPC
     Spnego.cs                      #   GSS/SPNEGO wrapping (System.Formats.Asn1)
+  DotNetPacket.Protocols.Tds/         # TDS (MS-TDS): SQL Server pre-login
+    TdsPreLogin.cs                 #   PRELOGIN option table build/parse (checkMSSQLStatus encryption posture)
+    TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
 tests/
@@ -239,6 +242,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind
 dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interface] [port]  # endpoint mapper ept_map
 dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <lab-host> <user> <password> [domain]  # ept_map -> sealed samr over TCP
+dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

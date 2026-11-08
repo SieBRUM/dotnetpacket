@@ -6,6 +6,7 @@ using DotNetPacket.Protocols.Laps;
 using DotNetPacket.Protocols.Ldap;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Smb;
+using DotNetPacket.Protocols.Tds;
 
 // DotNetPacket examples runner — the lab harness, mirroring impacket's examples/ dir.
 //
@@ -1504,6 +1505,53 @@ switch (args[0])
         Samr.CloseHandle(pipe, server.Handle);
         pipe.Close();
         return 0;
+    }
+
+    case "mssql-cbt":
+    {
+        // checkMSSQLStatus.py: send a TDS PRELOGIN to SQL Server and read back its
+        // ENCRYPTION posture. A server that answers ENCRYPT_REQ forces TLS on the
+        // connection, which is the precondition for Extended Protection / channel
+        // binding to be enforceable; ENCRYPT_OFF/ENCRYPT_NOT_SUP means the login can
+        // proceed unencrypted and channel binding cannot bite. We only do the PRELOGIN
+        // leg here (the encryption posture); the full LOGIN7/SSPI two-login channel-
+        // binding probe impacket also performs is documented as deferred in WIRE_DIFF.md.
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: mssql-cbt <host> [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        int port = args.Length >= 3 ? int.Parse(args[2]) : 1433;
+
+        // A per-run ThreadID, exactly as impacket seeds it from the client PID. Lab
+        // output only; it goes in the PRELOGIN THREADID option.
+        uint threadId = (uint)Environment.ProcessId;
+
+        try
+        {
+            using TdsClient tds = TdsClient.Connect(host, port);
+            Console.WriteLine($"Connected to {host}:{port} (TDS).");
+            TdsPreLoginResponse pre = tds.PreLogin(threadId);
+
+            Console.WriteLine($"PRELOGIN response: ENCRYPTION = {TdsConstants.DescribeEncryption(pre.Encryption)}");
+            if (pre.VersionString.Length > 0)
+            {
+                Console.WriteLine($"Server version:   {pre.VersionString}");
+            }
+
+            bool encryptionForced = pre.Encryption == TdsConstants.EncryptRequired;
+            Console.WriteLine(encryptionForced
+                ? "  -> TLS is forced (ENCRYPT_REQ): channel binding / Extended Protection can be enforced."
+                : "  -> TLS is NOT forced: the login can proceed unencrypted, so channel binding cannot be enforced.");
+            return 0;
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or TimeoutException or EndOfStreamException)
+        {
+            Console.Error.WriteLine($"Could not reach a SQL Server on {host}:{port} ({ex.Message}).");
+            return 1;
+        }
     }
 
     case "rpc-services":
@@ -3937,6 +3985,7 @@ static void PrintUsage()
     Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
     Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
+    Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");

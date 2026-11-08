@@ -26,6 +26,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetPacket.Protocols.Laps
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetPacket.Protocols.Krb5", "src\DotNetPacket.Protocols.Krb5\DotNetPacket.Protocols.Krb5.csproj", "{666F31AD-7323-4B8E-9365-FEBEE32917C8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotNetPacket.Protocols.Tds", "src\DotNetPacket.Protocols.Tds\DotNetPacket.Protocols.Tds.csproj", "{7C7C4364-53B2-4744-AF77-BD4479D1F64A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -76,6 +78,10 @@ Global
 		{666F31AD-7323-4B8E-9365-FEBEE32917C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{666F31AD-7323-4B8E-9365-FEBEE32917C8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{666F31AD-7323-4B8E-9365-FEBEE32917C8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C7C4364-53B2-4744-AF77-BD4479D1F64A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C7C4364-53B2-4744-AF77-BD4479D1F64A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C7C4364-53B2-4744-AF77-BD4479D1F64A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C7C4364-53B2-4744-AF77-BD4479D1F64A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -85,5 +91,6 @@ Global
 		{88BF0335-9E1E-4862-A354-049B5EA79975} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
 		{86AA8C02-82E1-403B-BD8C-1E59EBC765DA} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
 		{666F31AD-7323-4B8E-9365-FEBEE32917C8} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
+		{7C7C4364-53B2-4744-AF77-BD4479D1F64A} = {F4D542F1-A344-405D-A2E7-B863D7D5F3D1}
 	EndGlobalSection
 EndGlobal

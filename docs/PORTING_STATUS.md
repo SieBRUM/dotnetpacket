@@ -399,6 +399,21 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
       without it).
 
+- [~] `checkMSSQLStatus.py` → `mssql-cbt <host> [port]` — probe a SQL Server's TDS **PRELOGIN**
+      encryption posture (the channel-binding precondition). New `DotNetPacket.Protocols.Tds`
+      project: `TdsPreLogin` (option-table builder/parser, MS-TDS 2.2.6.5) + `TdsClient` (TDS packet
+      framing over TCP/1433, port of `tds.MSSQL`). The example sends a PRELOGIN and reports the
+      server's `ENCRYPTION` value: `ENCRYPT_REQ` means TLS is forced and channel binding / Extended
+      Protection can be enforced; `ENCRYPT_OFF`/`ENCRYPT_NOT_SUP` means the login can go unencrypted
+      and channel binding cannot bite. **Validated:** the PRELOGIN payload is **byte-for-byte equal
+      to stock impacket's** (`tds.TDS_PRELOGIN`; known-bytes test pins it) and a live loopback
+      capture dissects in Wireshark as a clean *TDS7 pre-login message* (Version 8.0.341, Encryption,
+      ThreadID, Instance); our client reads the server's `ENCRYPT_REQ` back correctly.
+      **Deferred:** the full LOGIN7/SSPI two-login channel-binding comparison impacket also performs
+      (login once with CBT, once without, to see which the server accepts) — only the PRELOGIN
+      encryption-posture leg is ported; see `docs/WIRE_DIFF.md`. No live SQL Server in the lab, so the
+      end-to-end posture read was exercised against a loopback TDS responder.
+
 - [~] `atexec.py` → `atexec <host> <user> <password> <command> [domain] [port]` — remote command
       execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register an
       XML task that runs `cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`, run it, poll

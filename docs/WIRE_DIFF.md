@@ -291,6 +291,33 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### checkMSSQLStatus TDS PRELOGIN (`mssql-cbt`) — 2026-11-08
+
+First non-SMB, non-DCERPC protocol in the port: MS-TDS over TCP/1433. The example sends a single
+PRELOGIN (option table + VERSION/ENCRYPTION/INSTANCE/THREADID) and reads back the server's
+`ENCRYPTION` byte to judge whether TLS — and therefore channel binding / Extended Protection — can be
+enforced. The PRELOGIN payload our `TdsPreLogin.Build` emits is **byte-for-byte identical to stock
+impacket's `tds.TDS_PRELOGIN`** (verified against the impacket encoder as a byte-oracle and pinned by
+a known-bytes test): same option offsets, the same advertised client VERSION `08 00 01 55 00 00`
+(8.0.341), INSTANCE `"MSSQLServer\0"`, and the THREADID packed little-endian. A live loopback capture
+dissects in Wireshark as a clean *TDS7 pre-login message*, so on the wire this looks like a legitimate
+TDS client, not a minimal probe.
+
+- **No discretionary fields.** Unlike the DCERPC paths, PRELOGIN has no NDR referent ids or pad bytes
+  to choose, so there is nothing here to diverge from impacket on; the bytes are fully determined by
+  the option layout. The only per-run variable is THREADID (we seed it from the process id, as
+  impacket seeds it from the client PID) — not a stable fingerprint either way.
+- **Deferred (documented, not a divergence):** impacket's `checkMSSQLStatus` goes on to attempt two
+  full LOGIN7/SSPI logins — one offering channel-binding, one without — to observe which the server
+  accepts, which is the actual CBT-enforcement verdict. We implement only the PRELOGIN
+  encryption-posture leg (`ENCRYPT_REQ` ⇒ TLS forced ⇒ CBT can be enforced). The LOGIN7 leg needs the
+  full TDS login record + NTLM-over-TDS SSPI token plumbing and a live SQL Server to validate; it is
+  tracked for a later pass. A SOC keying on PRELOGIN alone already sees the encryption negotiation.
+- **Validation ceiling:** the lab has no SQL Server, so the end-to-end posture read was exercised
+  against a loopback TDS responder that answers `ENCRYPT_REQ`; our client reported it correctly.
+  Capturing against a real MSSQL instance (and the Windows `sqlcmd`/.NET `SqlClient` PRELOGIN as the
+  third column) is the remaining diff work.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single
