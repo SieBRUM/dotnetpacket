@@ -114,8 +114,10 @@ src/
     DcerpcPipe.cs                  #   drives bind/sign-seal/call over an IDcerpcTransport
   DotNetPacket.Protocols.Ldap/        # LDAP (RFC 4511) bind + search over TCP
     LdapResultCode.cs              #   bind result codes (strongerAuthRequired, saslBindInProgress)
-    LdapConnection.cs              #   BER LDAPMessage: GSS-SPNEGO NTLM bind (signing probe) + simple bind + search
-    LdapSearch.cs                  #   SearchRequest filters (and/or/equality/present/not/extensibleMatch) + SearchResultEntry types
+    LdapConnection.cs              #   BER LDAPMessage: GSS-SPNEGO NTLM bind (signing probe) + simple bind + search + add/modify/delete
+    LdapSearch.cs                  #   SearchRequest filters (and/or/equality/present/not/extensibleMatch/raw) + SearchResultEntry types
+    LdapSid.cs                     #   SID binary <-> canonical string (MS-DTYP)
+    LdapSecurityDescriptor.cs      #   SR_SECURITY_DESCRIPTOR + DACL/ACE parse + msDS-GroupMSAMembership build (badsuccessor)
   DotNetPacket.Protocols.Gpp/         # Group Policy Preferences (MS-GPPREF)
     GppCrypto.cs                   #   cpassword AES-256-CBC decrypt (Microsoft's published key; Get-GPPPassword)
     GppPreferences.cs              #   GPP XML cpassword carving (Groups/ScheduledTasks/… -> findings)
@@ -225,6 +227,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-addcomputer <lab-host> <us
 dotnet run --project src/DotNetPacket.Examples -- atexec <lab-host> <user> <password> <command> [domain] [port]   # atexec: Task Scheduler command exec (MS-TSCH, Windows-only)
 dotnet run --project src/DotNetPacket.Examples -- rpc-changepw <lab-host> <user> <oldpassword> <newpassword> [domain] [port]   # changepasswd (SAMR): change your own password
 dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)
+dotnet run --project src/DotNetPacket.Examples -- badsuccessor <search|add|delete|modify> <lab-host> <user> <password> <domain-fqdn> [dmsa] [target-ou] [target]   # BadSuccessor dMSA (lab)
 dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
 dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords

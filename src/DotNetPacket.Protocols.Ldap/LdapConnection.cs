@@ -31,6 +31,9 @@ public sealed class LdapConnection : IDisposable
     private static readonly Asn1Tag SearchResultEntryTag = new(TagClass.Application, 4, isConstructed: true);
     private static readonly Asn1Tag SearchResultDoneTag = new(TagClass.Application, 5, isConstructed: true);
     private static readonly Asn1Tag SearchResultReferenceTag = new(TagClass.Application, 19, isConstructed: true);
+    private static readonly Asn1Tag ModifyRequestTag = new(TagClass.Application, 6, isConstructed: true);
+    private static readonly Asn1Tag AddRequestTag = new(TagClass.Application, 8, isConstructed: true);
+    private static readonly Asn1Tag DelRequestTag = new(TagClass.Application, 10, isConstructed: false);
 
     private const string GssSpnego = "GSS-SPNEGO";
 
@@ -100,6 +103,120 @@ public sealed class LdapConnection : IDisposable
 
         _stream.Write(writer.Encode());
         return ParseBindResponse(ReadMessage());
+    }
+
+    /// <summary>
+    /// LDAP AddRequest (RFC 4511 4.7): create <paramref name="dn"/> with <paramref name="attributes"/>
+    /// (each a type plus one or more raw values). Returns the LDAPResult.
+    /// </summary>
+    public LdapResult Add(string dn, IReadOnlyList<(string Type, IReadOnlyList<byte[]> Values)> attributes)
+    {
+        _stream.Write(EncodeAddRequest(++_messageId, dn, attributes));
+        return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 9, isConstructed: true)); // AddResponse
+    }
+
+    /// <summary>LDAP DelRequest (RFC 4511 4.8): delete <paramref name="dn"/>. Returns the LDAPResult.</summary>
+    public LdapResult Delete(string dn)
+    {
+        int id = ++_messageId;
+        var w = new AsnWriter(AsnEncodingRules.BER);
+        using (w.PushSequence())
+        {
+            w.WriteInteger(id);
+            w.WriteOctetString(Encoding.UTF8.GetBytes(dn), DelRequestTag); // DelRequest [APPLICATION 10] primitive
+        }
+
+        _stream.Write(w.Encode());
+        return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 11, isConstructed: true)); // DelResponse
+    }
+
+    /// <summary>
+    /// LDAP ModifyRequest (RFC 4511 4.6) with a single replace of <paramref name="attribute"/> to
+    /// <paramref name="values"/>. Returns the LDAPResult.
+    /// </summary>
+    public LdapResult ModifyReplace(string dn, string attribute, IReadOnlyList<byte[]> values)
+    {
+        int id = ++_messageId;
+        var w = new AsnWriter(AsnEncodingRules.BER);
+        using (w.PushSequence())
+        {
+            w.WriteInteger(id);
+            using (w.PushSequence(ModifyRequestTag))     // ModifyRequest [APPLICATION 6]
+            {
+                w.WriteOctetString(Encoding.UTF8.GetBytes(dn)); // object
+                using (w.PushSequence())                 // changes SEQUENCE OF
+                using (w.PushSequence())                 // change
+                {
+                    w.WriteEnumeratedValue(LdapModifyOp.Replace); // operation
+                    using (w.PushSequence())             // modification PartialAttribute
+                    {
+                        w.WriteOctetString(Encoding.UTF8.GetBytes(attribute));
+                        using (w.PushSetOf())
+                        {
+                            foreach (byte[] v in values)
+                            {
+                                w.WriteOctetString(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        _stream.Write(w.Encode());
+        return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 7, isConstructed: true)); // ModifyResponse
+    }
+
+    /// <summary>Encodes an AddRequest LDAPMessage (exposed for tests / offline analysis).</summary>
+    public static byte[] EncodeAddRequest(int messageId, string dn, IReadOnlyList<(string Type, IReadOnlyList<byte[]> Values)> attributes)
+    {
+        var w = new AsnWriter(AsnEncodingRules.BER);
+        using (w.PushSequence())                         // LDAPMessage
+        {
+            w.WriteInteger(messageId);
+            using (w.PushSequence(AddRequestTag))        // AddRequest [APPLICATION 8]
+            {
+                w.WriteOctetString(Encoding.UTF8.GetBytes(dn)); // entry
+                using (w.PushSequence())                 // attributes SEQUENCE OF
+                {
+                    foreach ((string type, IReadOnlyList<byte[]> values) in attributes)
+                    {
+                        using (w.PushSequence())         // attribute
+                        {
+                            w.WriteOctetString(Encoding.UTF8.GetBytes(type));
+                            using (w.PushSetOf())        // vals SET OF
+                            {
+                                foreach (byte[] v in values)
+                                {
+                                    w.WriteOctetString(v);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return w.Encode();
+    }
+
+    // Parses an LDAPResult-bearing response (AddResponse/ModifyResponse/DelResponse share the shape).
+    private static LdapResult ParseLdapResult(byte[] message, Asn1Tag responseTag)
+    {
+        var top = new AsnReader(message, AsnEncodingRules.BER);
+        AsnReader ldapMessage = top.ReadSequence();
+        ldapMessage.ReadInteger();                       // messageID
+        AsnReader op = ldapMessage.ReadSequence(responseTag);
+
+        int code = 0;
+        foreach (byte b in op.ReadEnumeratedBytes().Span) // resultCode ENUMERATED
+        {
+            code = (code << 8) | b;
+        }
+
+        op.ReadOctetString();                            // matchedDN
+        string diag = Encoding.UTF8.GetString(op.ReadOctetString()); // diagnosticMessage
+        return new LdapResult(code, diag);
     }
 
     /// <summary>

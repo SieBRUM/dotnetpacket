@@ -278,6 +278,19 @@ and the new password (it returned STATUS_PASSWORD_RESTRICTION under the default 
 age, then succeeded once that was relaxed). The NDR framing differs from impacket only in the
 documented referent-id scheme and zero pad-fill; total request length is identical (616 bytes).
 
+### badsuccessor dMSA / LDAP writes (`badsuccessor`) — 2026-11-08
+
+Adds the LDAP write path (AddRequest [APP 8], ModifyRequest [APP 6], DelRequest [APP 10]) over the
+same simple-bind connection, plus an MS-DTYP security-descriptor parser/builder. All validated
+against the lab: Add/Modify/Delete of a real OU return result 0; the SD parser reads Samba's real
+OU `nTSecurityDescriptor`s; and the SID binary + the `msDS-GroupMSAMembership` SD this tool builds
+are **byte-for-byte identical to impacket's** (same DACL-first self-relative layout, Control 0x8004,
+ACE masks 0x000F01FF + GenericAll). The dMSA object create cannot complete on Samba (no Server-2025
+schema), but the DC parses the AddRequest and rejects it on the object class, confirming the wire
+encoding. Detection signal: the `search` path is read-only LDAP; the attack itself is an LDAP
+**add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
+a high-signal write a SOC can key on, identical on the wire whatever the runtime.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

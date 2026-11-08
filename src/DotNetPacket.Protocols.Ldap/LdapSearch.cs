@@ -43,6 +43,9 @@ public abstract class LdapFilter
     /// <summary>An <c>(attr=value)</c> equality match.</summary>
     public static LdapFilter Equal(string attribute, string value) => new EqualityFilter(attribute, value);
 
+    /// <summary>An equality match whose assertion value is raw bytes (e.g. an <c>objectSid</c>).</summary>
+    public static LdapFilter EqualRaw(string attribute, byte[] value) => new EqualityRawFilter(attribute, value);
+
     /// <summary>An <c>(attr=*)</c> presence test.</summary>
     public static LdapFilter PresentOf(string attribute) => new PresentFilter(attribute);
 
@@ -71,6 +74,18 @@ public abstract class LdapFilter
             {
                 writer.WriteOctetString(Encoding.UTF8.GetBytes(attribute));
                 writer.WriteOctetString(Encoding.UTF8.GetBytes(value));
+            }
+        }
+    }
+
+    private sealed class EqualityRawFilter(string attribute, byte[] value) : LdapFilter
+    {
+        internal override void Write(AsnWriter writer)
+        {
+            using (writer.PushSequence(EqualityMatch))
+            {
+                writer.WriteOctetString(Encoding.UTF8.GetBytes(attribute));
+                writer.WriteOctetString(value); // raw assertion value
             }
         }
     }
@@ -155,5 +170,19 @@ public sealed record SearchEntry(string ObjectName, IReadOnlyList<SearchAttribut
         }
 
         return string.Empty;
+    }
+
+    /// <summary>Returns the first raw value of <paramref name="type"/> (for binary attributes), or null if absent.</summary>
+    public byte[]? GetRaw(string type)
+    {
+        foreach (SearchAttribute a in Attributes)
+        {
+            if (string.Equals(a.Type, type, StringComparison.OrdinalIgnoreCase) && a.Values.Count > 0)
+            {
+                return a.Values[0];
+            }
+        }
+
+        return null;
     }
 }

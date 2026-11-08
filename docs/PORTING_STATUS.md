@@ -383,11 +383,21 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       `samba-tool domain passwordsettings set --min-pwd-age=0`. The Kerberos (kpasswd) and LDAP
       change/reset paths, and the NTLM-hash (SamrChangePasswordUser) path, are not ported.
 
-- [ ] `badsuccessor.py` — **NOT ported; raised with the owner.** Its own description is "a tool for
-      dMSA exploitation" / the BadSuccessor attack (a 2025 Windows Server dMSA privilege-escalation
-      with no benign analog). Per the CLAUDE.md scope gate ("if the main value is attacking … stop
-      and raise it"), this is held for an explicit decision rather than implemented by default. It
-      also cannot be validated here — Samba has no dMSA (Server 2025) schema.
+- [~] `badsuccessor.py` → `badsuccessor <search|add|delete|modify> <host> <user> <password>
+      <domain-fqdn> [dmsa] [target-ou] [target]` — the dMSA "BadSuccessor" technique (Server 2025).
+      Owner-authorised for the research after being raised per the scope gate. Added the LDAP
+      **write** path (Add/Modify/Delete) + a security-descriptor/ACL parser and `msDS-GroupMSAMembership`
+      builder + SID conversion to `DotNetPacket.Protocols.Ldap`.
+      **Validated against the lab:** `search` enumerates OUs, parses their real `nTSecurityDescriptor`,
+      and reports identities with create/modify rights (Domain/Enterprise Admins correctly excluded
+      via the domain SID, matching impacket → "(none)" on a default domain). LDAP Add/Modify/Delete
+      succeed end-to-end on a real OU (result 0). The SID binary and the GroupMSAMembership SD are
+      **byte-for-byte equal to impacket**; known-bytes tests pin them + the SD parse.
+      **dMSA create/modify can't complete here** — the `msDS-DelegatedManagedServiceAccount` object
+      class only exists on a Server-2025 schema (Samba returns "not a valid objectClass", which still
+      proves the AddRequest was correctly encoded/parsed). The excluded-SID refinements and SID→name
+      resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
+      without it).
 
 - [~] `atexec.py` → `atexec <host> <user> <password> <command> [domain] [port]` — remote command
       execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register an

