@@ -399,6 +399,24 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
       without it).
 
+- [~] `rbcd.py` → `rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]`
+      — read/edit **msDS-AllowedToActOnBehalfOfOtherIdentity** (Resource-Based Constrained Delegation).
+      The attribute holds a security descriptor whose DACL lists the SIDs allowed to act on behalf of
+      others against the target (S4U2Proxy). Reuses the `NtSecurityDescriptor`/`NtAce`/`NtAcl` model;
+      `write` appends an ALLOW ACE (FullControl 0xF01FF) for the delegate-from SID, `remove` drops it,
+      `flush` clears the attribute. **No SD-flags control** here — it is a plain attribute, not
+      nTSecurityDescriptor.
+      **Validated:** the empty SD `rbcd.create_empty_sd()` builds (Control 0x8004, owner
+      BUILTIN\\Administrators, empty DACL) and the empty+ACE write SD are **byte-for-byte equal to
+      impacket's getData()** (known-bytes tests). **`read` is validated live against the lab DC**: an
+      attribute set through the system path with impacket's exact bytes is parsed back and the ACE SID
+      resolved to its account name. **`write`/`flush` can't complete on Samba** — the DC answers the
+      ModifyReplace with result 19 "attribute … can only be modified as system" (a Samba restriction
+      on this attribute over LDAP, not an encoding bug: the DC parsed the modify and rejected it on a
+      server rule, and stock impacket gets *less* far here — its NTLM bind is dropped by the lab).
+      Wireshark shows our `modifyReplace` of the attribute on the wire. Kerberos/LDAPS out of scope
+      (simple bind over 389).
+
 - [x] `owneredit.py` → `owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]`
       — read or change the **Owner (OwnerSid)** of an object's security descriptor. Reuses the dacledit
       `NtSecurityDescriptor` model and the LDAP SD-flags control plumbing, here with

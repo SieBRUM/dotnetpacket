@@ -291,6 +291,22 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### rbcd delegation read/edit (`rbcd`) — 2026-11-08
+
+The third SD-editing LDAP tool, but with a telling wire difference from dacledit/owneredit: the
+security descriptor lives in a **plain attribute** (`msDS-AllowedToActOnBehalfOfOtherIdentity`), not
+`nTSecurityDescriptor`, so the modify carries **no SD-flags control** at all. On the wire it is a bare
+`modifyReplace` of that attribute with a self-relative SD value. When the attribute is absent the tool
+builds impacket's `create_empty_sd()` (Control 0x8004, owner `S-1-5-32-544`, empty DACL) and appends
+one ALLOW ACE (mask `0xF01FF`) for the delegate-from SID — our bytes are identical to impacket's
+`getData()` (known-bytes tests). Detection signal: an LDAP **modifyReplace of
+msDS-AllowedToActOnBehalfOfOtherIdentity** on a computer object, with a value that decodes to an SD
+whose DACL names the attacker SID — a clean, language-independent RBCD marker; the follow-on attack is
+a Kerberos S4U2Proxy, out of this tool's scope. Lab note: Samba refuses the write over LDAP (result
+19, "can only be modified as system"), so the read/parse path was validated live against an attribute
+set through the system path with impacket's exact bytes, and the write bytes against impacket's
+encoder; same simple-bind-over-389 divergence as the other LDAP ports.
+
 ### owneredit owner read/set (`owneredit`) — 2026-11-08
 
 The owner-attribute sibling of dacledit, and it reuses the same `NtSecurityDescriptor` model and

