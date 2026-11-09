@@ -89,7 +89,8 @@ src/
     Smb2/Smb2Flags.cs              #   header/session/share flag + enum coverage
     Smb2/Smb2CreateConstants.cs    #   access mask, disposition, options, file attributes
     Smb2/Smb2Crypto.cs             #   preauth integrity, SP800-108 KDF, AES-CMAC signing
-    Smb2/Smb2Client.cs             #   full session: NEGOTIATE..SESSION_SETUP..TREE_CONNECT..READ/WRITE/IOCTL
+    Smb2/Smb2Client.cs             #   full session: NEGOTIATE..SESSION_SETUP..TREE_CONNECT..READ/WRITE/IOCTL (+ relay-client token methods)
+    Smb2/Smb2RelayServer.cs        #   ntlmrelayx SMB->SMB relay server + IRelayTarget (lab, owner-authorised)
   DotNetPacket.Protocols.Dcerpc/      # DCERPC (MS-RPCE) over SMB named pipes
     DcerpcConstants.cs             #   PDU types, flags, NDR syntax, well-known interfaces
     DcerpcHeader.cs                #   16-byte common PDU header
@@ -247,6 +248,7 @@ dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   
 dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <lab-host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
 dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)
 dotnet run --project src/DotNetPacket.Examples -- rbcd <read|write|remove|flush> <lab-host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)
+dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay core (lab, owner-authorised)
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

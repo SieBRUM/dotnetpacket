@@ -35,6 +35,30 @@ public sealed class Smb2SessionSetupRequest : NetStructure
         writer.WriteUInt64(PreviousSessionId);
         writer.WriteBytes(SecurityBuffer);
     }
+
+    /// <summary>
+    /// Server side (ntlmrelayx): extracts the SPNEGO SecurityBuffer from a SESSION_SETUP <em>request</em>
+    /// message (full SMB2 header + body). The request body differs from the response, so this reads the
+    /// request's own SecurityBufferOffset/Length (the offset is from the SMB2 header start).
+    /// </summary>
+    public static byte[] ParseSecurityBuffer(byte[] message)
+    {
+        var reader = new ByteReader(message, ByteOrder.Little) { Position = Smb2Header.Size };
+        reader.ReadUInt16();                    // StructureSize (25)
+        reader.ReadByte();                      // Flags
+        reader.ReadByte();                      // SecurityMode
+        reader.ReadUInt32();                    // Capabilities
+        reader.ReadUInt32();                    // Channel
+        ushort offset = reader.ReadUInt16();    // SecurityBufferOffset (from header start)
+        ushort length = reader.ReadUInt16();    // SecurityBufferLength
+        if (length == 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        reader.Position = offset;
+        return reader.ReadBytes(length);
+    }
 }
 
 /// <summary>SMB2 SESSION_SETUP response (MS-SMB2 2.2.6). Parses the returned SPNEGO blob.</summary>

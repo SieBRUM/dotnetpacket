@@ -399,6 +399,30 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
       without it).
 
+- [~] `ntlmrelayx.py` (SMB→SMB relay core) → `ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]`
+      — an SMB2 **relay server**: it accepts a victim SMB connection, carries the NTLM SPNEGO
+      handshake, and relays each token to a target SMB server so the victim's AUTHENTICATE (computed
+      against the **target's** relayed challenge) authenticates *us* to the target as the victim.
+      New: `Smb2RelayServer` + `IRelayTarget`/`Smb2RelayClientTarget` (port of
+      `ntlmrelayx/servers/smbrelayserver.py`'s NEGOTIATE/SESSION_SETUP hooks), server-side SPNEGO
+      helpers (`Spnego.WrapServerNegotiateHint`/`WrapChallenge`/`WrapAcceptCompleted`/
+      `ExtractInitialToken`/`ExtractResponseTokenWithMic`), `Smb2Client.RelayChallenge`/
+      `RelayAuthenticate`, `Smb2SessionSetupRequest.ParseSecurityBuffer`, and
+      `DirectTcpTransport.FromAccepted`.
+      **Scope-gated and OWNER-AUTHORISED.** This is the one example the CLAUDE.md scope gate names
+      (a live-relay MITM tool); it was raised with the owner, who authorised the full working relay
+      for the research. Built lab-first: loopback-bound listener, observable (prints the relayed
+      challenge + outcome), **no evasion or targeting enhancements** over stock impacket.
+      **Validated end-to-end against the lab DC**: a loopback victim (`Administrator`) relayed to the
+      Samba DC → target returns STATUS_SUCCESS; the capture shows the **same NTLM server challenge in
+      both concurrent sessions** (victim :4455 and target :445) — the canonical relay detection
+      signal. Round-trip/known-structure tests cover the SPNEGO server helpers and the request parser.
+      **This is the SMB→SMB core only.** Deferred increments: the other relay servers (HTTP/MSSQL/
+      RPC/WinRM/WCF/RDP/raw), the attack modules (LDAP/DCSync/SMB exec/…), the SOCKS session reuse,
+      and NetNTLMv2 hash-capture formatting. The server downgrades to SMB 2.1 so it holds no 3.1.1
+      preauth/signing state (the relay never has the session key — by design). Tracked here as a
+      multi-part port; see `docs/WIRE_DIFF.md` for the challenge-reuse artifact.
+
 - [~] `rbcd.py` → `rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]`
       — read/edit **msDS-AllowedToActOnBehalfOfOtherIdentity** (Resource-Based Constrained Delegation).
       The attribute holds a security descriptor whose DACL lists the SIDs allowed to act on behalf of

@@ -291,6 +291,31 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### ntlmrelayx SMB→SMB relay (`ntlmrelayx`) — 2026-11-09
+
+The first *server* in the port, and the single highest-signal relay artifact a SOC can key on. The
+relay server speaks SMB2 to a victim and bridges the NTLM SPNEGO handshake to a target SMB server:
+
+- **Victim session:** victim→server NEGOTIATE; server answers SMB 2.1 with an SPNEGO NegTokenInit
+  advertising NTLMSSP. Victim→server SESSION_SETUP #1 carries NTLM Type 1; server→victim returns a
+  NegTokenResp (negState=accept-incomplete) wrapping a **challenge it did not generate**. Victim→
+  server SESSION_SETUP #2 carries the Type 3 the victim computed against that challenge.
+- **Target session (concurrent):** server→target NEGOTIATE; server→target SESSION_SETUP #1 forwards
+  the victim's Type 1; target→server returns its real Type 2 challenge — the one the server handed the
+  victim. Server→target SESSION_SETUP #2 forwards the victim's Type 3; target returns SUCCESS.
+
+**The detection signal** is the challenge correlation: the identical 8-byte NTLM server challenge
+appears in two different TCP connections at nearly the same instant (one inbound from the victim, one
+outbound to the target). In the lab capture both the victim session (:4455) and the target session
+(:445) carry server challenge `1f51fcab07af7d21`. This correlation is *runtime-independent* — it holds
+whether the relay is impacket, this .NET port, or anything else — which is exactly why it is a durable
+behavioral detection rather than a tool fingerprint. A SOC can also key on the server side looking
+"off": here the relay downgrades to SMB 2.1 and presents a freshly-generated ServerGuid with a minimal
+NEGOTIATE (no 3.1.1 negotiate contexts), because it holds no session key and cannot complete 3.1.1
+preauth/signing — a realism gap worth noting as its own tell (documented, not hidden; CLAUDE.md forbids
+closing such gaps with evasion). Scope: SMB→SMB core only; the other relay servers, attack modules and
+SOCKS reuse are deferred (PORTING_STATUS).
+
 ### rbcd delegation read/edit (`rbcd`) — 2026-11-08
 
 The third SD-editing LDAP tool, but with a telling wire difference from dacledit/owneredit: the
