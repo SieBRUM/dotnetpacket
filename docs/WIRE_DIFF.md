@@ -291,6 +291,29 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### ntlmrelayx HTTP→SMB relay (`ntlmrelayx-http`) — 2026-11-10
+
+The second relay server and a new inbound protocol surface: HTTP NTLM (the coerced-auth vector behind
+PetitPotam/PrinterBug over HTTP/WebDAV). The victim side is plain HTTP/1.1 with connection-oriented
+NTLM: GET → `401 WWW-Authenticate: NTLM` → GET `Authorization: NTLM <b64 Type1>` →
+`401 WWW-Authenticate: NTLM <b64 Type2>` → GET `Authorization: NTLM <b64 Type3>` → `200`. Unlike SMB,
+HTTP carries **bare base64 NTLMSSP** (no SPNEGO), so the server decodes the tokens straight from the
+header and the outbound `IRelayTarget` re-wraps them in SPNEGO for the SMB target. The detection signal
+is identical to the SMB relay and now spans two *different* protocols: in the lab capture the same
+server challenge (`e594e3ca950f30bb`) appears in the HTTP victim session (:8081) and the SMB target
+session (:445) at the same instant.
+
+- **The MIC is the mitigation, shown on the wire.** A bare-HTTP victim does not (and cannot) carry a
+  SPNEGO mechListMIC, and the relay cannot forge one because it never holds the session key. So the
+  relay only succeeds when the victim's Type 3 does **not** assert an NTLM MIC (the MsvAvFlags MIC
+  bit): with `IncludeMic=true` the Samba target answers `STATUS_MORE_PROCESSING_REQUIRED` (it still
+  wants a MIC-backed SPNEGO completion); with `IncludeMic=false` — realistic for bare HTTP NTLM — it
+  answers `STATUS_SUCCESS`. This is exactly why enabling MIC/EPA enforcement breaks cross-protocol
+  relay, and the port reproduces both outcomes faithfully rather than hiding the failing one.
+- **Server realism tell:** the HTTP server returns a `Server: Microsoft-IIS/10.0` banner (as impacket
+  mimics) and minimal headers; a SOC can profile the response shape, but the durable signal remains the
+  cross-session challenge reuse, not the banner.
+
 ### ntlmrelayx SMB→SMB relay (`ntlmrelayx`) — 2026-11-09
 
 The first *server* in the port, and the single highest-signal relay artifact a SOC can key on. The

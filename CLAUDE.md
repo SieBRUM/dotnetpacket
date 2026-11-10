@@ -150,7 +150,10 @@ src/
     NtlmClient.cs                  #   Type 1 / Type 3 builder (NTLMv2 + MIC + optional key exchange)
     Rc4State.cs                    #   stateful RC4 keystream (continuous sign/seal handle)
     NtlmSecurityContext.cs         #   GSS per-message sign/seal (MS-NLMP 3.4) for DCERPC
-    Spnego.cs                      #   GSS/SPNEGO wrapping (System.Formats.Asn1)
+    Spnego.cs                      #   GSS/SPNEGO wrapping (System.Formats.Asn1) + server-side relay helpers
+    IRelayTarget.cs                #   ntlmrelayx outbound target bridge (shared by the SMB + HTTP relay servers)
+  DotNetPacket.Protocols.Http/        # HTTP NTLM relay server (ntlmrelayx)
+    HttpRelayServer.cs             #   HTTP(WWW-Authenticate: NTLM) -> SMB relay via IRelayTarget (lab, owner-authorised)
   DotNetPacket.Protocols.Tds/         # TDS (MS-TDS): SQL Server pre-login
     TdsPreLogin.cs                 #   PRELOGIN option table build/parse (checkMSSQLStatus encryption posture)
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
@@ -251,6 +254,7 @@ dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|ba
 dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)
 dotnet run --project src/DotNetPacket.Examples -- rbcd <read|write|remove|flush> <lab-host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)
 dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay core (lab, owner-authorised)
+dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx-http <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: HTTP->SMB NTLM relay (lab, owner-authorised)
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from
