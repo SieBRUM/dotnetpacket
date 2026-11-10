@@ -143,6 +143,8 @@ src/
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
     NtlmNegotiate.cs               #   NTLMSSP NEGOTIATE (reference structure)
     NtlmChallenge.cs               #   NTLMSSP CHALLENGE (Type 2) parser
+    NtlmAuthenticate.cs            #   NTLMSSP AUTHENTICATE (Type 3) parser (ntlmrelayx hash capture)
+    NetNtlmv2.cs                   #   NetNTLMv2 hashcat/john formatter (outputToJohnFormat)
     AvPairs.cs                     #   target-info AV_PAIR list
     NtlmCrypto.cs                  #   MD4/HMAC-MD5/RC4/NTOWFv2/NTLMv2/GSS sign+seal keys + DES SamEncryptNtlmHash (changepasswd)
     NtlmClient.cs                  #   Type 1 / Type 3 builder (NTLMv2 + MIC + optional key exchange)

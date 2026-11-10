@@ -313,8 +313,11 @@ behavioral detection rather than a tool fingerprint. A SOC can also key on the s
 "off": here the relay downgrades to SMB 2.1 and presents a freshly-generated ServerGuid with a minimal
 NEGOTIATE (no 3.1.1 negotiate contexts), because it holds no session key and cannot complete 3.1.1
 preauth/signing — a realism gap worth noting as its own tell (documented, not hidden; CLAUDE.md forbids
-closing such gaps with evasion). Scope: SMB→SMB core only; the other relay servers, attack modules and
-SOCKS reuse are deferred (PORTING_STATUS).
+closing such gaps with evasion). The victim's AUTHENTICATE is also harvested as a NetNTLMv2 hashcat
+line (`NtlmAuthenticate` + `NetNtlmv2.Format`, byte-identical to impacket's `outputToJohnFormat`) — not
+a wire artifact but the offline-crackable output every operator collects; the hash binds the victim's
+user/domain to the relayed (target's) challenge. Scope: SMB→SMB core only; the other relay servers,
+attack modules and SOCKS reuse are deferred (PORTING_STATUS).
 
 ### rbcd delegation read/edit (`rbcd`) — 2026-11-08
 

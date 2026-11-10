@@ -417,9 +417,15 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       Samba DC → target returns STATUS_SUCCESS; the capture shows the **same NTLM server challenge in
       both concurrent sessions** (victim :4455 and target :445) — the canonical relay detection
       signal. Round-trip/known-structure tests cover the SPNEGO server helpers and the request parser.
+      **NetNTLMv2 hash capture (added 2026-11-10):** `NtlmAuthenticate` (Type 3 / AUTHENTICATE parser)
+      + `NetNtlmv2.Format` (port of `impacket.smbserver.outputToJohnFormat`) harvest the crackable
+      hashcat line from every relayed authentication. The parse and the `user::domain:chal:ntproof:blob`
+      format are **byte-for-byte equal to impacket** (known-bytes test pinned to a deterministic Type 3
+      + its outputToJohnFormat line), and the live demo prints the captured NetNTLMv2 for the relayed
+      victim.
       **This is the SMB→SMB core only.** Deferred increments: the other relay servers (HTTP/MSSQL/
-      RPC/WinRM/WCF/RDP/raw), the attack modules (LDAP/DCSync/SMB exec/…), the SOCKS session reuse,
-      and NetNTLMv2 hash-capture formatting. The server downgrades to SMB 2.1 so it holds no 3.1.1
+      RPC/WinRM/WCF/RDP/raw), the attack modules (LDAP/DCSync/SMB exec/…), and the SOCKS session reuse.
+      The server downgrades to SMB 2.1 so it holds no 3.1.1
       preauth/signing state (the relay never has the session key — by design). Tracked here as a
       multi-part port; see `docs/WIRE_DIFF.md` for the challenge-reuse artifact.
 
