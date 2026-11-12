@@ -291,6 +291,28 @@ encoding. Detection signal: the `search` path is read-only LDAP; the attack itse
 **add** of an `msDS-DelegatedManagedServiceAccount` with `msDS-ManagedAccountPrecededByLink` set —
 a high-signal write a SOC can key on, identical on the wire whatever the runtime.
 
+### ntlmrelayx SMB→LDAP relay / ldapattack (`ntlmrelayx-ldap`) — 2026-11-12
+
+Relays the victim's NTLM to the DC's LDAP as a GSS-SPNEGO SASL bind, the highest-impact ntlmrelayx
+chain (a relayed LDAP bind as a privileged user enables RBCD writes, machine-account creation, DCSync
+grants, …). The wire sequence against the lab DC:
+
+- `bindRequest(1)` NTLMSSP_NEGOTIATE (the relayed victim Type 1) → `bindResponse(1) saslBindInProgress`
+  NTLMSSP_CHALLENGE (the DC's Type 2, relayed back to the victim).
+- `bindRequest(2)` NTLMSSP_AUTH, `User: LAB\Administrator` (the relayed victim Type 3) →
+  `bindResponse(2) success`. **The relay is now authenticated to LDAP as the victim.**
+- The follow-on `searchRequest(3)` over `dc=lab,dc=local` is answered with a **TCP RST** from the DC.
+
+**The mitigation on the wire:** the bind succeeds, but the NTLM bind negotiated signing/sealing and the
+DC enforces LDAP integrity on *operations*. The relay holds no session key, so it cannot seal the
+search, and the DC resets it. This is exactly why LDAP signing + channel binding (LDAPS/EPA) is the
+defence against LDAP relay: the authentication relays, but the session is unusable for the actual
+attack. The port reproduces both halves — the successful relayed bind and the reset operation — and
+reports the reset as the mitigation rather than swallowing it. (A DC without signing, or an LDAPS
+target, would let the post-bind writes through; that case is tracked in PORTING_STATUS.) The relay
+reuses the same `IRelayTarget` bridge as the SMB and HTTP servers, so the inbound victim side is
+unchanged and the cross-session challenge-reuse signal still holds.
+
 ### ntlmrelayx HTTP→SMB relay (`ntlmrelayx-http`) — 2026-11-10
 
 The second relay server and a new inbound protocol surface: HTTP NTLM (the coerced-auth vector behind

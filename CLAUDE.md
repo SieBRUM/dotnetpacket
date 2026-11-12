@@ -120,6 +120,7 @@ src/
     LdapSid.cs                     #   SID binary <-> canonical string (MS-DTYP)
     LdapSecurityDescriptor.cs      #   SR_SECURITY_DESCRIPTOR + DACL/ACE parse + msDS-GroupMSAMembership build (badsuccessor)
     NtAce.cs / NtAcl.cs / NtSecurityDescriptor.cs  # round-trippable MS-DTYP SD/ACL/ACE model (dacledit edit path)
+    LdapRelayClientTarget.cs       #   ntlmrelayx ldapattack: relay NTLM to the DC's LDAP (IRelayTarget) (lab, owner-authorised)
   DotNetPacket.Protocols.Gpp/         # Group Policy Preferences (MS-GPPREF)
     GppCrypto.cs                   #   cpassword AES-256-CBC decrypt (Microsoft's published key; Get-GPPPassword)
     GppPreferences.cs              #   GPP XML cpassword carving (Groups/ScheduledTasks/… -> findings)
@@ -255,6 +256,7 @@ dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-ho
 dotnet run --project src/DotNetPacket.Examples -- rbcd <read|write|remove|flush> <lab-host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)
 dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay core (lab, owner-authorised)
 dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx-http <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: HTTP->SMB NTLM relay (lab, owner-authorised)
+dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx-ldap <dc-host> <listen-port> <victim-user> <victim-pass> <domain-fqdn>   # ntlmrelayx: SMB->LDAP relay / ldapattack (lab, owner-authorised)
 ```
 
 If `dotnet` is missing, install the .NET 8 SDK from

