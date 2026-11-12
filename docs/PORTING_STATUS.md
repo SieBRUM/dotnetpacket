@@ -453,6 +453,29 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       preauth/signing state (the relay never has the session key — by design). Tracked here as a
       multi-part port; see `docs/WIRE_DIFF.md` for the challenge-reuse artifact.
 
+- [~] `smbexec.py` → `smbexec <host> <user> <password> <command> [share=C$] [domain] [port]`
+      — remote command execution via a one-shot **svcctl service** (the psexec-without-RemComSvc
+      technique). Creates a service whose `lpBinaryPathName` is a `%COMSPEC% /Q /c …` line that
+      writes the command to a throwaway `%SYSTEMROOT%\<rand>.bat`, runs it, redirects output to
+      `\\%COMPUTERNAME%\<share>\__output_<rand>`, then deletes the batch; the caller reads that
+      output file back off the share and removes it. New `SmbExecCommand` (port of
+      `RemoteShell.execute_remote`, cmd/SHARE mode) builds the crafted binary path — **the
+      detection signature**; it reuses the existing `Svcctl.CreateService`/`StartService`/
+      `DeleteService` surface and a new `Smb2Client.DeleteFile`. Lab-only exec primitive,
+      observable by design (prints the binPath + the random service/batch/output names + every SCM
+      return code) and self-cleaning (service deleted immediately; output file removed after read).
+      **Validated live against the lab DC:** the capture (`dotnetpacket-smbexec.pcap`) shows the
+      `RCreateServiceW` (opnum 12) carrying service name `VYaBDTJb` and the full crafted binPath,
+      answered with DCERPC fault `0x1C010002` (`nca_s_op_rng_error`). **Samba's svcctl does not
+      implement service creation** (same as the psexec `rpc-svcctl` demo), so the command cannot
+      actually run here — and **stock impacket smbexec gets the identical `nca_s_op_rng_error`** on
+      this lab, so there is no divergence: the service-creation signature is on the wire for both;
+      the execution + output-grab leg needs a Windows target. The `SERVER` mode (bind a local
+      SMB server to catch output when no writable share exists), the semi-interactive `cmdloop`,
+      and the `-shell-type powershell` encoder are not ported — the single-command SHARE path is
+      the detection unit. Known-bytes test pins the binPath against impacket's `execute_remote`
+      byte-for-byte; the random-name helpers (alphabet, prefixes, seed-determinism) are unit-tested.
+
 - [~] `rbcd.py` → `rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]`
       — read/edit **msDS-AllowedToActOnBehalfOfOtherIdentity** (Resource-Based Constrained Delegation).
       The attribute holds a security descriptor whose DACL lists the SIDs allowed to act on behalf of

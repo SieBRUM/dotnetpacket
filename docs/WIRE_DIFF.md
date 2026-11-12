@@ -246,6 +246,22 @@ SET_INFO body matches impacket's (StructureSize 0x21, InfoType File, class 4, Bu
 the ordinary signed SMB2 session (not encrypted here), so the fields are visible on the wire; no
 client-fingerprint divergence from impacket on this call.
 
+### smbexec svcctl command exec (`smbexec`) — 2026-11-12
+
+Remote command execution via a one-shot svcctl service (psexec-without-RemComSvc). The detection
+signature is the `RCreateServiceW` (opnum 12) whose `lpBinaryPathName` is
+`%COMSPEC% /Q /c echo <cmd> ^> \\%COMPUTERNAME%\<share>\__output_<rand> 2^>^&1 > %SYSTEMROOT%\<rand>.bat & %COMSPEC% /Q /c %SYSTEMROOT%\<rand>.bat & del %SYSTEMROOT%\<rand>.bat`,
+with a random 8-letter service/batch/output name per run and `dwStartType=SERVICE_DEMAND_START`,
+`dwErrorControl=SERVICE_ERROR_NORMAL`. Our binPath is byte-for-byte equal to impacket's
+`RemoteShell.execute_remote` (cmd/SHARE mode) — known-bytes test. **No divergence on this lab:**
+Samba's svcctl does not implement service creation, so both DotNetPacket **and stock impacket
+smbexec** get DCERPC fault `0x1C010002` (`nca_s_op_rng_error`) on the CreateServiceW — the
+capture shows our request carrying the service name and the full crafted binPath before the fault.
+End-to-end execution + the output-file grab need a Windows target (the StartServiceW time-out and
+the `__output_*` read are the Windows-only legs). The `SERVER`-mode local SMB server, the
+semi-interactive shell, and the powershell `-Enc` encoder are not ported. The CreateServiceW stub
+itself carries the already-documented NDR referent-id / pad choices (see the NDR section below).
+
 ### atexec Task Scheduler exec (`atexec`) — 2026-11-06
 
 Remote command execution via MS-TSCH (`\atsvc`). Samba doesn't implement the service, so this

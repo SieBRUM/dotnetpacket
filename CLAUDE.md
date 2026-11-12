@@ -105,6 +105,7 @@ src/
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
     Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open (domain/user/alias) + QueryInfo (user general + level-21 all) + domain info (general + password/lockout policy) + display info users+groups (samrdump) + GetGroupsForUser + alias members + CreateUser2/DeleteUser (addcomputer, lab) + UnicodeChangePasswordUser2 (changepasswd)
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
+    SmbExecCommand.cs              #   smbexec: the %COMSPEC% service binPath builder (RemoteShell.execute_remote; the detection signature)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/EnumKey/Close
     Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (Windows-only)
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
@@ -208,6 +209,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-services <lab-host> <user>
 dotnet run --project src/DotNetPacket.Examples -- rpc-svcconfig <lab-host> <user> <password> <service> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-svcstatus <lab-host> <user> <password> <service> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- smbexec <lab-host> <user> <password> <command> [share=C$] [domain] [port]   # smbexec: command exec via a one-shot svcctl service (lab-only exec)
 dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-srvinfo <lab-host> <user> <password> [domain]   # srvsvc NetrServerGetInfo level 102 (server tunables)
 dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
