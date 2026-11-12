@@ -105,7 +105,7 @@ src/
     Lsat.cs                        #   lsat LsarLookupSids/LsarLookupSids2 (SID->name) + LsarLookupNames/LsarLookupNames2 (name->SID)
     Samr.cs                        #   samr connect/enum (users/groups/aliases)/lookup (domain + name<->RID)/open (domain/user/alias) + QueryInfo (user general + level-21 all) + domain info (general + password/lockout policy) + display info users+groups (samrdump) + GetGroupsForUser + alias members + CreateUser2/DeleteUser (addcomputer, lab) + UnicodeChangePasswordUser2 (changepasswd)
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
-    SmbExecCommand.cs              #   smbexec: the %COMSPEC% service binPath builder (RemoteShell.execute_remote; the detection signature)
+    SmbExecCommand.cs              #   smbexec: service binPath builder — same behaviour as impacket, deliberately divergent string tokens (see WIRE_DIFF)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/EnumKey/Close
     Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (Windows-only)
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)

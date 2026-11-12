@@ -246,21 +246,53 @@ SET_INFO body matches impacket's (StructureSize 0x21, InfoType File, class 4, Bu
 the ordinary signed SMB2 session (not encrypted here), so the fields are visible on the wire; no
 client-fingerprint divergence from impacket on this call.
 
-### smbexec svcctl command exec (`smbexec`) — 2026-11-12
+### smbexec svcctl command exec (`smbexec`) — 2026-11-12  (deliberate signature divergence)
 
-Remote command execution via a one-shot svcctl service (psexec-without-RemComSvc). The detection
-signature is the `RCreateServiceW` (opnum 12) whose `lpBinaryPathName` is
-`%COMSPEC% /Q /c echo <cmd> ^> \\%COMPUTERNAME%\<share>\__output_<rand> 2^>^&1 > %SYSTEMROOT%\<rand>.bat & %COMSPEC% /Q /c %SYSTEMROOT%\<rand>.bat & del %SYSTEMROOT%\<rand>.bat`,
-with a random 8-letter service/batch/output name per run and `dwStartType=SERVICE_DEMAND_START`,
-`dwErrorControl=SERVICE_ERROR_NORMAL`. Our binPath is byte-for-byte equal to impacket's
-`RemoteShell.execute_remote` (cmd/SHARE mode) — known-bytes test. **No divergence on this lab:**
-Samba's svcctl does not implement service creation, so both DotNetPacket **and stock impacket
-smbexec** get DCERPC fault `0x1C010002` (`nca_s_op_rng_error`) on the CreateServiceW — the
-capture shows our request carrying the service name and the full crafted binPath before the fault.
-End-to-end execution + the output-file grab need a Windows target (the StartServiceW time-out and
-the `__output_*` read are the Windows-only legs). The `SERVER`-mode local SMB server, the
-semi-interactive shell, and the powershell `-Enc` encoder are not ported. The CreateServiceW stub
-itself carries the already-documented NDR referent-id / pad choices (see the NDR section below).
+Remote command execution via a one-shot svcctl service (psexec-without-RemComSvc). This is the one
+example where byte-for-byte fidelity would be **wrong**: smbexec's service binary path is a
+heavily-signatured tool IOC, not a protocol structure. A genuine reimplementation in another
+language would not reproduce impacket's exact command string, so DotNetPacket keeps the **behaviour**
+and diverges on the **surface tokens** — the "same behaviour, different fingerprint" this whole
+project exists to produce. (Not evasion: a fixed, documented alternative construction, no
+obfuscation/encoding/per-call dodging.)
+
+| Token | impacket `RemoteShell.execute_remote` | DotNetPacket `SmbExecCommand` |
+| --- | --- | --- |
+| interpreter | `%COMSPEC% /Q /c` | `cmd.exe /c` |
+| temp script | `%SYSTEMROOT%\<r8>.bat` | `%TEMP%\<r16>.cmd` |
+| output file | `__output_<r8>` | `<r16>` (no fixed prefix) |
+| random names | 8 chars, `string.ascii_letters` (letters only) | 10/16 chars, **alphanumeric** |
+| service name | `<r8>` letters | `<r10>` alphanumeric |
+
+impacket binPath:
+`%COMSPEC% /Q /c echo <cmd> ^> \\%COMPUTERNAME%\<share>\__output_<r8> 2^>^&1 > %SYSTEMROOT%\<r8>.bat & %COMSPEC% /Q /c %SYSTEMROOT%\<r8>.bat & del %SYSTEMROOT%\<r8>.bat`
+
+DotNetPacket binPath (observed in `dotnetpacket-smbexec.pcap`, frame 47):
+`cmd.exe /c echo <cmd> ^> \\%COMPUTERNAME%\<share>\<r16> 2^>^&1 > %TEMP%\<r16>.cmd & cmd.exe /c %TEMP%\<r16>.cmd & del %TEMP%\<r16>.cmd`
+
+**Behavioural invariants a detection should key on instead** (these survive the rewrite and match
+both tools): a `svcctl` `RCreateServiceW` (opnum 12) with `dwStartType=SERVICE_DEMAND_START`, whose
+binary path drives a command interpreter that echoes a redirecting line into a throwaway script,
+runs it, and redirects output (`2>&1`) to a file on a readable share; the service is started (and
+times out — it is not a real service) and **deleted within seconds** on the same handle. A SIGMA-style
+rule matching the *literal* `%COMSPEC% /Q /c`, `__output_`, or the `.bat` under `%SYSTEMROOT%` will
+**miss this port** — which is the measurable result the lab is meant to demonstrate.
+
+**On the wire (lab):** Samba's svcctl does not implement service creation, so both DotNetPacket **and
+stock impacket smbexec** get DCERPC fault `0x1C010002` (`nca_s_op_rng_error`) on the CreateServiceW.
+DotNetPacket's CreateServiceW rides a cleartext+signed pipe, so its binPath is fully visible in the
+capture (frame 47) — service name `RDY8tkW8MR`, the DotNetPacket-flavoured binPath above, none of
+impacket's tokens. **impacket's own binPath is not visible on the wire here** because impacket
+encrypts the pipe (SMB3 transform — the separately-documented SMB3-encryption gap), so its string is
+referenced from source/oracle, not its capture; that impacket encrypts while this port is observable
+is itself part of the diff. End-to-end execution + the output-file grab need a Windows target. The
+`SERVER`-mode local SMB server, the semi-interactive shell, and the powershell `-Enc` encoder are not
+ported. The CreateServiceW stub itself also carries the already-documented NDR referent-id / pad
+choices (see the NDR section below).
+
+> **Note — atexec carries the same category of tool IOC.** `atexec`'s task XML command line
+> (`cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`) was ported close to impacket's string; it
+> should get the same deliberate token divergence as smbexec. Tracked as a follow-up.
 
 ### atexec Task Scheduler exec (`atexec`) — 2026-11-06
 

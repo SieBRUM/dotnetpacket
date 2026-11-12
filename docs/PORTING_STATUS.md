@@ -456,25 +456,35 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
 - [~] `smbexec.py` → `smbexec <host> <user> <password> <command> [share=C$] [domain] [port]`
       — remote command execution via a one-shot **svcctl service** (the psexec-without-RemComSvc
       technique). Creates a service whose `lpBinaryPathName` is a `%COMSPEC% /Q /c …` line that
-      writes the command to a throwaway `%SYSTEMROOT%\<rand>.bat`, runs it, redirects output to
-      `\\%COMPUTERNAME%\<share>\__output_<rand>`, then deletes the batch; the caller reads that
-      output file back off the share and removes it. New `SmbExecCommand` (port of
-      `RemoteShell.execute_remote`, cmd/SHARE mode) builds the crafted binary path — **the
-      detection signature**; it reuses the existing `Svcctl.CreateService`/`StartService`/
-      `DeleteService` surface and a new `Smb2Client.DeleteFile`. Lab-only exec primitive,
-      observable by design (prints the binPath + the random service/batch/output names + every SCM
-      return code) and self-cleaning (service deleted immediately; output file removed after read).
+      writes the command to a throwaway temp script, runs it, redirects output to a file on a
+      readable share, then deletes the script; the caller reads that output file back off the share
+      and removes it. New `SmbExecCommand` builds the interpreter binary path; it reuses the
+      existing `Svcctl.CreateService`/`StartService`/`DeleteService` surface and a new
+      `Smb2Client.DeleteFile`. Lab-only exec primitive, observable by design (prints the binPath +
+      the random names + every SCM return code) and self-cleaning (service deleted immediately;
+      output file removed after read).
+      **Signature divergence is deliberate (the research point).** This is the one place where a
+      *faithful* port would be counter-productive: smbexec's command line is a heavily-signatured
+      tool IOC, not a protocol structure, so `SmbExecCommand` keeps the **behaviour** identical
+      (svcctl CreateService → interpreter echoes a redirecting line into a temp script, runs it,
+      deletes it; output to `\\%COMPUTERNAME%\<share>\<name>`; service deleted at once) while the
+      **surface tokens differ** from impacket: `cmd.exe /c` vs `%COMSPEC% /Q /c`, `%TEMP%\<rand>.cmd`
+      vs `%SYSTEMROOT%\<rand>.bat`, a plain random output name vs `__output_<rand>`, and
+      10/16-char **alphanumeric** random names vs impacket's 8-char letters-only. Not evasion
+      (no obfuscation/encoding/per-call dodging) — a fixed, documented alternative construction so a
+      brittle string IOC misses this port while a behavioural detection still catches it. See
+      `docs/WIRE_DIFF.md` for the token-by-token table and the behavioural invariants to key on.
       **Validated live against the lab DC:** the capture (`dotnetpacket-smbexec.pcap`) shows the
-      `RCreateServiceW` (opnum 12) carrying service name `VYaBDTJb` and the full crafted binPath,
-      answered with DCERPC fault `0x1C010002` (`nca_s_op_rng_error`). **Samba's svcctl does not
-      implement service creation** (same as the psexec `rpc-svcctl` demo), so the command cannot
+      `RCreateServiceW` (opnum 12) carrying our 10-char service name and the DotNetPacket-flavoured
+      binPath, answered with DCERPC fault `0x1C010002` (`nca_s_op_rng_error`). **Samba's svcctl does
+      not implement service creation** (same as the psexec `rpc-svcctl` demo), so the command cannot
       actually run here — and **stock impacket smbexec gets the identical `nca_s_op_rng_error`** on
-      this lab, so there is no divergence: the service-creation signature is on the wire for both;
-      the execution + output-grab leg needs a Windows target. The `SERVER` mode (bind a local
-      SMB server to catch output when no writable share exists), the semi-interactive `cmdloop`,
-      and the `-shell-type powershell` encoder are not ported — the single-command SHARE path is
-      the detection unit. Known-bytes test pins the binPath against impacket's `execute_remote`
-      byte-for-byte; the random-name helpers (alphabet, prefixes, seed-determinism) are unit-tested.
+      this lab; the execution + output-grab leg needs a Windows target. The `SERVER` mode (bind a
+      local SMB server to catch output when no writable share exists), the semi-interactive
+      `cmdloop`, and the `-shell-type powershell` encoder are not ported — the single-command SHARE
+      path is the detection unit. Tests pin both sides of the divergence: the behaviour is present
+      AND impacket's signature tokens (`%COMSPEC%`, `/Q /c`, `__output_`, `.bat`, `%SYSTEMROOT%`)
+      are absent; the random-name helpers (alphanumeric alphabet, seed-determinism) are unit-tested.
 
 - [~] `rbcd.py` → `rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]`
       — read/edit **msDS-AllowedToActOnBehalfOfOtherIdentity** (Resource-Based Constrained Delegation).
