@@ -549,16 +549,30 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       end-to-end posture read was exercised against a loopback TDS responder.
 
 - [~] `atexec.py` → `atexec <host> <user> <password> <command> [domain] [port]` — remote command
-      execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register an
-      XML task that runs `cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`, run it, poll
-      SchRpcGetLastRunInfo, read the output from ADMIN$\Temp over SMB, then delete the task + file.
-      **Lab-only exec primitive.** New `Tsch` client (SchRpcRegisterTask/Run/Delete/GetLastRunInfo)
-      + the atexec task-XML builder. **Cannot be validated end-to-end on this lab — Samba does not
-      implement MS-TSCH** (the `\atsvc` open returns STATUS_OBJECT_NAME_NOT_FOUND, which the example
-      reports). The request NDR was instead validated **byte-for-byte against impacket's tsch
-      encoder** (known-bytes tests), matching except our documented referent-id scheme and
-      zero-filled pad. End-to-end run needs a Windows target. The `-session-id` / Author-log
-      tampering options are not ported.
+      execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register a
+      hidden LocalSystem task that runs the command and redirects its output to a file under
+      `%SystemRoot%\Temp`, run it, poll SchRpcGetLastRunInfo, read the output from ADMIN$\Temp over
+      SMB, then delete the task + file. **Lab-only exec primitive.** New `Tsch` client
+      (SchRpcRegisterTask/Run/Delete/GetLastRunInfo) + the task-XML builder.
+      **Signature divergence is deliberate (2026-11-13).** Both the task XML and the command line are
+      heavily-signatured tool IOCs, not protocol structures, so — as for smbexec — the **behaviour**
+      is kept (a hidden, run-on-demand LocalSystem/HighestAvailable task spawning a command
+      interpreter, output to a Temp file read back over ADMIN$) while the **signaturable constants
+      differ** from impacket: the task XML's `StartBoundary` is `2019-05-02T14:00:00` not impacket's
+      famous `2015-07-15T20:35:13.2757294`, `ExecutionTimeLimit` `PT72H` not `P3D`, `Priority` 5 not
+      7, and the trailing-whitespace artifact after `</Task>` is dropped; the command line is
+      `cmd.exe /c <cmd> 1> %SystemRoot%\Temp\<r12>.log 2>&1` not `/C … > %windir%\Temp\<r8>.tmp 2>&1`,
+      with independent alphanumeric task/output names rather than one 8-letter name reused for both.
+      Not evasion — a fixed, documented alternative, so a brittle XML/command IOC misses this port
+      while a behavioural detection still catches it. The schema element order is kept so Windows Task
+      Scheduler still accepts it. See `docs/WIRE_DIFF.md` for the token table.
+      **Cannot be validated end-to-end on this lab — Samba does not implement MS-TSCH** (the `\atsvc`
+      open returns STATUS_OBJECT_NAME_NOT_FOUND / 0xC0000034, which the example reports), so the task
+      XML never reaches the wire here; the divergence is pinned by unit tests instead (impacket's IOC
+      constants absent, behaviour present). The RegisterTask/Run/Delete request NDR is validated
+      **structurally against impacket's tsch encoder** (known-bytes tests on synthetic inputs),
+      matching except our documented referent-id scheme and zero-filled pad. End-to-end run needs a
+      Windows target. The `-session-id` / Author-log tampering options are not ported.
 
 - [~] `addcomputer.py` (SAMR method) → `rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]`
       — create a machine account via **SamrCreateUser2InDomain** (WORKSTATION_TRUST_ACCOUNT) over

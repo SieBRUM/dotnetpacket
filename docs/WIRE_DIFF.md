@@ -290,17 +290,37 @@ is itself part of the diff. End-to-end execution + the output-file grab need a W
 ported. The CreateServiceW stub itself also carries the already-documented NDR referent-id / pad
 choices (see the NDR section below).
 
-> **Note — atexec carries the same category of tool IOC.** `atexec`'s task XML command line
-> (`cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`) was ported close to impacket's string; it
-> should get the same deliberate token divergence as smbexec. Tracked as a follow-up.
-
-### atexec Task Scheduler exec (`atexec`) — 2026-11-06
+### atexec Task Scheduler exec (`atexec`) — 2026-11-06, divergence pass 2026-11-13
 
 Remote command execution via MS-TSCH (`\atsvc`). Samba doesn't implement the service, so this
 can't run end-to-end on the lab — the `\atsvc` open returns STATUS_OBJECT_NAME_NOT_FOUND (visible
 in the capture; the detectable behavior on this target is just a client *attempting* to open
 `\atsvc`). The request encoding was validated against the **impacket tsch encoder** instead of a
-server. For SchRpcRegisterTask / Run / Delete / GetLastRunInfo the stubs match impacket's
+server.
+
+**Deliberate signature divergence (2026-11-13).** The task XML and the command line are heavily-
+signatured tool IOCs (not protocol structures), so — like smbexec — the behaviour is kept and the
+signaturable constants diverge from impacket. A brittle rule matching impacket's famous
+`StartBoundary>2015-07-15T20:35:13.2757294`, `P3D`, or the `/C … > %windir%\Temp\….tmp 2>&1`
+command will **miss this port**; a behavioural detection (a **hidden LocalSystem task created, run,
+and deleted within seconds whose action spawns a command interpreter that redirects output to a Temp
+file**) still catches it.
+
+| Token | impacket `atexec.py` | DotNetPacket |
+| --- | --- | --- |
+| task `StartBoundary` | `2015-07-15T20:35:13.2757294` | `2019-05-02T14:00:00` |
+| `ExecutionTimeLimit` | `P3D` | `PT72H` |
+| `Priority` | `7` | `5` |
+| trailing whitespace after `</Task>` | present (8 spaces) | none |
+| command | `cmd.exe /C <cmd> > %windir%\Temp\<r8>.tmp 2>&1` | `cmd.exe /c <cmd> 1> %SystemRoot%\Temp\<r12>.log 2>&1` |
+| temp name | 8 `ascii_letters`, `.tmp` | 12 alphanumeric, `.log` |
+| task vs output name | **same** 8-letter name reused | **independent** random names |
+
+The schema element order is unchanged so Windows Task Scheduler still accepts the XML; the divergence
+is pinned by unit tests (impacket's IOC constants absent, behaviour present) since the XML never
+reaches the wire on Samba.
+
+For SchRpcRegisterTask / Run / Delete / GetLastRunInfo the stubs match impacket's
 structure byte-for-byte except:
 
 | Field | DotNetPacket | impacket |

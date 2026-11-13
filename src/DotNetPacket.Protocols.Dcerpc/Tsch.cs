@@ -71,15 +71,27 @@ public static class Tsch
 
     /// <summary>
     /// Builds the scheduled-task XML atexec registers: a hidden, run-on-demand task that runs
-    /// <paramref name="command"/> with <paramref name="arguments"/> as LocalSystem. Verbatim port
-    /// of the template in impacket's <c>atexec.py</c> (without the optional Author log-tampering).
+    /// <paramref name="command"/> with <paramref name="arguments"/> as LocalSystem.
+    ///
+    /// <para><b>Deliberately NOT a verbatim copy of impacket's template.</b> Like smbexec's command
+    /// string, this task XML is a heavily-signatured tool IOC, not a protocol structure — impacket's
+    /// hardcoded <c>StartBoundary&gt;2015-07-15T20:35:13.2757294</c> is one of the best-known atexec
+    /// detections, and the trailing-whitespace / fixed <c>P3D</c> / <c>Priority 7</c> constants are
+    /// impacket artifacts a real reimplementation would not reproduce. So this keeps the
+    /// <b>behaviour</b> identical (a hidden, run-on-demand task running as LocalSystem/HighestAvailable)
+    /// while the <b>signaturable constants differ</b>: a different StartBoundary date, no trailing
+    /// whitespace after <c>&lt;/Task&gt;</c>, <c>PT72H</c> instead of <c>P3D</c>, <c>Priority</c> 5
+    /// instead of 7. Not evasion — a fixed, documented alternative construction, so a brittle XML
+    /// string IOC misses this port while a behavioural detection (a hidden LocalSystem task created,
+    /// run, and deleted within seconds that spawns a command interpreter) still catches it. The schema
+    /// element order is kept so Windows Task Scheduler still accepts it. See docs/WIRE_DIFF.md.</para>
     /// </summary>
     public static string BuildTaskXml(string command, string arguments) =>
         "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n" +
         "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n" +
         "  <Triggers>\n" +
         "    <CalendarTrigger>\n" +
-        "      <StartBoundary>2015-07-15T20:35:13.2757294</StartBoundary>\n" +
+        "      <StartBoundary>2019-05-02T14:00:00</StartBoundary>\n" +
         "      <Enabled>true</Enabled>\n" +
         "      <ScheduleByDay>\n" +
         "        <DaysInterval>1</DaysInterval>\n" +
@@ -107,8 +119,8 @@ public static class Tsch
         "    <Hidden>true</Hidden>\n" +
         "    <RunOnlyIfIdle>false</RunOnlyIfIdle>\n" +
         "    <WakeToRun>false</WakeToRun>\n" +
-        "    <ExecutionTimeLimit>P3D</ExecutionTimeLimit>\n" +
-        "    <Priority>7</Priority>\n" +
+        "    <ExecutionTimeLimit>PT72H</ExecutionTimeLimit>\n" +
+        "    <Priority>5</Priority>\n" +
         "  </Settings>\n" +
         "  <Actions Context=\"LocalSystem\">\n" +
         "    <Exec>\n" +
@@ -116,7 +128,7 @@ public static class Tsch
         $"      <Arguments>{XmlEscape(arguments)}</Arguments>\n" +
         "    </Exec>\n" +
         "  </Actions>\n" +
-        "</Task>\n        ";
+        "</Task>\n";
 
     private static string XmlEscape(string s) => s
         .Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")

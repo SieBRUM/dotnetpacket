@@ -107,7 +107,7 @@ src/
     Svcctl.cs                      #   svcctl SCM: service enumeration + per-service config + live status (services.py) + control (psexec, lab-only)
     SmbExecCommand.cs              #   smbexec: service binPath builder — same behaviour as impacket, deliberately divergent string tokens (see WIRE_DIFF)
     Winreg.cs                      #   winreg remote registry (MS-RRP): OpenHKLM/GetVersion/OpenKey/QueryValue/EnumValue/EnumKey/Close
-    Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (Windows-only)
+    Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (same behaviour as impacket, deliberately divergent IOC constants; see WIRE_DIFF) (Windows-only)
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
     Epm.cs                         #   endpoint mapper ept_map (resolve an interface to its TCP port)
     IDcerpcTransport.cs            #   transport abstraction (ncacn_np vs ncacn_ip_tcp)

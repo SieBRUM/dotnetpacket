@@ -56,4 +56,21 @@ public class TschTests
         Assert.Contains("<UserId>S-1-5-18</UserId>", xml);   // runs as LocalSystem
         Assert.Contains("<Hidden>true</Hidden>", xml);
     }
+
+    [Fact]
+    public void BuildTaskXml_DivergesFromImpacketSignatureTokens()
+    {
+        string xml = Tsch.BuildTaskXml("cmd.exe", "/c whoami 1> out.log 2>&1");
+
+        // The behaviour-defining elements are still present (a hidden LocalSystem task).
+        Assert.Contains("<Hidden>true</Hidden>", xml);
+        Assert.Contains("<UserId>S-1-5-18</UserId>", xml);
+        Assert.Contains("<AllowStartOnDemand>true</AllowStartOnDemand>", xml);
+
+        // ...but impacket's hardcoded, heavily-signatured constants must NOT appear.
+        Assert.DoesNotContain("2015-07-15T20:35:13.2757294", xml); // impacket's famous StartBoundary
+        Assert.DoesNotContain("<ExecutionTimeLimit>P3D</ExecutionTimeLimit>", xml);
+        Assert.DoesNotContain("<Priority>7</Priority>", xml);
+        Assert.False(xml.EndsWith("        "), "impacket's trailing-whitespace artifact must be gone");
+    }
 }

