@@ -332,6 +332,35 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       nested and/or/present filter was confirmed via Wireshark. Known-bytes test pins the request
       encoding; the cleartext-JSON parse is unit-tested. Same simple-bind lab path as GetADUsers.
 
+- [x] `findDelegation.py` → `find-delegation <host> <user> <password> <domain-fqdn> [target-user] [port]`
+      — LDAP-search a DC for the four Kerberos-delegation flavours an attacker hunts: **Unconstrained**
+      (`userAccountControl & 0x80000`), **Constrained w/ Protocol Transition** (`& 0x1000000`),
+      **Constrained** (`msDS-AllowedToDelegateTo` present), **Resource-Based Constrained**
+      (`msDS-AllowedToActOnBehalfOfOtherIdentity` present). Reuses the LDAP search path + the
+      `NtSecurityDescriptor` parser (to list the RBCD-allowed principals, resolved SID→name). The
+      search **filter is the recon action**, so it stays faithful to impacket (not a divergent
+      payload). **Validated live against the lab DC:** found the DC `VM$` (Unconstrained) out of the
+      box, and — with throwaway `fdconstr` (msDS-AllowedToDelegateTo) + `fdpt` (TRUSTED_TO_AUTH +
+      AllowedToDelegateTo) accounts, created and deleted — classified Constrained and Constrained w/
+      Protocol Transition correctly; the RBCD branch reuses the SD parse already live-validated in
+      `rbcd`. The filter encoding is pinned by a known-bytes test and the live `searchRequest`
+      decodes to the same filter in Wireshark. **Lab divergence:** stock impacket findDelegation
+      gets the same `data 52e` NTLM-over-LDAP bind rejection as the other LDAP tools here, so it
+      can't run on this lab; DotNetPacket binds **simple** over 389 and completes. `-target-domain`
+      and the SPN-exists cross-check are not ported.
+
+- [x] `lookupsid.py` → `lookupsid <host> <user> <password> [maxRid=1100] [domain] [port]` — **RID
+      cycling**: open lsarpc, read the domain SID (LsarQueryInformationPolicy account-domain), then
+      call **LsarLookupSids** over a run of consecutive `domainSid-<RID>` SIDs to enumerate accounts
+      with no directory read. Reuses the existing `Lsarpc`/`Lsat` stack. The RID-cycling behaviour is
+      the detectable signature and is faithful to impacket; the RID window / batch size are impl
+      details (we sweep 0..maxRid in batches of 50; impacket 0..4000 in 1000s — a benign divergence).
+      **Validated live, end-to-end** against the lab DC over SMB NTLMv2: resolved 19 accounts
+      (Administrator/Guest/krbtgt/Domain Admins…/`VM$`), and **stock impacket lookupsid.py returns the
+      identical domain SID + accounts + SID-type** (exact parity, incl. RID 498). The LsarLookupSids
+      request NDR is covered by the existing lsat known-bytes tests. `-domain-sids` (brute both the
+      account and primary domain) is not ported.
+
 - [~] `GetNPUsers.py` → `get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]`
       — AS-REP roasting. With a target user, send a Kerberos AS-REQ (no pre-auth) and format the
       AS-REP enc-part as a crackable `$krb5asrep$` hash; otherwise LDAP-search for accounts with

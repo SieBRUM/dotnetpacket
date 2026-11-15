@@ -217,6 +217,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-privs <lab-host> <user> <p
 dotnet run --project src/DotNetPacket.Examples -- rpc-accountrights <lab-host> <user> <password> <sid> [domain]   # LsarEnumerateAccountRights (rights granted to a SID)
 dotnet run --project src/DotNetPacket.Examples -- rpc-privlookup <lab-host> <user> <password> <privilege-name|luid> [domain]   # LsarLookupPrivilegeValue/Name (name<->LUID)
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
+dotnet run --project src/DotNetPacket.Examples -- lookupsid <lab-host> <user> <password> [maxRid=1100] [domain] [port]   # lookupsid: RID cycling via LsarLookupSids (account enumeration)
 dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid2 <lab-host> <user> <password> [domain]   # LsarLookupSids2 (modern Windows)
 dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
 dotnet run --project src/DotNetPacket.Examples -- rpc-dispinfo <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation (samrdump display path)
@@ -245,6 +246,7 @@ dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <us
 dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
 dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
 dotnet run --project src/DotNetPacket.Examples -- get-npusers <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth
+dotnet run --project src/DotNetPacket.Examples -- find-delegation <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # findDelegation: unconstrained/constrained/protocol-transition/RBCD
 dotnet run --project src/DotNetPacket.Examples -- kerb-tgt <lab-host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 PA-ENC-TIMESTAMP pre-auth)
 dotnet run --project src/DotNetPacket.Examples -- get-userspns <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing

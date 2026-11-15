@@ -514,6 +514,34 @@ TDS client, not a minimal probe.
   Capturing against a real MSSQL instance (and the Windows `sqlcmd`/.NET `SqlClient` PRELOGIN as the
   third column) is the remaining diff work.
 
+## Signature-divergence audit (2026-11-15)
+
+A full sweep of `src/` for places where DotNetPacket could accidentally carry an
+impacket/Python fingerprint or copy a tool-specific IOC verbatim. Verdict: the
+protocol *structures* stay faithful (that is the protocol), but every *tool payload*
+and *runtime fingerprint* either already diverges or was made to. Summary:
+
+| Surface | impacket / Python tell | DotNetPacket | Verdict |
+| --- | --- | --- | --- |
+| smbexec service binPath | `%COMSPEC% /Q /c echo … 2^>^&1 … \__output_… .bat` | `cmd.exe /c … %TEMP%\<r16>.cmd`, alphanumeric names | diverged (2026-11-12) |
+| atexec task XML / command | `StartBoundary 2015-07-15T20:35:13.2757294`, `P3D`, `/C … %windir%\Temp\<r8>.tmp` | `2019-05-02T14:00:00`, `PT72H`, `cmd.exe /c … %SystemRoot%\Temp\<r12>.log` | diverged (2026-11-13) |
+| **HTTP relay `Server:` banner** | **`BaseHTTP/0.6 Python/3.x`** (stdlib default — a blatant Python/impacket tell) | `Microsoft-IIS/10.0` | already realistic + divergent |
+| NTLM `VERSION` block | impacket default `0.0.0` rev `0x0F` (or absent) | `10.0.19041` rev `0x0F` (a real Win10 build) | already realistic + divergent |
+| SMB2 `ClientGuid` | random per run | random per run (16 bytes) | non-fixed (no shared IOC) |
+| NTLM `Workstation` | tool-set or empty | the real .NET host NetBIOS name (what Windows sends) | realistic (observable by design) |
+| svcctl demo service name | n/a (impacket psexec drops RemComSvc) | `DotNetPacketLab` — our *own* benign, branded, self-deleting marker | intentionally non-impacket |
+| NDR referent ids / pad fill | random ids, `0xAB`/`0xBF` pad | MIDL-style `0x00020000+`, zero pad | diverged (anti-fingerprint pass) |
+| hashcat/john formats (`$krb5*$`, NetNTLMv2) | format is the *consumer contract* | identical (must match hashcat) | faithful by necessity |
+| GPP AES key, MS-DTYP SD/ACE/SID bytes, NDR stubs, Kerberos ASN.1 | protocol-mandated bytes | identical | faithful by necessity |
+
+Rule of thumb applied everywhere: **a wire *structure* dictated by the protocol stays
+byte-faithful; a *payload* the tool author invented (command lines, script/task templates,
+hardcoded names, dates, banners) gets a fixed, documented divergence** — same behaviour,
+different fingerprint. Not evasion: nothing here obfuscates, encodes, or dodges per-call;
+the goal is to let a SOC prove a brittle string rule misses a reimplementation while a
+behavioural rule still fires. Each divergence is pinned by a test asserting impacket's
+tokens are absent and the behaviour is present.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

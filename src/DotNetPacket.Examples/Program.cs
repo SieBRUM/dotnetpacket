@@ -1751,6 +1751,147 @@ switch (args[0])
         return 0;
     }
 
+    case "find-delegation":
+    {
+        // findDelegation.py: LDAP-search a DC for accounts configured with Kerberos delegation —
+        // the four flavours an attacker hunts for. Reuses the LDAP search path (simple bind on the
+        // lab). The search FILTER is the behaviour (the recon action), so it stays faithful to
+        // impacket; it is not a tool-invented payload string to diverge.
+        //   Unconstrained                     : userAccountControl & 0x80000  (TRUSTED_FOR_DELEGATION)
+        //   Constrained w/ Protocol Transition: userAccountControl & 0x1000000 (TRUSTED_TO_AUTH...)
+        //   Constrained                       : msDS-AllowedToDelegateTo present
+        //   Resource-Based Constrained        : msDS-AllowedToActOnBehalfOfOtherIdentity present
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("usage: find-delegation <host> <user> <password> <domain-fqdn> [target-user] [port]");
+            Console.Error.WriteLine("  e.g. find-delegation 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        string? targetUser = null;
+        int port = 389;
+        foreach (string a in args.Skip(5))
+        {
+            if (int.TryParse(a, out int p)) port = p;
+            else targetUser = a;
+        }
+
+        string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
+        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+
+        using LdapConnection ldap = LdapConnection.Connect(host, port);
+        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        if (!bind.Success)
+        {
+            Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
+            return 1;
+        }
+
+        const int UF_ACCOUNTDISABLE = 2;
+        const int UF_TRUSTED_FOR_DELEGATION = 0x80000;                 // 524288  (unconstrained)
+        const int UF_TRUSTED_TO_AUTH_FOR_DELEGATION = 0x1000000;       // 16777216 (constrained + protocol transition)
+        const string LdapMatchingRuleBit = "1.2.840.113556.1.4.803";
+        const string RbcdAttr = "msDS-AllowedToActOnBehalfOfOtherIdentity";
+        const string AllowedToDelegateTo = "msDS-AllowedToDelegateTo";
+
+        var delegationCriteria = new List<LdapFilter>
+        {
+            LdapFilter.Extensible(LdapMatchingRuleBit, "userAccountControl", UF_TRUSTED_FOR_DELEGATION.ToString()),
+            LdapFilter.Extensible(LdapMatchingRuleBit, "userAccountControl", UF_TRUSTED_TO_AUTH_FOR_DELEGATION.ToString()),
+            LdapFilter.PresentOf(AllowedToDelegateTo),
+            LdapFilter.PresentOf(RbcdAttr),
+        };
+        var conj = new List<LdapFilter>
+        {
+            LdapFilter.AnyOf(delegationCriteria.ToArray()),
+            LdapFilter.Negate(LdapFilter.Extensible(LdapMatchingRuleBit, "userAccountControl", UF_ACCOUNTDISABLE.ToString())),
+        };
+        if (targetUser is not null)
+        {
+            conj.Add(LdapFilter.Equal("sAMAccountName", targetUser));
+        }
+
+        string[] attrs =
+        {
+            "sAMAccountName", "pwdLastSet", "userAccountControl", "objectCategory",
+            RbcdAttr, AllowedToDelegateTo,
+        };
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, LdapFilter.AllOf(conj.ToArray()), attrs);
+
+        // Resolve a SID to an account name (for the RBCD principals), like impacket's follow-up search.
+        string ResolveName(string sidString)
+        {
+            try
+            {
+                IReadOnlyList<SearchEntry> r = ldap.Search(baseDn,
+                    LdapFilter.EqualRaw("objectSid", LdapSid.FromCanonical(sidString)), new[] { "sAMAccountName" });
+                string n = r.Count > 0 ? r[0].Get("sAMAccountName") : string.Empty;
+                return string.IsNullOrEmpty(n) ? sidString : n;
+            }
+            catch { return sidString; }
+        }
+
+        Console.WriteLine($"Querying {host} ({baseDn}) for delegation (findDelegation.py)");
+        Console.WriteLine();
+        Console.WriteLine($"{"AccountName",-22} {"Type",-9} {"DelegationType",-34} DelegationRightsTo");
+        Console.WriteLine($"{new string('-', 22)} {new string('-', 9)} {new string('-', 34)} {new string('-', 24)}");
+
+        int found = 0;
+        foreach (SearchEntry e in entries)
+        {
+            string sam = e.Get("sAMAccountName");
+            if (string.IsNullOrEmpty(sam)) continue;
+            _ = int.TryParse(e.Get("userAccountControl"), out int uac);
+            string type = e.Get("objectCategory").Contains("Computer", StringComparison.OrdinalIgnoreCase) ? "Computer" : "User";
+
+            var rows = new List<(string Delegation, string RightsTo)>();
+            if ((uac & UF_TRUSTED_FOR_DELEGATION) != 0)
+            {
+                rows.Add(("Unconstrained", "N/A"));
+            }
+
+            // Constrained (with or without protocol transition): one row per target SPN.
+            SearchAttribute? toDelegate = e.Attributes.FirstOrDefault(a =>
+                string.Equals(a.Type, AllowedToDelegateTo, StringComparison.OrdinalIgnoreCase));
+            if (toDelegate is not null && toDelegate.Values.Count > 0)
+            {
+                string kind = (uac & UF_TRUSTED_TO_AUTH_FOR_DELEGATION) != 0
+                    ? "Constrained w/ Protocol Transition"
+                    : "Constrained";
+                foreach (byte[] v in toDelegate.Values)
+                {
+                    rows.Add((kind, System.Text.Encoding.UTF8.GetString(v)));
+                }
+            }
+
+            // Resource-Based Constrained: list each allowed principal from the SD's DACL.
+            byte[]? rbcd = e.GetRaw(RbcdAttr);
+            if (rbcd is { Length: > 0 })
+            {
+                foreach (NtAce ace in NtSecurityDescriptor.Parse(rbcd).Dacl?.Aces ?? new List<NtAce>())
+                {
+                    string s = LdapSid.ToCanonical(ace.Sid);
+                    rows.Add(("Resource-Based Constrained", $"{ResolveName(s)} ({s})"));
+                }
+            }
+
+            if (rows.Count == 0) continue;
+            found++;
+            foreach ((string delegation, string rightsTo) in rows)
+            {
+                Console.WriteLine($"{sam,-22} {type,-9} {delegation,-34} {rightsTo}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{found} account(s) with delegation configured.");
+        return 0;
+    }
+
     case "get-laps":
     {
         // GetLAPSPassword.py: LDAP-search a DC for computer objects carrying a LAPS password
@@ -2770,6 +2911,89 @@ switch (args[0])
             }
         }
 
+        return 0;
+    }
+
+    case "lookupsid":
+    {
+        // lookupsid.py: RID cycling. Get the domain SID from lsarpc, then call LsarLookupSids over
+        // a run of consecutive SIDs (domainSid-<RID>) to enumerate accounts without any directory
+        // read. The RID-cycling behaviour (many LsarLookupSids over sequential SIDs) is the
+        // detectable signature and is faithful to impacket; the RID window and batch size are impl
+        // details (we sweep 0..maxRid in batches of 50; impacket sweeps 0..4000 in batches of
+        // 1000 — a benign fingerprint divergence, not a payload).
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("usage: lookupsid <host> <user> <password> [maxRid=1100] [domain] [port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        // Positional: [maxRid] [domain] [port]
+        int maxRid = args.Length >= 5 && int.TryParse(args[4], out int mr) ? mr : 1100;
+        string domain = args.Length >= 6 ? args[5] : string.Empty;
+        int port = args.Length >= 7 && int.TryParse(args[6], out int pp) ? pp : 445;
+
+        using var client = new Smb2Client();
+        client.Connect(host, port);
+        client.Negotiate();
+        Smb2LoginResult login = client.Login(domain, user, password);
+        if (!login.Authenticated)
+        {
+            Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");
+            return 1;
+        }
+
+        Smb2TreeConnectResult ipc = client.TreeConnect($@"\\{host}\IPC$");
+        DcerpcPipe pipe = DcerpcPipe.Open(client, ipc.TreeId, DcerpcInterface.Lsarpc.Pipe);
+        pipe.Bind(DcerpcInterface.Lsarpc);
+
+        ScHandleResult policy = Lsarpc.OpenPolicy2(pipe);
+        LsaAccountDomain account = Lsarpc.QueryAccountDomain(pipe, policy.Handle);
+        string domainSid = account.Sid;
+        Console.WriteLine($"Domain SID is: {domainSid}  ({account.Name})");
+        Console.WriteLine();
+
+        const int batch = 50;
+        int found = 0;
+        for (int start = 0; start <= maxRid; start += batch)
+        {
+            int end = Math.Min(start + batch - 1, maxRid);
+            var sids = new List<string>();
+            for (int rid = start; rid <= end; rid++)
+            {
+                sids.Add($"{domainSid}-{rid}");
+            }
+
+            IReadOnlyList<LsaResolvedSid> resolved;
+            try
+            {
+                resolved = Lsat.LookupSids(pipe, policy.Handle, sids);
+            }
+            catch (DcerpcFaultException)
+            {
+                continue; // a batch the server refuses to translate — keep cycling
+            }
+
+            foreach (LsaResolvedSid r in resolved)
+            {
+                if (r.Use is SidNameUse.Unknown or SidNameUse.Invalid || string.IsNullOrEmpty(r.Name))
+                {
+                    continue;
+                }
+
+                found++;
+                Console.WriteLine($"{r.InputSid,-28} {r.Display,-32} ({r.Use})");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{found} account(s) resolved (RID 0..{maxRid}).");
+        Lsarpc.Close(pipe, policy.Handle);
+        pipe.Close();
+        client.TreeDisconnect(ipc.TreeId);
         return 0;
     }
 
