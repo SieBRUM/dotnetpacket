@@ -97,17 +97,31 @@ jobs:
     name: create release
     needs: publish
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' # only cut a Release on a real tag push
     steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
+      # Creates the tag at this commit if it does not already exist, then the Release,
+      # using the workflow's GITHUB_TOKEN (contents: write) — so a release can be cut by a
+      # tag push OR a manual "Run workflow" dispatch.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: artifacts/**/*
           generate_release_notes: true
           fail_on_unmatched_files: true
