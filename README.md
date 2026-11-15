@@ -10,7 +10,7 @@ Same protocol *behavior* on a different runtime, so your detections key on **wha
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-188%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-202%20passing-success)](tests/)
 [![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 [![Scope](https://img.shields.io/badge/use-authorized%20lab%20only-critical)](CLAUDE.md)
 [![Evasion](https://img.shields.io/badge/evasion-none%20by%20design-informational)](docs/REALISM.md)
@@ -111,8 +111,54 @@ from a release build).
 
 > Common conventions: `[domain]` is the short NetBIOS name (e.g. `LAB`); `<domain-fqdn>` is the
 > DNS name (e.g. `lab.local`); `[port]` defaults sensibly per protocol (445 SMB, 389 LDAP, 88
-> Kerberos). Anything in `[brackets]` is optional. 🧪 = lab-only exec primitive. 🎯 = owner-authorized
-> offensive module.
+> Kerberos). The first positional `<host>` is the target (and the DC) — a name or an IP, so there's
+> no separate `-dc-ip`/`-target-ip`. Anything in `[brackets]` is optional. 🧪 = lab-only exec
+> primitive. 🎯 = owner-authorized offensive module.
+
+### Global options (impacket-style)
+
+These work with **any** command and can appear anywhere on the line, just like impacket:
+
+| Option | impacket | What it does |
+| --- | --- | --- |
+| `-hashes [LMHASH]:NTHASH` | `-hashes` | **Pass-the-hash** — authenticate with the NT hash instead of a password (only NTHASH is used for NTLMv2). The password argument becomes a placeholder. Covers every NTLM path: SMB, DCERPC-over-SMB, and the SMB-based examples. |
+| `-no-pass` | `-no-pass` | Don't use a password (pair with `-hashes`). |
+| `-proxy <url>` | *(proxychains)* | Route **all** TCP through a proxy: `socks5://[user:pass@]host:port`, `socks4a://host:port`, `socks4://host:port`, or `http://[user:pass@]host:port`. The target hostname is handed to the proxy so it resolves on the far side of a pivot. |
+
+```bash
+# Pass-the-hash (no password needed; the "x" is just a placeholder)
+dotnetpacket smbexec dc01.lab.local x 'whoami' C$ LAB -hashes :ac8d0d3c9858659864b8493a51050efd
+
+# Everything through a SOCKS5 pivot (BloodHound-style), by hostname so DNS resolves on the far side
+dotnetpacket rpc-samrdump dc01.lab.local alice 'Passw0rd!' LAB -proxy socks5://127.0.0.1:1080
+```
+
+> **Deferred (honest about parity):** Kerberos-from-ccache (`-k`) and `-aesKey` are not ported — the
+> Kerberos layer is RC4-only with no ccache. LDAP commands use a simple bind, so `-hashes` applies to
+> the NTLM/SMB paths (where pass-the-hash belongs), not to LDAP simple bind.
+
+### Works with Proxynator 🔀
+
+DotNetPacket is built to run cleanly through **[Proxynator](https://github.com/SieBRUM/proxynator)**
+(force any app's traffic through a SOCKS/HTTP proxy or a pivot) — the way you'd run NetExec or
+impacket behind a C2's SOCKS server. Two ways:
+
+- **Transparent (Proxynator's kernel modes `windivert`/`ebpf`) — no flags needed.** DotNetPacket
+  makes ordinary TCP `connect()`s **by hostname through the system resolver**, so Proxynator's
+  capture and remote-DNS fake-IP handling just work. Add a Proxynator rule for `DotNetPacket.Examples`
+  (or `netpacket`) → your pivot, and go.
+- **Explicit `-proxy socks5://…`** points DotNetPacket straight at any SOCKS/HTTP proxy with no
+  redirector at all.
+
+Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://github.com/SieBRUM/proxynator/blob/main/docs/guides/active-directory.md)):
+
+| Requirement | DotNetPacket |
+| --- | --- |
+| **SOCKS, not HTTP** (SMB/LDAP/Kerberos/MSRPC are raw TCP) | ✅ all protocols are plain TCP |
+| **Connect by name** so the far side resolves it | ✅ connects to the hostname via the system resolver (and `-proxy` passes the name to the proxy) |
+| **Everything over TCP** (pivots can't do UDP) | ✅ incl. **Kerberos over TCP/88** — no UDP, so no UDP-fallback retry |
+| **DC discovery / internal names** | ✅ give the DC's name or IP as `<host>`; Proxynator's remote DNS + `remoteServer` handle SRV |
+| **Loopback isn't redirected** | lab targets are loopback (not proxied); real targets are not — as expected |
 
 ### SMB2/3 — files, shares, and credential-less recon
 

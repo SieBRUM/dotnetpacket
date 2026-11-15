@@ -17,8 +17,7 @@ public sealed class TcpDcerpcTransport : IDcerpcTransport
 
     public TcpDcerpcTransport(string host, int port = 135)
     {
-        _client = new TcpClient();
-        _client.Connect(host, port);
+        _client = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port);
         _client.NoDelay = true;
         _stream = _client.GetStream();
     }

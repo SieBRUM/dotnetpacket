@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using DotNetPacket.Core.Net;
 
 namespace DotNetPacket.Transport;
 
@@ -11,7 +12,7 @@ public sealed class DirectTcpTransport : IDisposable
 {
     private const int MaxMessageLength = 0xFFFFFF; // 24-bit length field
 
-    private readonly TcpClient _client;
+    private TcpClient _client;
     private NetworkStream? _stream;
 
     public DirectTcpTransport() => _client = new TcpClient();
@@ -30,11 +31,10 @@ public sealed class DirectTcpTransport : IDisposable
 
     public void Connect(string host, int port = 445, int timeoutMs = 10_000)
     {
-        if (!_client.ConnectAsync(host, port).Wait(timeoutMs))
-        {
-            throw new TimeoutException($"Timed out connecting to {host}:{port}.");
-        }
-
+        // Route through the configured proxy (if any); otherwise connect directly. Replaces the
+        // placeholder client created in the ctor.
+        _client.Dispose();
+        _client = ProxyConnector.Connect(host, port, timeoutMs);
         _stream = _client.GetStream();
     }
 

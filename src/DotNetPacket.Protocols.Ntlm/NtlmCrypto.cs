@@ -18,8 +18,20 @@ public static class NtlmCrypto
 
     /// <summary>NTOWFv2 = HMAC-MD5(NT hash, UTF-16LE(upper(user) + domain)) (MS-NLMP 3.3.2).</summary>
     public static byte[] NtowfV2(string password, string user, string domain)
+        => NtowfV2FromNtHash(NtHash(password), user, domain);
+
+    /// <summary>
+    /// NTOWFv2 computed from a pre-existing NT hash (pass-the-hash): HMAC-MD5 keyed by the 16-byte
+    /// NT hash over UTF-16LE(UPPER(user) + domain). Identical to <see cref="NtowfV2"/> but the password
+    /// never has to be known — impacket's <c>-hashes LMHASH:NTHASH</c> path (only NTHASH is used for NTLMv2).
+    /// </summary>
+    public static byte[] NtowfV2FromNtHash(byte[] ntHash, string user, string domain)
     {
-        byte[] ntHash = NtHash(password);
+        if (ntHash.Length != 16)
+        {
+            throw new ArgumentException("NT hash must be 16 bytes.", nameof(ntHash));
+        }
+
         byte[] identity = Encoding.Unicode.GetBytes(user.ToUpperInvariant() + domain);
         using var hmac = new HMACMD5(ntHash);
         return hmac.ComputeHash(identity);

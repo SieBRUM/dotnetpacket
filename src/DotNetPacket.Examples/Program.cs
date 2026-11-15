@@ -8,6 +8,7 @@ using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Http;
 using DotNetPacket.Protocols.Smb;
 using DotNetPacket.Protocols.Tds;
+using DotNetPacket.Examples;
 
 // DotNetPacket examples runner — the lab harness, mirroring impacket's examples/ dir.
 //
@@ -15,6 +16,10 @@ using DotNetPacket.Protocols.Tds;
 // so their wire bytes can be observed and diffed against stock impacket in the
 // SOC lab. As protocol clients are ported, add their commands here (or, as they
 // grow, as a class per example). Keep output observable: hex dumps, verbose logs.
+
+// Strip and apply impacket-style global options (-hashes, -no-pass, -proxy) from anywhere on the
+// command line, leaving each command's positional arguments intact.
+args = GlobalOptions.Apply(args);
 
 if (args.Length == 0)
 {

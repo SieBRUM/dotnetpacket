@@ -53,6 +53,14 @@ public sealed class NtlmClient
     /// </summary>
     public bool IncludeMic { get; set; } = true;
 
+    /// <summary>
+    /// Process-wide pass-the-hash override. When set to a 16-byte NT hash, every
+    /// <see cref="CreateAuthenticate"/> derives NTOWFv2 from this hash instead of the supplied
+    /// password (which is then ignored) — impacket's <c>-hashes LMHASH:NTHASH</c> behaviour. Set once
+    /// from the CLI's <c>-hashes</c> option; null means ordinary password auth.
+    /// </summary>
+    public static byte[]? NtHashOverride { get; set; }
+
     private byte[] _negotiateMessage = Array.Empty<byte>();
 
     /// <summary>Builds the NTLMSSP NEGOTIATE (Type 1) message and remembers it for the MIC.</summary>
@@ -96,7 +104,9 @@ public sealed class NtlmClient
 
         byte[] targetInfoBytes = targetInfo.ToArray();
 
-        byte[] ntowf = NtlmCrypto.NtowfV2(password, user, domain);
+        byte[] ntowf = NtHashOverride is { } ptHash
+            ? NtlmCrypto.NtowfV2FromNtHash(ptHash, user, domain)
+            : NtlmCrypto.NtowfV2(password, user, domain);
         NtlmCrypto.NtlmV2Response v2 = NtlmCrypto.ComputeV2(
             ntowf, challenge.ServerChallenge, clientChallenge, timestamp, targetInfoBytes);
 

@@ -4,4 +4,8 @@
     <Description>Network transports for DotNetPacket (SMB Direct TCP / NetBIOS framing).</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
+  </ItemGroup>
+
 </Project>

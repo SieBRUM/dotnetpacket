@@ -18,6 +18,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ## Transport (`DotNetPacket.Transport`)
 
 - [x] `DirectTcpTransport` — SMB Direct TCP / NetBIOS 4-byte message framing
+- [x] **Proxy support** (`DotNetPacket.Core.Net.ProxyConnector` / `ProxyEndpoint`) — every transport
+      (SMB, LDAP, Kerberos-TCP, DCERPC-TCP, TDS) connects through one chokepoint that optionally
+      tunnels via **SOCKS5 (+user/pass), SOCKS4a, SOCKS4 or HTTP CONNECT (+Basic)**. Driven by the
+      global `-proxy <url>` option — the built-in `proxychains` equivalent — and compatible with
+      Proxynator (connects by hostname so far-side DNS works). The target name is handed to the proxy
+      (SOCKS5 domain / SOCKS4a / CONNECT host). Validated live: full SMB2 + DCERPC `rpc-shares` through
+      an in-process/loopback SOCKS5 proxy (handshake visible in `dotnetpacket-proxy.pcap`), including
+      combined with pass-the-hash. Unit-tested (URL parsing + an end-to-end SOCKS5 tunnel).
 - [ ] Async variants / cancellation (add if a scenario needs it)
 
 ## Protocol structures
@@ -53,6 +61,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `AvPairs` — target-info AV_PAIR list parse/rebuild
 - [x] `NtlmCrypto` — MD4, HMAC-MD5, RC4, NTOWFv2, NTLMv2 response, GSS signing (KATs + MS-NLMP vector)
 - [x] `NtlmClient` — Type 1/Type 3 with Windows-like flags, version, NTLMv2, MIC
+- [x] **Pass-the-hash** (`NtlmCrypto.NtowfV2FromNtHash` + `NtlmClient.NtHashOverride`) — NTOWFv2 from a
+      supplied 16-byte NT hash instead of the password; impacket's `-hashes LMHASH:NTHASH` (NTHASH only
+      for NTLMv2). Cryptographically identical to the password path (unit test); validated live against
+      the lab DC (correct hash → AUTHENTICATED, wrong hash → STATUS_LOGON_FAILURE). Applies to every
+      NTLM path (SMB, DCERPC-over-SMB, SMB-based examples).
 - [x] `Spnego` — GSS/SPNEGO NegTokenInit/NegTokenResp + mechListMIC (System.Formats.Asn1)
 - [ ] NEGOTIATE_KEY_EXCH + sealed GSS signing (realism gap — see REALISM.md / notes below)
 - [ ] NTLM signing/sealing of subsequent SMB2 messages

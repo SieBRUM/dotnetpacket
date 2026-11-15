@@ -67,8 +67,10 @@ src/
     Structure/FieldAttribute.cs    #   declarative field metadata
     Structure/NetStructure.cs      #   base class: declarative pack/unpack + override hook
     Hex.cs                         #   hex-dump helper for lab output
+    Net/ProxyEndpoint.cs           #   parse a proxy URL (socks5/4a/4 + http CONNECT, optional auth)
+    Net/ProxyConnector.cs          #   the one TCP connect chokepoint: direct or via SOCKS/HTTP proxy (-proxy; Proxynator-compatible)
   DotNetPacket.Transport/             # sockets: SMB Direct TCP / NetBIOS framing
-    DirectTcpTransport.cs          #   4-byte length-framed messages over TCP
+    DirectTcpTransport.cs          #   4-byte length-framed messages over TCP (connects via ProxyConnector)
   DotNetPacket.Protocols.Smb/         # SMB1 (legacy) + SMB2/3 (realistic transport)
     SmbHeader.cs                   #   SMBv1 header  (impacket smb.SMB.SMBHeader)
     Smb1NegotiateProbe.cs          #   SMBv1-enabled probe (DumpNTLMInfo IsSmb1Enabled; the one deliberate SMB1 use)
@@ -161,6 +163,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -no-pass, -proxy
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
 docs/

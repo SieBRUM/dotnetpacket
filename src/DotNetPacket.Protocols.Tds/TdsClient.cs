@@ -22,12 +22,7 @@ public sealed class TdsClient : IDisposable
 
     public static TdsClient Connect(string host, int port = 1433, int timeoutMs = 10_000)
     {
-        var tcp = new TcpClient();
-        if (!tcp.ConnectAsync(host, port).Wait(timeoutMs))
-        {
-            throw new TimeoutException($"Timed out connecting to {host}:{port}.");
-        }
-
+        TcpClient tcp = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port, timeoutMs);
         return new TdsClient(tcp);
     }
 

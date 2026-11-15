@@ -60,8 +60,7 @@ public sealed class LdapConnection : IDisposable
     /// <summary>Opens a plaintext LDAP connection to <paramref name="host"/>:<paramref name="port"/> (default 389).</summary>
     public static LdapConnection Connect(string host, int port = 389)
     {
-        var tcp = new TcpClient();
-        tcp.Connect(host, port);
+        TcpClient tcp = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port);
         return new LdapConnection(tcp);
     }
 

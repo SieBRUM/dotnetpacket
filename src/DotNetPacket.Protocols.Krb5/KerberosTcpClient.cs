@@ -12,12 +12,7 @@ public static class KerberosTcpClient
     /// <summary>Sends <paramref name="request"/> to the KDC at <paramref name="host"/>:<paramref name="port"/> and returns the reply.</summary>
     public static byte[] SendReceive(string host, byte[] request, int port = 88, int timeoutMs = 10_000)
     {
-        using var tcp = new TcpClient();
-        if (!tcp.ConnectAsync(host, port).Wait(timeoutMs))
-        {
-            throw new TimeoutException($"Timed out connecting to KDC {host}:{port}.");
-        }
-
+        using TcpClient tcp = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port, timeoutMs);
         using NetworkStream stream = tcp.GetStream();
         stream.ReadTimeout = timeoutMs;
         stream.WriteTimeout = timeoutMs;
