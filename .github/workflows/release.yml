@@ -1,0 +1,113 @@
+name: Release
+
+# On a version tag (v1.2.3), publish self-contained, single-file builds of the
+# DotNetPacket.Examples CLI for every supported platform and attach them to a
+# GitHub Release. Self-contained = the target needs no .NET runtime installed.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag/version label for a manual build (e.g. v0.0.0-test)"
+        required: false
+        default: "v0.0.0-manual"
+
+permissions:
+  contents: write # needed to create the Release and upload assets
+
+jobs:
+  test:
+    name: test before release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet test DotNetPacket.sln -c Release
+
+  publish:
+    name: publish ${{ matrix.rid }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid:
+          - linux-x64
+          - linux-arm64
+          - linux-musl-x64
+          - win-x64
+          - win-arm64
+          - osx-x64
+          - osx-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF="${{ github.event.inputs.tag }}"
+          fi
+          echo "version=${REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish self-contained single-file
+        run: |
+          dotnet publish src/DotNetPacket.Examples/DotNetPacket.Examples.csproj \
+            -c Release -r ${{ matrix.rid }} --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:DebugType=none \
+            -o "out/${{ matrix.rid }}"
+
+      - name: Archive
+        id: archive
+        run: |
+          NAME="DotNetPacket-${{ steps.ver.outputs.version }}-${{ matrix.rid }}"
+          mkdir -p dist
+          cp README.md LICENSE out/${{ matrix.rid }}/ 2>/dev/null || true
+          case "${{ matrix.rid }}" in
+            win-*)
+              (cd "out/${{ matrix.rid }}" && zip -r -q "../../dist/${NAME}.zip" .)
+              echo "asset=dist/${NAME}.zip" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              tar -czf "dist/${NAME}.tar.gz" -C "out/${{ matrix.rid }}" .
+              echo "asset=dist/${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DotNetPacket-${{ matrix.rid }}
+          path: ${{ steps.archive.outputs.asset }}
+          if-no-files-found: error
+
+  release:
+    name: create release
+    needs: publish
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' # only cut a Release on a real tag push
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

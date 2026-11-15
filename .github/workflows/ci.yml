@@ -1,0 +1,41 @@
+name: CI
+
+# Build and test on every push and PR. Pure unit tests (no lab needed), run on
+# all three desktop OSes to prove the port builds and passes cross-platform.
+on:
+  push:
+    branches: ["**"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore DotNetPacket.sln
+
+      - name: Build (Release)
+        run: dotnet build DotNetPacket.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test DotNetPacket.sln -c Release --no-build --verbosity normal
