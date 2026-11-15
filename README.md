@@ -9,9 +9,9 @@
 Same protocol *behavior* on a different runtime, so your detections key on **what the traffic does**, not on the Python-shaped fingerprints impacket happens to leave behind.
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
-[![CI](https://github.com/SieBRUM/netpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-188%20passing-success)](tests/)
-[![Release](https://img.shields.io/github/v/release/SieBRUM/netpacket?include_prereleases&sort=semver)](../../releases)
+[![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 [![Scope](https://img.shields.io/badge/use-authorized%20lab%20only-critical)](CLAUDE.md)
 [![Evasion](https://img.shields.io/badge/evasion-none%20by%20design-informational)](docs/REALISM.md)
 
