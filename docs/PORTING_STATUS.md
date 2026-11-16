@@ -270,7 +270,26 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
       usage 7) with the **req-body checksum** (HMAC-MD5, key usage 6), service-ticket enc-part
       extraction, `$krb5tgs$` formatting. `KerberosClient.Kerberoast` orchestrates it.
 - [x] **RC4-HMAC keyed checksum** (`Krb5Crypto.Rc4HmacChecksum`, cksumtype -138).
-- [ ] AES enctypes (RFC 3962), ccache read/write, S4U (getST delegation) — deferred.
+- [~] **Kerberos SMB authentication (`-k`)** — the getST + AP-REQ path behind impacket's `-k`.
+      `KerberosClient.GetServiceTicket` (TGS for `cifs/<host>`, decrypt the TGS-REP enc-part with the
+      TGT session key → service session key), `KerberosGss.BuildApReqToken` (port of
+      `kerberosv5.getKerberosType1`: GSS checksum 0x8003 with the SMB flags, authenticator usage 11,
+      AP-REQ with `mutual-required`, GSS-framed `[APPLICATION 0]{krb5-OID, 0x0001, AP-REQ}`),
+      `Spnego.WrapKerberosInitialToken` (SPNEGO NegTokenInit offering **MS KRB5**), and
+      `Smb2Client.LoginKerberos` (single-round SESSION_SETUP; the SMB session key is the service
+      session key, from which the 3.1.1 signing key derives). Driven by `-k`/`-dc-ip`/`-target-ip`;
+      overpass-the-hash via `-hashes`. **Validated live against the lab DC:** the capture
+      (`dotnetpacket-kerberos.pcap`) dissects as AS-REQ/REP → TGS-REQ/REP (`cifs/vm.lab.local`) →
+      SPNEGO(MS KRB5) AP-REQ → **STATUS_SUCCESS**; the session authenticates as the principal
+      (non-guest) and SMB signing validates (Samba signs its responses). **Divergence vs
+      impacket:** impacket defaults to **AES**; DotNetPacket is **RC4** (as for the rest of its
+      Kerberos). On this modern Samba the RC4 Kerberos session authenticates but *privileged* share/RPC
+      authorization is restricted (the PAC groups are not applied to the token — Samba RC4 hardening),
+      so `-k` is complete at the auth layer but AES is needed for full post-auth access. The
+      SPNEGO/GSS/AP-REQ token structure is unit-tested; the `DCE_STYLE` flag is omitted (it makes Samba
+      demand a second SPNEGO leg) so auth completes in one round.
+- [ ] AES enctypes (RFC 3962), ccache read/write, S4U (getST delegation) — deferred (the remaining
+      Kerberos parity gap; AES would also unblock full `-k` authorization on modern Samba/Windows).
 
 ## Examples (`DotNetPacket.Examples`)
 

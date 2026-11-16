@@ -123,6 +123,9 @@ These work with **any** command and can appear anywhere on the line, just like i
 | --- | --- | --- |
 | `-hashes [LMHASH]:NTHASH` | `-hashes` | **Pass-the-hash** — authenticate with the NT hash instead of a password (only NTHASH is used for NTLMv2). The password argument becomes a placeholder. Covers every NTLM path: SMB, DCERPC-over-SMB, and the SMB-based examples. |
 | `-no-pass` | `-no-pass` | Don't use a password (pair with `-hashes`). |
+| `-k` | `-k` | **Kerberos** auth for SMB: a Kerberos AP-REQ (RC4) instead of NTLM. The login's domain is the realm (pass the FQDN, e.g. `lab.local`), and the host is the SPN host (`cifs/<host>`). Combine with `-hashes` for overpass-the-hash. |
+| `-dc-ip <ip>` | `-dc-ip` | KDC address for `-k` (defaults to the host). |
+| `-target-ip <ip>` | `-target-ip` | Connect the socket here while using the host argument as the SPN/logical name — for when the SPN host and the reachable address differ (e.g. a loopback lab). |
 | `-proxy <url>` | *(proxychains)* | Route **all** TCP through a proxy: `socks5://[user:pass@]host:port`, `socks4a://host:port`, `socks4://host:port`, or `http://[user:pass@]host:port`. The target hostname is handed to the proxy so it resolves on the far side of a pivot. |
 
 ```bash
@@ -131,11 +134,19 @@ dotnetpacket smbexec dc01.lab.local x 'whoami' C$ LAB -hashes :ac8d0d3c985865986
 
 # Everything through a SOCKS5 pivot (BloodHound-style), by hostname so DNS resolves on the far side
 dotnetpacket rpc-samrdump dc01.lab.local alice 'Passw0rd!' LAB -proxy socks5://127.0.0.1:1080
+
+# Kerberos auth (-k): host = SPN host (FQDN), domain = realm; overpass-the-hash with -hashes
+dotnetpacket smb2-login dc01.lab.local alice x lab.local -k -dc-ip 10.0.0.10 -hashes :ac8d0d...
 ```
 
-> **Deferred (honest about parity):** Kerberos-from-ccache (`-k`) and `-aesKey` are not ported — the
-> Kerberos layer is RC4-only with no ccache. LDAP commands use a simple bind, so `-hashes` applies to
-> the NTLM/SMB paths (where pass-the-hash belongs), not to LDAP simple bind.
+> **Honest about Kerberos parity.** `-k` performs a real Kerberos AP-REQ SMB login (TGT → service
+> ticket for `cifs/<host>` → AP-REQ → SESSION_SETUP), validated against the lab DC — the session
+> authenticates as the principal and SMB signing works. It is **RC4-only** (like the rest of
+> DotNetPacket's Kerberos). On a modern Samba AD DC the RC4 Kerberos session authenticates but
+> *privileged* share/RPC authorization is restricted (the PAC groups aren't applied to the token),
+> which is Samba's RC4 hardening — impacket defaults to **AES**, so AES enctypes (and ccache
+> read/write, S4U) are the remaining Kerberos parity work. `-aesKey` is not ported. LDAP commands use
+> a simple bind, so `-hashes`/`-k` apply to the NTLM/SMB paths (where pass-the-hash belongs).
 
 ### Works with Proxynator 🔀
 

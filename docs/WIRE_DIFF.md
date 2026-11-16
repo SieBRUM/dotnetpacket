@@ -542,6 +542,24 @@ the goal is to let a SOC prove a brittle string rule misses a reimplementation w
 behavioural rule still fires. Each divergence is pinned by a test asserting impacket's
 tokens are absent and the behaviour is present.
 
+### Kerberos (-k) SMB authentication — 2026-11-16
+
+`-k` swaps the whole SMB auth fingerprint from NTLM to Kerberos: instead of NTLMv2 SESSION_SETUP
+rounds, the wire shows AS-REQ/REP → TGS-REQ/REP (service ticket for `cifs/<host>`) → a single
+SESSION_SETUP carrying SPNEGO(**MS KRB5** mechType) wrapping a GSS `[APPLICATION 0]` AP-REQ (standard
+KRB5 OID, TOK_ID 0x0001). That is the durable behavioural signal — a detection keyed on NTLMSSP in
+SESSION_SETUP misses a Kerberos login entirely; one keyed on "SMB SESSION_SETUP with a Kerberos
+AP-REQ" catches it regardless of the client runtime. The AP-REQ authenticator carries the RFC-1964
+GSS checksum (type 0x8003) with impacket's SMB flag word **minus `GSS_C_DCE_STYLE`**: with DCE_STYLE
+(impacket's value, aimed at Windows) Samba returns `accept-incomplete` and demands a second SPNEGO
+leg, so DotNetPacket omits it and completes in one round, which Samba answers STATUS_SUCCESS.
+
+**Enctype divergence:** DotNetPacket's Kerberos is **RC4-HMAC**; impacket defaults to **AES256**. Both
+produce a valid AP-REQ, but the ticket etype differs on the wire (a defender can see RC4 vs AES in the
+AS-REP/TGS-REP). On modern Samba the RC4 session authenticates (non-guest, signed) but the PAC groups
+are not applied to the token, so privileged shares/RPC return ACCESS_DENIED — Samba's RC4 hardening,
+and the reason AES is the remaining parity work.
+
 ## What this means for detections
 
 - A rule matching SMB2 NEGOTIATE **Capabilities == `0x40`** or **a single

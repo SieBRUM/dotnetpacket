@@ -62,6 +62,39 @@ public static class Spnego
         return writer.Encode();
     }
 
+    // SPNEGO mechType for SMB Kerberos is MS KRB5 (what Windows/impacket advertise); the inner GSS
+    // mechToken carries the standard KRB5 OID (1.2.840.113554.1.2.2).
+    private const string MsKrb5Oid = "1.2.840.48018.1.2.2";
+
+    /// <summary>
+    /// Wraps a GSS-API Kerberos AP-REQ token as a SPNEGO <c>NegTokenInit</c> offering the krb5
+    /// mechanism — the single-round token a Kerberos (-k) SMB SESSION_SETUP or LDAP GSS-SPNEGO bind sends.
+    /// </summary>
+    public static byte[] WrapKerberosInitialToken(byte[] kerberosApReqToken)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence(Application0))
+        {
+            writer.WriteObjectIdentifier(SpnegoOid);
+            using (writer.PushSequence(Context0))          // negTokenInit [0]
+            using (writer.PushSequence())                  // NegTokenInit SEQUENCE
+            {
+                using (writer.PushSequence(Context0))      // mechTypes [0]
+                using (writer.PushSequence())              // SEQUENCE OF MechType
+                {
+                    writer.WriteObjectIdentifier(MsKrb5Oid);
+                }
+
+                using (writer.PushSequence(Context2))      // mechToken [2]
+                {
+                    writer.WriteOctetString(kerberosApReqToken);
+                }
+            }
+        }
+
+        return writer.Encode();
+    }
+
     /// <summary>
     /// Wraps an NTLM AUTHENTICATE (Type 3) as a <c>NegTokenResp</c>, optionally with a
     /// SPNEGO <c>mechListMIC</c> — which a real client (and a strict server) requires.

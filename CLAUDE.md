@@ -142,6 +142,7 @@ src/
     AsRepRoast.cs                  #   $krb5asrep$ hashcat/john formatter
     KerbTgsRoast.cs                #   $krb5tgs$ hashcat formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
+    KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -163,7 +164,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
-    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -no-pass, -proxy
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -no-pass, -k (Kerberos), -dc-ip, -target-ip, -proxy
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
 docs/

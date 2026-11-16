@@ -8,6 +8,7 @@
     <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
     <ProjectReference Include="..\DotNetPacket.Transport\DotNetPacket.Transport.csproj" />
     <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
+    <ProjectReference Include="..\DotNetPacket.Protocols.Krb5\DotNetPacket.Protocols.Krb5.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,5 @@
 using DotNetPacket.Core;
+using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Transport;
 
@@ -125,8 +126,30 @@ public sealed class Smb2Client : IDisposable
     private byte[] _preauthHash = Smb2Crypto.PreauthInit();
     private byte[]? _signingKey;
     private Smb2Dialect _dialect;
+    private string _host = string.Empty;
 
-    public void Connect(string host, int port = 445) => _transport.Connect(host, port);
+    /// <summary>
+    /// Process-wide Kerberos (-k) auth switch. When true, <see cref="Login"/> authenticates with a
+    /// Kerberos AP-REQ (one-round SESSION_SETUP) instead of NTLM, treating the login's domain as the
+    /// realm and the connected host as the SPN host (<c>cifs/&lt;host&gt;</c>).
+    /// </summary>
+    public static bool UseKerberos { get; set; }
+
+    /// <summary>The KDC address for Kerberos auth (impacket's <c>-dc-ip</c>); defaults to the connected host.</summary>
+    public static string? KerberosKdc { get; set; }
+
+    /// <summary>
+    /// Connect the socket to this IP instead of the host argument (impacket's <c>-target-ip</c>), while
+    /// still using the host argument as the Kerberos SPN / logical name. Needed when the SPN host and
+    /// the reachable address differ (e.g. a loopback lab).
+    /// </summary>
+    public static string? TargetIpOverride { get; set; }
+
+    public void Connect(string host, int port = 445)
+    {
+        _host = host;
+        _transport.Connect(TargetIpOverride ?? host, port);
+    }
 
     public Smb2NegotiateResult Negotiate(Smb2NegotiateRequest? request = null)
     {
@@ -163,6 +186,11 @@ public sealed class Smb2Client : IDisposable
     /// <summary>Performs the two-round NTLMv2 SESSION_SETUP and derives the SMB 3.1.1 signing key.</summary>
     public Smb2LoginResult Login(string domain, string user, string password)
     {
+        if (UseKerberos)
+        {
+            return LoginKerberos(domain, user, password);
+        }
+
         var ntlm = new NtlmClient();
 
         // Round 1: SPNEGO(NegTokenInit) wrapping the NTLM NEGOTIATE (Type 1).
@@ -208,6 +236,51 @@ public sealed class Smb2Client : IDisposable
             Round1Response = response1,
             Round2Request = request2,
             Round2Response = response2,
+        };
+    }
+
+    /// <summary>
+    /// Kerberos (-k) SESSION_SETUP: get a TGT (RC4; the NT hash via -hashes is overpass-the-hash),
+    /// then a service ticket for <c>cifs/&lt;host&gt;</c>, and present a single GSS AP-REQ. One round;
+    /// the SMB session key is the service session key, from which the 3.1.1 signing key derives.
+    /// <paramref name="domain"/> is the Kerberos realm, <paramref name="user"/> the client principal.
+    /// </summary>
+    public Smb2LoginResult LoginKerberos(string domain, string user, string password)
+    {
+        string realm = domain.ToUpperInvariant();
+        string kdc = KerberosKdc ?? _host;
+
+        // Client key: -hashes NT hash (overpass-the-hash) if set, else derived from the password.
+        byte[] clientKey = NtlmClient.NtHashOverride ?? NtlmCrypto.NtHash(password);
+
+        Tgt tgt = KerberosClient.GetTgtWithKey(kdc, realm, user, clientKey);
+        ServiceTicket st = KerberosClient.GetServiceTicket(kdc, tgt, $"cifs/{_host}");
+        KerberosApReq apReq = KerberosGss.BuildApReqToken(st);
+        byte[] spnego = Spnego.WrapKerberosInitialToken(apReq.GssToken);
+
+        (byte[] request1, byte[] response1) = SendSessionSetup(spnego, sessionId: 0);
+
+        var header = new Smb2Header();
+        header.Unpack(response1);
+        _sessionId = header.SessionId;
+
+        // Single round: the signing key derives from the preauth hash through this request.
+        _preauthHash = Smb2Crypto.PreauthUpdate(_preauthHash, request1);
+        if (_dialect == Smb2Dialect.Smb311 && header.Status == NtStatus.Success)
+        {
+            _signingKey = Smb2Crypto.Smb311SigningKey(apReq.SessionKey, _preauthHash);
+        }
+
+        return new Smb2LoginResult
+        {
+            SessionId = _sessionId,
+            Round1Status = NtStatus.Success,     // Kerberos is one-shot; no challenge round
+            Round2Status = header.Status,
+            Signed = _signingKey is not null,
+            Round1Request = request1,
+            Round1Response = response1,
+            Round2Request = request1,
+            Round2Response = response1,
         };
     }
 

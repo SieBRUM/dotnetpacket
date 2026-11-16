@@ -1,5 +1,6 @@
 using DotNetPacket.Core.Net;
 using DotNetPacket.Protocols.Ntlm;
+using DotNetPacket.Protocols.Smb;
 
 namespace DotNetPacket.Examples;
 
@@ -34,6 +35,16 @@ internal static class GlobalOptions
                     break;
                 case "-no-pass":
                     // No prompt in this CLI; meaningful together with -hashes (password slot ignored).
+                    break;
+                case "-k":
+                    Smb2Client.UseKerberos = true;
+                    Console.Error.WriteLine("[*] Kerberos authentication enabled (-k): SMB login uses a Kerberos AP-REQ (RC4). The login's domain is the realm; the host is the SPN (cifs/<host>).");
+                    break;
+                case "-dc-ip" when i + 1 < args.Length:
+                    Smb2Client.KerberosKdc = args[++i];
+                    break;
+                case "-target-ip" when i + 1 < args.Length:
+                    Smb2Client.TargetIpOverride = args[++i];
                     break;
                 default:
                     rest.Add(a);
