@@ -25,15 +25,24 @@ public static class KerberosGss
 
     private const int GssChecksumType = 0x8003;          // KRB5 GSS per-RFC-1964 checksum
     private const uint SmbGssFlags = 0x0000003E;         // CONF|INTEG|SEQUENCE|REPLAY|MUTUAL (no DCE_STYLE -> single leg on Samba)
+
+    /// <summary>GSS checksum flags for the LDAP bind: REPLAY|SEQUENCE|CONF|INTEG, no MUTUAL (matches impacket's ldap.py).</summary>
+    public const uint LdapGssFlags = 0x0000003C;
     private const int ApReqAuthenticatorUsage = 11;      // KU_AP_REQ_AUTHENTICATOR
 
     private static Asn1Tag Ctx(int n) => new(TagClass.ContextSpecific, n, isConstructed: true);
 
-    public static KerberosApReq BuildApReqToken(ServiceTicket st)
+    /// <summary>
+    /// Builds the GSS AP-REQ token. <paramref name="mutualAuth"/> sets <c>mutual-required</c> ap-options
+    /// and the GSS MUTUAL flag (SMB), or leaves them off (LDAP, matching impacket's ldap.py). A caller
+    /// may override the GSS checksum flags via <paramref name="gssFlags"/> (e.g. LDAP uses
+    /// REPLAY|SEQUENCE|CONF|INTEG without MUTUAL).
+    /// </summary>
+    public static KerberosApReq BuildApReqToken(ServiceTicket st, bool mutualAuth = true, uint? gssFlags = null)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
-        byte[] authenticator = BuildAuthenticator(st, now, now.Microsecond);
+        byte[] authenticator = BuildAuthenticator(st, now, now.Microsecond, gssFlags ?? SmbGssFlags);
         // Encrypt the authenticator under the service session key (usage 11), in the ticket's etype
         // (RC4 or AES) — Krb5Cipher picks the right profile and confounder size.
         byte[] encAuth = Krb5Cipher.Encrypt(st.SessionKeyEtype, st.SessionKey, ApReqAuthenticatorUsage, authenticator);
@@ -44,8 +53,8 @@ public static class KerberosGss
         {
             using (w.PushSequence(Ctx(0))) w.WriteInteger(Krb5Constants.Pvno);           // pvno [0]
             using (w.PushSequence(Ctx(1))) w.WriteInteger(Krb5Constants.ApReq);          // msg-type [1] = 14
-            // ap-options [2]: mutual-required (bit 2 of the KerberosFlags BIT STRING).
-            using (w.PushSequence(Ctx(2))) w.WriteBitString(new byte[] { 0x20, 0x00, 0x00, 0x00 });
+            // ap-options [2]: mutual-required (bit 2) for SMB; empty for LDAP (matches impacket).
+            using (w.PushSequence(Ctx(2))) w.WriteBitString(mutualAuth ? new byte[] { 0x20, 0x00, 0x00, 0x00 } : new byte[4]);
             using (w.PushSequence(Ctx(3))) w.WriteEncodedValue(st.Ticket);               // ticket [3]
             using (w.PushSequence(Ctx(4)))                                               // authenticator [4] EncryptedData
             using (w.PushSequence())
@@ -68,9 +77,9 @@ public static class KerberosGss
 
     // Authenticator ::= [APPLICATION 2] SEQUENCE { vno[0], crealm[1], cname[2], cksum[3], cusec[4], ctime[5], seq[7] }
     // No subkey [6] — matches impacket; the service session key is used for SMB.
-    private static byte[] BuildAuthenticator(ServiceTicket st, DateTimeOffset now, int usec)
+    private static byte[] BuildAuthenticator(ServiceTicket st, DateTimeOffset now, int usec, uint gssFlags)
     {
-        byte[] gssChecksum = BuildGssChecksum();
+        byte[] gssChecksum = BuildGssChecksum(gssFlags);
 
         var w = new AsnWriter(AsnEncodingRules.DER);
         using (w.PushSequence(new Asn1Tag(TagClass.Application, Krb5Constants.Authenticator)))
@@ -95,11 +104,11 @@ public static class KerberosGss
     }
 
     // RFC 1964 2.2.1 checksum value: Lgth(4 LE)=16, Bnd(16 zero bytes), Flags(4 LE).
-    private static byte[] BuildGssChecksum()
+    private static byte[] BuildGssChecksum(uint gssFlags)
     {
         var cksum = new byte[24];
         BitConverter.TryWriteBytes(cksum.AsSpan(0, 4), (uint)16);           // Lgth (channel-binding length)
-        BitConverter.TryWriteBytes(cksum.AsSpan(20, 4), SmbGssFlags);       // Flags
+        BitConverter.TryWriteBytes(cksum.AsSpan(20, 4), gssFlags);          // Flags
         if (!BitConverter.IsLittleEndian)
         {
             Array.Reverse(cksum, 0, 4);

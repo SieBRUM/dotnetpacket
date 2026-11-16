@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Formats.Asn1;
 using System.Net.Sockets;
 using System.Text;
@@ -50,11 +51,35 @@ public sealed class LdapConnection : IDisposable
     private readonly TcpClient _tcp;
     private readonly NetworkStream _stream;
     private int _messageId;
+    private ILdapSealer? _sealer;
 
     private LdapConnection(TcpClient tcp)
     {
         _tcp = tcp;
         _stream = tcp.GetStream();
+    }
+
+    /// <summary>
+    /// Enables SASL sign-and-seal on this connection after a successful Kerberos (GSS-SPNEGO) bind:
+    /// every subsequent LDAP PDU is wrapped/unwrapped by <paramref name="sealer"/> and framed with a
+    /// 4-byte big-endian length, as the DC requires when it negotiates integrity/confidentiality.
+    /// </summary>
+    public void EnableSealing(ILdapSealer sealer) => _sealer = sealer;
+
+    // Writes one encoded LDAPMessage, sealing + length-framing it when sealing is active.
+    private void SendRaw(byte[] message)
+    {
+        if (_sealer is null)
+        {
+            _stream.Write(message);
+            return;
+        }
+
+        byte[] wrapped = _sealer.Wrap(message);
+        var framed = new byte[4 + wrapped.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(framed, (uint)wrapped.Length);
+        Buffer.BlockCopy(wrapped, 0, framed, 4, wrapped.Length);
+        _stream.Write(framed);
     }
 
     /// <summary>Opens a plaintext LDAP connection to <paramref name="host"/>:<paramref name="port"/> (default 389).</summary>
@@ -139,7 +164,7 @@ public sealed class LdapConnection : IDisposable
             }
         }
 
-        _stream.Write(writer.Encode());
+        SendRaw(writer.Encode());
         return ParseBindResponse(ReadMessage());
     }
 
@@ -149,7 +174,7 @@ public sealed class LdapConnection : IDisposable
     /// </summary>
     public LdapResult Add(string dn, IReadOnlyList<(string Type, IReadOnlyList<byte[]> Values)> attributes)
     {
-        _stream.Write(EncodeAddRequest(++_messageId, dn, attributes));
+        SendRaw(EncodeAddRequest(++_messageId, dn, attributes));
         return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 9, isConstructed: true)); // AddResponse
     }
 
@@ -164,7 +189,7 @@ public sealed class LdapConnection : IDisposable
             w.WriteOctetString(Encoding.UTF8.GetBytes(dn), DelRequestTag); // DelRequest [APPLICATION 10] primitive
         }
 
-        _stream.Write(w.Encode());
+        SendRaw(w.Encode());
         return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 11, isConstructed: true)); // DelResponse
     }
 
@@ -174,7 +199,7 @@ public sealed class LdapConnection : IDisposable
     /// </summary>
     public LdapResult ModifyReplace(string dn, string attribute, IReadOnlyList<byte[]> values, int sdFlags = 0)
     {
-        _stream.Write(EncodeModifyReplace(++_messageId, dn, attribute, values, sdFlags));
+        SendRaw(EncodeModifyReplace(++_messageId, dn, attribute, values, sdFlags));
         return ParseLdapResult(ReadMessage(), new Asn1Tag(TagClass.Application, 7, isConstructed: true)); // ModifyResponse
     }
 
@@ -284,7 +309,7 @@ public sealed class LdapConnection : IDisposable
         int sdFlags = 0)
     {
         int id = ++_messageId;
-        _stream.Write(EncodeSearchRequest(id, baseObject, filter, attributes, scope, sizeLimit, timeLimit, sdFlags));
+        SendRaw(EncodeSearchRequest(id, baseObject, filter, attributes, scope, sizeLimit, timeLimit, sdFlags));
 
         var entries = new List<SearchEntry>();
         while (true)
@@ -442,7 +467,7 @@ public sealed class LdapConnection : IDisposable
             }
         }
 
-        _stream.Write(writer.Encode());
+        SendRaw(writer.Encode());
         return ParseBindResponse(ReadMessage());
     }
 
@@ -485,6 +510,11 @@ public sealed class LdapConnection : IDisposable
     /// <summary>Reads one complete BER-framed LDAPMessage (tag + length + content) off the stream.</summary>
     private byte[] ReadMessage()
     {
+        if (_sealer is not null)
+        {
+            return ReadSealedMessage();
+        }
+
         int tag = ReadByteOrThrow();
         int first = ReadByteOrThrow();
 
@@ -523,6 +553,65 @@ public sealed class LdapConnection : IDisposable
         header.CopyTo(message);
         Array.Copy(content, 0, message, header.Count, contentLength);
         return message;
+    }
+
+    private byte[] _sealPending = Array.Empty<byte>();
+    private int _sealPendingPos;
+
+    // Returns one LDAPMessage from the sealed stream. A single unwrapped SASL buffer may carry several
+    // concatenated LDAPMessages (e.g. a page of SearchResultEntry + SearchResultDone), so the leftover
+    // is buffered and handed out one PDU at a time; a new SASL buffer is read only when it is drained.
+    private byte[] ReadSealedMessage()
+    {
+        if (_sealPendingPos >= _sealPending.Length)
+        {
+            byte[] lenBuf = ReadExactly(4);
+            uint len = BinaryPrimitives.ReadUInt32BigEndian(lenBuf);
+            byte[] token = ReadExactly((int)len);
+            _sealPending = _sealer!.Unwrap(token);
+            _sealPendingPos = 0;
+        }
+
+        int start = _sealPendingPos;
+        int i = start + 1;                         // skip the sequence tag
+        int first = _sealPending[i++];
+        int contentLength;
+        if (first < 0x80)
+        {
+            contentLength = first;
+        }
+        else
+        {
+            int lengthBytes = first & 0x7F;
+            contentLength = 0;
+            for (int k = 0; k < lengthBytes; k++)
+            {
+                contentLength = (contentLength << 8) | _sealPending[i++];
+            }
+        }
+
+        int total = (i - start) + contentLength;
+        byte[] message = _sealPending[start..(start + total)];
+        _sealPendingPos = start + total;
+        return message;
+    }
+
+    private byte[] ReadExactly(int count)
+    {
+        var buf = new byte[count];
+        int read = 0;
+        while (read < count)
+        {
+            int n = _stream.Read(buf, read, count - read);
+            if (n <= 0)
+            {
+                throw new EndOfStreamException("LDAP connection closed mid-message.");
+            }
+
+            read += n;
+        }
+
+        return buf;
     }
 
     private int ReadByteOrThrow()

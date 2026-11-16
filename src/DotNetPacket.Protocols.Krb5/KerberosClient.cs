@@ -116,6 +116,34 @@ public static class KerberosClient
     }
 
     /// <summary>
+    /// The credential-to-service-ticket path shared by every Kerberos (<c>-k</c>) client (SMB, LDAP):
+    /// obtain a TGT by the configured method — AES key (<c>-aesKey</c>), NT hash (<c>-hashes</c>, RC4
+    /// overpass-the-hash), or a password (probes the KDC and prefers AES-256) — then request a service
+    /// ticket for <paramref name="spn"/>. Exactly one of <paramref name="aesKey"/>/<paramref name="ntHash"/>
+    /// should be set for overpass-the-hash; otherwise the password is used.
+    /// </summary>
+    public static ServiceTicket GetServiceTicketForSpn(
+        string kdcHost, string realm, string user, string password, byte[]? ntHash, byte[]? aesKey, string spn, int port = 88)
+    {
+        Tgt tgt;
+        if (aesKey is { } ak)
+        {
+            int etype = ak.Length == 32 ? Krb5Constants.Aes256CtsHmacSha1 : Krb5Constants.Aes128CtsHmacSha1;
+            tgt = GetTgtWithKeyEtype(kdcHost, realm, user, ak, etype, port);
+        }
+        else if (ntHash is { } nh)
+        {
+            tgt = GetTgtWithKey(kdcHost, realm, user, nh, port);
+        }
+        else
+        {
+            tgt = GetTgt(kdcHost, realm, user, password, port);
+        }
+
+        return GetServiceTicket(kdcHost, tgt, spn, port);
+    }
+
+    /// <summary>
     /// Requests a service ticket for <paramref name="spn"/> (e.g. <c>cifs/host.realm</c>) using the
     /// TGT, decrypts the TGS-REP enc-part with the TGT session key (key usage 8) to recover the
     /// service session key, and returns the full ticket + that key — the material an AP-REQ needs to

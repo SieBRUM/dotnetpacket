@@ -257,6 +257,36 @@ impacket both produce `a928a426e3e36b30`). So there is no client crypto fingerpr
 runtimes on the AES path. Detection signal: ordinary Kerberos — AS/TGS/AP-REQ sequences and volume,
 not bytes.
 
+### Sealed Kerberos LDAP (`-k` for the LDAP tools) — 2026-11-16
+
+Extends `-k` to the LDAP half of the tool (GetADUsers, GetADComputers, findDelegation, …). Capture:
+`dotnetpacket-ldap-kerberos-sealed.pcap`. The SASL GSS-SPNEGO bind rides in the clear; afterwards
+every LDAP PDU is GSS-wrapped and Wireshark labels them **"SASL GSS-API Privacy"** (confidentiality):
+
+| Stage | DotNetPacket (`-k`) | Note |
+| --- | --- | --- |
+| bind | `bindRequest` SASL `GSS-SPNEGO`, mechToken = SPNEGO(MS KRB5) AP-REQ for `ldap/<host>` | AES-256 ticket |
+| bind resp | `bindResponse success`, serverSaslCreds = SPNEGO(accept-completed **+ AP-REP**) | mutual auth |
+| search+ | each PDU = `[4-byte len][CFX Wrap 0x0504 header][sealed ciphertext]`, key usage 24/22 | AES CFX, RFC 4121 |
+
+**The research finding (and a real divergence from impacket).** A Kerberos bind authenticates fine,
+but the DC then *seals* the channel, and the seal key is where implementations differ. impacket's
+native `ldap.py` sends a **non-mutual** AP-REQ (empty ap-options) and seals with the **ticket session
+key**; real Windows AD tolerates this. This Samba 4.19 DC does **not**: it accepts the bind, then
+`FIN`s the first sealed search with no reply (the CFX Wrap header's AcceptorSubkey flag is set, but no
+acceptor subkey exists). Per **[MS-KILE] 3.1.1.2** the GSS context key for a mutual exchange is the
+**AP-REP acceptor subkey**. DotNetPacket therefore requests **mutual auth**, recovers the acceptor
+subkey from the AP-REP in the bind's SASL creds, and seals with it — which is both MS-KILE-correct and
+accepted by Samba. (We could not cross-check with impacket's own LDAP `-k` here: impacket omits the
+TGS authenticator checksum, so its `getKerberosTGS` fails against this Heimdal KDC before it ever
+binds — the same `KRB_AP_ERR_INAPP_CKSUM` quirk documented under Kerberoast above.)
+
+**Crypto fidelity.** The AES CFX Wrap/Unwrap (`KerberosGssContext`) is byte-for-byte equal to
+impacket's `GSSAPI_AES256.GSS_Wrap_LDAP` (fixed-confounder known-answer test). RC4 sealing (RFC 1964)
+is not ported, so LDAP `-k` uses an AES ticket. Detection signal: a Kerberos LDAP bind followed by
+GSS-API-Privacy traffic on 389 — i.e. LDAP that a sensor can no longer read in clear; the behavioral
+tell is the bind + the switch to sealed buffers, not the (encrypted) contents.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted

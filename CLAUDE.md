@@ -120,6 +120,7 @@ src/
     LdapResultCode.cs              #   bind result codes (strongerAuthRequired, saslBindInProgress)
     LdapConnection.cs              #   BER LDAPMessage: GSS-SPNEGO NTLM bind (signing probe) + simple bind + search + add/modify/delete
     LdapSearch.cs                  #   SearchRequest filters (and/or/equality/present/not/extensibleMatch/raw) + SearchResultEntry types
+    ILdapSealer.cs                 #   seal/unseal abstraction for a Kerberos (GSS-SPNEGO) bound connection (impl in Examples; keeps Ldap free of Krb5)
     LdapSid.cs                     #   SID binary <-> canonical string (MS-DTYP)
     LdapSecurityDescriptor.cs      #   SR_SECURITY_DESCRIPTOR + DACL/ACE parse + msDS-GroupMSAMembership build (badsuccessor)
     NtAce.cs / NtAcl.cs / NtSecurityDescriptor.cs  # round-trippable MS-DTYP SD/ACL/ACE model (dacledit edit path)
@@ -137,6 +138,7 @@ src/
     Krb5Cipher.cs                  #   etype dispatcher (RC4 23 / AES128 17 / AES256 18): encrypt/decrypt/checksum/string-to-key, prefers AES-256
     EtypeInfo2.cs                  #   PA-ETYPE-INFO2 parse (KDC's etypes + AES salt + s2kparams) from the PREAUTH_REQUIRED error
     KerberosApRep.cs               #   AP-REP parse + EncAPRepPart decrypt (usage 12) -> acceptor subkey (the SMB session key under mutual auth; [MS-KILE] 3.1.1.2)
+    KerberosGssContext.cs          #   GSS per-message Wrap/Unwrap (RFC 4121 CFX, AES) for the sealed Kerberos LDAP bind (byte-exact vs impacket GSS_Wrap_LDAP)
     AsReq.cs                       #   AS-REQ builder (no-preauth for GetNPUsers; PA-ENC-TIMESTAMP for getTGT)
     TgsReq.cs                      #   TGS-REQ builder (AP-REQ + authenticator + req-body checksum; Kerberoast)
     KerberosResponse.cs            #   AS-REP / KRB-ERROR parser (enc-part + ticket)
@@ -169,6 +171,7 @@ src/
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
     GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -dc-ip, -target-ip, -proxy
+    LdapAuth.cs                    #   LDAP connect+bind helper: simple bind, or -k Kerberos GSS-SPNEGO bind for ldap/<host> + GSS sealing (mutual auth -> AP-REP acceptor subkey)
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
 docs/

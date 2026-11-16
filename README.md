@@ -87,7 +87,8 @@ A realistic, **signed**, modern-Windows-style stack, validated end-to-end agains
   add/modify/delete, and the `LDAP_SERVER_SD_FLAGS` control.
 - **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, **RC4-HMAC and
   AES128/256-CTS-HMAC-SHA1-96** (RFC 3962, byte-exact vs impacket + RFC vectors), AP-REQ/AP-REP SMB
-  login (`-k`, AES-256 by default), AS-REP-roast and Kerberoast hash formatting.
+  login (`-k`, AES-256 by default), **sealed GSS-SPNEGO LDAP binds** (RFC 4121 CFX AES wrap),
+  AS-REP-roast and Kerberoast hash formatting.
 - **NTLM / SPNEGO**, **TDS** (MS-TDS pre-login), **GPP**, **LAPS**, and an **ntlmrelayx** relay
   server (SMB→SMB, HTTP→SMB, SMB→LDAP) — lab-only, owner-authorized.
 
@@ -100,7 +101,7 @@ built for Windows, Linux, and macOS on x64 and arm64 — or build it yourself:
 
 ```bash
 dotnet build -c Release
-dotnet test                                     # 225 tests
+dotnet test                                     # 230 tests
 dotnet run --project src/DotNetPacket.Examples  # list every command
 ```
 
@@ -149,8 +150,14 @@ dotnetpacket smb2-login dc01.lab.local alice x lab.local -k -dc-ip 10.0.0.10 -ha
 > and the RFC 3962 vectors. SMB signing keys on the **AP-REP acceptor subkey** ([MS-KILE] 3.1.1.2),
 > which is what the earlier RC4-only build got wrong (it looked authenticated but couldn't touch
 > privileged shares). Overpass-the-hash works with `-hashes` (RC4) or `-aesKey` (AES). Remaining
-> Kerberos breadth (not needed for `-k`): ccache read/write and S4U delegation. LDAP commands use a
-> simple bind, so `-hashes`/`-k` apply to the NTLM/SMB paths (where pass-the-hash belongs).
+> Kerberos breadth (not needed for `-k`): ccache read/write and S4U delegation.
+>
+> **`-k` also covers the LDAP tools** (GetADUsers, GetADComputers, findDelegation, GetLAPSPassword,
+> dacledit/owneredit/rbcd, …): a GSS-SPNEGO Kerberos bind for `ldap/<host>`, then the connection is
+> **sealed** — every LDAP PDU is GSS-wrapped (AES, RFC 4121 CFX) with the AP-REP acceptor subkey, as a
+> modern DC requires. The AES sign-and-seal crypto is byte-exact against impacket. (Simple bind is
+> still the default without `-k`; `-aesKey`/`-hashes` select the overpass-the-hash key, though LDAP
+> sealing needs AES, so pair `-hashes` with a password or use `-aesKey`.)
 
 ### Works with Proxynator 🔀
 

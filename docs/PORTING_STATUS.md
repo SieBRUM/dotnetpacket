@@ -303,6 +303,24 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
         Samba logged "Bad SMB2 signature"; keying on the AP-REP subkey resolves it for RC4 and AES). The
         `DCE_STYLE` flag is omitted (it makes Samba demand a second SPNEGO leg) so auth completes in one
         round.
+- [x] **Kerberos LDAP bind + GSS sealing (`-k` for the LDAP tools)** — `LdapAuth.ConnectAndBind`
+      routes every LDAP example (GetADUsers, GetADComputers, findDelegation, GetLAPSPassword,
+      dacledit/owneredit/rbcd, …) through a GSS-SPNEGO Kerberos bind for `ldap/<host>` when `-k` is
+      set, then **seals the connection**: each LDAP PDU is GSS-wrapped (`KerberosGssContext`, RFC 4121
+      CFX AES Wrap tokens, key usage 24/22, 4-byte SASL length framing), as a modern DC requires.
+      - The GSS Wrap/Unwrap crypto is **byte-for-byte equal to impacket's `GSSAPI_AES.GSS_Wrap_LDAP`**
+        (known-answer tests, fixed confounder).
+      - **Validated live against the lab DC:** the capture (`dotnetpacket-ldap-kerberos-sealed.pcap`)
+        shows the GSS-SPNEGO bind in the clear, then every search as "SASL GSS-API Privacy" (sealed);
+        `get-adusers all -k` returns all five accounts and `find-delegation -k` the delegation config.
+      - **Divergence vs impacket (and a lab finding):** impacket's native `ldap.py` sends a *non-mutual*
+        AP-REQ and seals with the *ticket session key*; that is tolerated by real Windows AD but this
+        Samba 4.19 DC rejects it (it `FIN`s the first sealed PDU). Per [MS-KILE] 3.1.1.2 the GSS key is
+        the acceptor subkey, so DotNetPacket requests mutual auth, reads the AP-REP subkey and seals
+        with it — more MS-KILE-correct, and it works against Samba. RC4 sealing (RFC 1964) is not
+        ported, so LDAP `-k` needs an AES ticket (password or `-aesKey`, not `-hashes`).
+      - Lab note: the throwaway DC account had only `HOST/*` SPNs (Samba's HOST alias covers `cifs` but
+        not `ldap`), so an `ldap/vm.lab.local` SPN was added to match a real DC before validating.
 - [ ] ccache read/write, S4U (getST delegation / constrained-delegation abuse) — deferred (not needed
       for `-k` auth; would extend Kerberos tooling breadth).
 

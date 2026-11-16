@@ -635,8 +635,7 @@ switch (args[0])
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
         const string DmsaGuid = "0feb936f-47b3-49f2-9386-1dedc2c23765"; // msDS-DelegatedManagedServiceAccount
 
-        using LdapConnection ldap = LdapConnection.Connect(host, 389);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, 389, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -852,8 +851,7 @@ switch (args[0])
         const string DcSyncGetChanges = "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2";
         const string DcSyncGetChangesAll = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, 389);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, 389, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -1135,8 +1133,7 @@ switch (args[0])
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, 389);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, 389, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -1242,8 +1239,7 @@ switch (args[0])
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
         const string RbcdAttr = "msDS-AllowedToActOnBehalfOfOtherIdentity";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, 389);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, 389, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -1653,8 +1649,7 @@ switch (args[0])
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, port);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -1709,8 +1704,7 @@ switch (args[0])
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, port);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -1788,8 +1782,7 @@ switch (args[0])
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, port);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -1926,8 +1919,7 @@ switch (args[0])
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, port);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -2044,8 +2036,7 @@ switch (args[0])
 
         // 1. LDAP-discover SPN accounts (enabled users with a servicePrincipalName).
         const int UF_ACCOUNTDISABLE = 0x000002;
-        using LdapConnection ldap = LdapConnection.Connect(host, ldapPort);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, password);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, ldapPort, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -2230,8 +2221,7 @@ switch (args[0])
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = bindUser.Contains('@') ? bindUser : $"{bindUser}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapConnection.Connect(host, ldapPort);
-        LdapBindResponse bind = ldap.SimpleBind(bindName, bindPassword);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, ldapPort, bindName, bindPassword, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");

@@ -4,6 +4,10 @@
     <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotNetPacket.Core.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <Description>Kerberos v5 (RFC 4120) AS exchange for DotNetPacket's GetNPUsers port (AS-REP roasting).</Description>
   </PropertyGroup>
