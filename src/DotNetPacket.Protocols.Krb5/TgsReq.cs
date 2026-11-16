@@ -29,7 +29,7 @@ public static class TgsReq
 
         // Encode the bare KDC-REQ-BODY first; its checksum goes into the authenticator (usage 6).
         byte[] reqBody = EncodeKdcReqBody(tgt.Realm, snameComponents, till, nonce, reqEtype);
-        byte[] apReq = BuildApReq(tgt, now, usec, authConfounder, reqBody);
+        byte[] apReq = BuildPaTgsReqApReq(tgt, now, usec, authConfounder, reqBody);
 
         var w = new AsnWriter(AsnEncodingRules.DER);
         using (w.PushSequence(new Asn1Tag(TagClass.Application, Krb5Constants.TgsReq))) // TGS-REQ [APPLICATION 12]
@@ -73,8 +73,13 @@ public static class TgsReq
         return w.Encode();
     }
 
-    // AP-REQ ::= [APPLICATION 14] SEQUENCE { pvno[0], msg-type[1], ap-options[2], ticket[3], authenticator[4] }
-    private static byte[] BuildApReq(Tgt tgt, DateTimeOffset now, int usec, byte[] authConfounder, byte[] reqBody)
+    /// <summary>
+    /// Builds the PA-TGS-REQ AP-REQ (the TGT + an authenticator whose checksum covers
+    /// <paramref name="reqBody"/>, key usage 7/6) that every TGS-REQ — plain or S4U — carries as its
+    /// first pa-data. Shared with <see cref="S4uReq"/>.
+    /// AP-REQ ::= [APPLICATION 14] SEQUENCE { pvno[0], msg-type[1], ap-options[2], ticket[3], authenticator[4] }
+    /// </summary>
+    internal static byte[] BuildPaTgsReqApReq(Tgt tgt, DateTimeOffset now, int usec, byte[] authConfounder, byte[] reqBody)
     {
         byte[] authenticator = BuildAuthenticator(tgt, now, usec, reqBody);
         byte[] encAuth = Krb5Cipher.Encrypt(tgt.SessionKeyEtype, tgt.SessionKey, 7, authenticator, authConfounder); // key usage 7

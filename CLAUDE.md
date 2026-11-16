@@ -149,6 +149,7 @@ src/
     KerbTgsRoast.cs                #   $krb5tgs$ hashcat formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
     KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken (RC4 + AES)
+    S4uReq.cs                      #   S4U2self (PA-FOR-USER) + S4U2proxy (additional-tickets + PA-PAC-OPTIONS) TGS-REQ builders (getST; constrained-delegation abuse)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -260,6 +261,7 @@ dotnet run --project src/DotNetPacket.Examples -- get-npusers <lab-host> <user> 
 dotnet run --project src/DotNetPacket.Examples -- find-delegation <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # findDelegation: unconstrained/constrained/protocol-transition/RBCD
 dotnet run --project src/DotNetPacket.Examples -- kerb-tgt <lab-host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 PA-ENC-TIMESTAMP pre-auth)
 dotnet run --project src/DotNetPacket.Examples -- get-userspns <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts
+dotnet run --project src/DotNetPacket.Examples -- get-st <dc-host> <service-user> <password> <domain-fqdn> <impersonate> <target-spn> [port]   # getST (S4U): S4U2self + S4U2proxy constrained-delegation ticket (lab)
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind

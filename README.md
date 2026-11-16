@@ -88,7 +88,7 @@ A realistic, **signed**, modern-Windows-style stack, validated end-to-end agains
 - **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, **RC4-HMAC and
   AES128/256-CTS-HMAC-SHA1-96** (RFC 3962, byte-exact vs impacket + RFC vectors), AP-REQ/AP-REP SMB
   login (`-k`, AES-256 by default), **sealed GSS-SPNEGO LDAP binds** (RFC 4121 CFX AES wrap),
-  AS-REP-roast and Kerberoast hash formatting.
+  **S4U2self/S4U2proxy** constrained-delegation (`getST`), AS-REP-roast and Kerberoast hash formatting.
 - **NTLM / SPNEGO**, **TDS** (MS-TDS pre-login), **GPP**, **LAPS**, and an **ntlmrelayx** relay
   server (SMB→SMB, HTTP→SMB, SMB→LDAP) — lab-only, owner-authorized.
 
@@ -101,7 +101,7 @@ built for Windows, Linux, and macOS on x64 and arm64 — or build it yourself:
 
 ```bash
 dotnet build -c Release
-dotnet test                                     # 230 tests
+dotnet test                                     # 234 tests
 dotnet run --project src/DotNetPacket.Examples  # list every command
 ```
 
@@ -231,6 +231,7 @@ Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://githu
 | `get-npusers` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `GetNPUsers.py` | AS-REP roast (accounts without pre-auth) |
 | `kerb-tgt` | `<host> <user> <pass> <domain-fqdn> [port]` | `getTGT.py` | request a TGT (probes the KDC; AES-256 PA-ENC-TIMESTAMP by default, RC4 fallback) |
 | `get-userspns` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `GetUserSPNs.py` | Kerberoast SPN accounts |
+| `get-st` 🧪 | `<dc-host> <service-user> <pass> <domain-fqdn> <impersonate> <target-spn> [port]` | `getST.py` | S4U2self + S4U2proxy — a constrained-delegation ticket impersonating a user |
 | `rpc-changepw` | `<host> <user> <oldpass> <newpass> [domain] [port]` | `changepasswd.py` | change your own password (SAMR) |
 
 ### ACL / delegation / account edits 🧪

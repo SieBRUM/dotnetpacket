@@ -49,6 +49,22 @@ public static class Krb5Constants
     // PA-DATA type carrying the KDC's supported etypes + salts (the authoritative AES salt source).
     public const int PaEtypeInfo2 = 19;
 
+    // S4U (MS-SFU) pa-data types.
+    public const int PaForUser = 129;      // S4U2self: PA-FOR-USER
+    public const int PaPacOptions = 167;   // S4U2proxy: PA-PAC-OPTIONS
+
+    // PrincipalName name-type NT-UNKNOWN (0) — the S4U2self sname (the requesting service's own name).
+    public const int NtUnknown = 0;
+
+    /// <summary>S4U2self KDC-Options: forwardable (1) + renewable (8) + canonicalize (15) = 0x40810000.</summary>
+    public static readonly byte[] KdcOptionsS4u2Self = { 0x40, 0x81, 0x00, 0x00 };
+
+    /// <summary>S4U2proxy KDC-Options: + cname-in-addl-tkt (14) = 0x40830000.</summary>
+    public static readonly byte[] KdcOptionsS4u2Proxy = { 0x40, 0x83, 0x00, 0x00 };
+
+    /// <summary>PA-PAC-OPTIONS flags with resource-based-constrained-delegation (bit 3) set = 0x10000000.</summary>
+    public static readonly byte[] PacOptionsRbcd = { 0x10, 0x00, 0x00, 0x00 };
+
     /// <summary>
     /// The etypes a client offers, in impacket's preference order: AES-256, AES-128, RC4. The KDC
     /// picks one and (for AES) returns the matching salt in PA-ETYPE-INFO2.

