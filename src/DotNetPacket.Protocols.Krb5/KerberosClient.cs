@@ -29,37 +29,90 @@ public static class KerberosClient
 {
     /// <summary>
     /// Requests a TGT for <paramref name="user"/>@<paramref name="realm"/> from the KDC at
-    /// <paramref name="kdcHost"/> using an RC4-HMAC PA-ENC-TIMESTAMP pre-auth. Throws with the KDC
-    /// error on failure (e.g. wrong password -> KDC_ERR_PREAUTH_FAILED).
+    /// <paramref name="kdcHost"/> with a password. First probes the KDC for its supported etypes and
+    /// salt (PA-ETYPE-INFO2), picks the strongest profile it offers — AES-256, then AES-128, then RC4,
+    /// matching impacket's default — derives the client key and sends a PA-ENC-TIMESTAMP pre-auth.
+    /// Throws with the KDC error on failure (e.g. wrong password -> KDC_ERR_PREAUTH_FAILED).
     /// </summary>
     public static Tgt GetTgt(string kdcHost, string realm, string user, string password, int port = 88)
-        => GetTgtWithKey(kdcHost, realm, user, Krb5Crypto.Rc4StringToKey(password), port);
+    {
+        realm = realm.ToUpperInvariant();
+        (int etype, byte[] salt, int iterations) = ProbeEtypeInfo(kdcHost, realm, user, port);
+        byte[] clientKey = Krb5Cipher.StringToKey(etype, password, salt, iterations);
+        return GetTgtWithKeyEtype(kdcHost, realm, user, clientKey, etype, port);
+    }
 
     /// <summary>
-    /// Same as <see cref="GetTgt"/> but with the RC4 client key supplied directly — the NT hash, so
-    /// this is the overpass-the-hash / <c>-k -hashes</c> path (no password needed).
+    /// Overpass-the-hash: request a TGT with the RC4 client key (the NT hash) supplied directly — the
+    /// <c>-k -hashes</c> path, no password needed.
     /// </summary>
     public static Tgt GetTgtWithKey(string kdcHost, string realm, string user, byte[] clientKey, int port = 88)
+        => GetTgtWithKeyEtype(kdcHost, realm, user, clientKey, Krb5Constants.Rc4Hmac, port);
+
+    /// <summary>
+    /// The shared pre-auth AS exchange: builds a PA-ENC-TIMESTAMP AS-REQ encrypted with
+    /// <paramref name="clientKey"/> under <paramref name="etype"/>, and decrypts the AS-REP enc-part
+    /// (key usage 3) to recover the TGT session key.
+    /// </summary>
+    public static Tgt GetTgtWithKeyEtype(string kdcHost, string realm, string user, byte[] clientKey, int etype, int port = 88)
     {
         realm = realm.ToUpperInvariant();
 
         DateTimeOffset now = DateTimeOffset.UtcNow;
         DateTimeOffset till = now.AddDays(1);
-        uint nonce = (uint)(RandomNumberGenerator.GetInt32(int.MaxValue));
-        byte[] confounder = RandomNumberGenerator.GetBytes(8);
+        uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
+        byte[] confounder = Krb5Cipher.NewConfounder(etype);
 
-        byte[] req = AsReq.BuildPreauth(realm, user, clientKey, nonce, till, now, now.Microsecond, confounder);
+        byte[] req = AsReq.BuildPreauth(realm, user, clientKey, nonce, till, now, now.Microsecond, confounder, etype);
         KerberosResponse resp = KerberosResponse.Parse(KerberosTcpClient.SendReceive(kdcHost, req, port));
         if (!resp.IsAsRep)
         {
             throw new InvalidOperationException($"AS exchange failed: {Krb5Constants.DescribeError(resp.ErrorCode)}");
         }
 
-        // AS-REP enc-part is encrypted with the client key, key usage 3 (RC4 maps 3 -> 8).
-        byte[] plaintext = Krb5Crypto.Decrypt(clientKey, 3, resp.EncPartCipher);
+        // AS-REP enc-part is encrypted with the client key, key usage 3.
+        byte[] plaintext = Krb5Cipher.Decrypt(etype, clientKey, 3, resp.EncPartCipher);
         EncKdcRepPart part = EncKdcRepPart.Parse(plaintext);
 
         return new Tgt(resp.Ticket, part.SessionKeyEtype, part.SessionKey, part.EndTime, realm, user, $"krbtgt/{realm}");
+    }
+
+    /// <summary>
+    /// Sends a no-pre-auth AS-REQ to learn the KDC's supported etypes + salt from the
+    /// KDC_ERR_PREAUTH_REQUIRED error's PA-ETYPE-INFO2, and returns the strongest supported
+    /// (etype, salt, PBKDF2 iterations). Falls back to AES-256 with the AD default salt
+    /// (<c>REALM + user</c>) if the KDC returns no usable ETYPE-INFO2.
+    /// </summary>
+    private static (int Etype, byte[] Salt, int Iterations) ProbeEtypeInfo(string kdcHost, string realm, string user, int port)
+    {
+        byte[] defaultSalt = System.Text.Encoding.UTF8.GetBytes(realm + user);
+
+        uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
+        byte[] probe = AsReq.Build(realm, user, nonce, DateTimeOffset.UtcNow.AddDays(1), Krb5Constants.DefaultEtypes);
+        KerberosResponse resp = KerberosResponse.Parse(KerberosTcpClient.SendReceive(kdcHost, probe, port));
+
+        // A non-preauth account answered straight away: no ETYPE-INFO2, so use its enc-part etype.
+        if (resp.IsAsRep)
+        {
+            return (resp.EncPartEtype, defaultSalt, AesCtsCrypto.DefaultIterations);
+        }
+
+        if (resp.ErrorCode != Krb5Constants.KdcErrPreauthRequired)
+        {
+            throw new InvalidOperationException($"AS probe failed: {Krb5Constants.DescribeError(resp.ErrorCode)}");
+        }
+
+        EtypeInfo2Entry? best = EtypeInfo2.Parse(resp.EData)
+            .Where(e => Krb5Cipher.IsSupported(e.Etype))
+            .OrderByDescending(e => Krb5Cipher.Preference(e.Etype))
+            .FirstOrDefault();
+
+        if (best is null)
+        {
+            return (Krb5Constants.Aes256CtsHmacSha1, defaultSalt, AesCtsCrypto.DefaultIterations);
+        }
+
+        return (best.Etype, best.Salt ?? defaultSalt, best.Iterations);
     }
 
     /// <summary>
@@ -73,7 +126,7 @@ public static class KerberosClient
         DateTimeOffset now = DateTimeOffset.UtcNow;
         DateTimeOffset till = now.AddDays(1);
         uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
-        byte[] confounder = RandomNumberGenerator.GetBytes(8);
+        byte[] confounder = Krb5Cipher.NewConfounder(tgt.SessionKeyEtype); // sized to the TGT etype (RC4 8, AES 16)
 
         byte[] req = TgsReq.Build(tgt, spn, nonce, till, now, now.Microsecond, confounder);
         TgsRep rep = TgsRep.Parse(KerberosTcpClient.SendReceive(kdcHost, req, port));
@@ -82,8 +135,8 @@ public static class KerberosClient
             throw new InvalidOperationException($"TGS exchange failed for {spn}: {Krb5Constants.DescribeError(rep.ErrorCode)}");
         }
 
-        // TGS-REP enc-part is encrypted with the TGT session key, key usage 8.
-        byte[] plaintext = Krb5Crypto.Decrypt(tgt.SessionKey, 8, rep.EncPartCipher);
+        // TGS-REP enc-part is encrypted with the TGT session key (its etype), key usage 8.
+        byte[] plaintext = Krb5Cipher.Decrypt(tgt.SessionKeyEtype, tgt.SessionKey, 8, rep.EncPartCipher);
         EncKdcRepPart part = EncKdcRepPart.Parse(plaintext);
         return new ServiceTicket(rep.Ticket, part.SessionKeyEtype, part.SessionKey, tgt.Realm, tgt.User);
     }
@@ -98,9 +151,10 @@ public static class KerberosClient
         DateTimeOffset now = DateTimeOffset.UtcNow;
         DateTimeOffset till = now.AddDays(1);
         uint nonce = (uint)RandomNumberGenerator.GetInt32(int.MaxValue);
-        byte[] confounder = RandomNumberGenerator.GetBytes(8);
+        byte[] confounder = Krb5Cipher.NewConfounder(tgt.SessionKeyEtype); // sized to the TGT etype (RC4 8, AES 16)
 
-        byte[] req = TgsReq.Build(tgt, spn, nonce, till, now, now.Microsecond, confounder);
+        // Force a roastable RC4 service ticket regardless of the TGT's etype (the classic Kerberoast).
+        byte[] req = TgsReq.Build(tgt, spn, nonce, till, now, now.Microsecond, confounder, serviceEtype: Krb5Constants.Rc4Hmac);
         TgsRep rep = TgsRep.Parse(KerberosTcpClient.SendReceive(kdcHost, req, port));
         if (!rep.IsTgsRep)
         {

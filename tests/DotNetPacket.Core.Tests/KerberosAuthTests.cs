@@ -54,6 +54,40 @@ public class KerberosAuthTests
         Assert.True(Contains(spnego, apReq.GssToken), "the mechToken must be the GSS AP-REQ token");
     }
 
+    [Fact]
+    public void EtypeInfo2_ParsesAes256SaltFromMethodData()
+    {
+        // impacket-encoded METHOD-DATA: one PA-ETYPE-INFO2 entry, etype 18, salt "LAB.LOCALAdministrator".
+        byte[] methodData = Convert.FromHexString(
+            "302e302ca103020113a22504233021301fa003020112a1181b164c41422e4c4f43414c41646d696e6973747261746f72");
+
+        var entries = EtypeInfo2.Parse(methodData);
+        Assert.Single(entries);
+        Assert.Equal(18, entries[0].Etype);
+        Assert.Equal("LAB.LOCALAdministrator", entries[0].SaltText);
+        Assert.Equal(AesCtsCrypto.DefaultIterations, entries[0].Iterations); // no s2kparams -> RFC default
+    }
+
+    [Fact]
+    public void KerberosApRep_ExtractsAcceptorSubkey()
+    {
+        // impacket-encoded GSS AP-REP token: EncAPRepPart (usage 12) carrying a known AES-256 subkey,
+        // encrypted under the ticket session key. Proves the mutual-auth SMB session-key recovery.
+        byte[] gssApRep = Convert.FromHexString(
+            "60819406092a864886f71201020202006f8184308181a003020105a10302010fa2753073a003020112a26c046a" +
+            "c41b8f62f4e013456972479131d216241285fbcc067c09084e573b75a3fdf171072d7a977f8585491e8c764725" +
+            "876c186442fb522c42c290ff4c4848213f7cc3d9b59ecbb1d5bb4087beeddc894741acf9f447895f79af2267ea" +
+            "815da20e4f6b4c01e16775fa9b9db00c");
+        byte[] ticketSessionKey = Convert.FromHexString(
+            "55a6ac740ad17b4846941051e1e8b0a7548d93b0ab30a8bc3ff16280382b8c2a");
+
+        KerberosSubkey? subkey = KerberosApRep.ExtractSubkey(gssApRep, ticketSessionKey, 18);
+        Assert.NotNull(subkey);
+        Assert.Equal(18, subkey!.Etype);
+        Assert.Equal("0011223344556677889900aabbccddee0011223344556677889900aabbccddee",
+            Convert.ToHexString(subkey.Key).ToLowerInvariant());
+    }
+
     private static bool Contains(byte[] haystack, byte[] needle) => IndexOf(haystack, needle) >= 0;
 
     private static int IndexOf(byte[] haystack, byte[] needle)

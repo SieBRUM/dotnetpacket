@@ -139,6 +139,13 @@ public sealed class Smb2Client : IDisposable
     public static string? KerberosKdc { get; set; }
 
     /// <summary>
+    /// An AES Kerberos key supplied directly (impacket's <c>-aesKey</c>): 16 bytes for aes128-cts or
+    /// 32 bytes for aes256-cts. When set, <see cref="LoginKerberos"/> uses it as the client key instead
+    /// of deriving one from the password or NT hash.
+    /// </summary>
+    public static byte[]? KerberosAesKey { get; set; }
+
+    /// <summary>
     /// Connect the socket to this IP instead of the host argument (impacket's <c>-target-ip</c>), while
     /// still using the host argument as the Kerberos SPN / logical name. Needed when the SPN host and
     /// the reachable address differ (e.g. a loopback lab).
@@ -250,10 +257,23 @@ public sealed class Smb2Client : IDisposable
         string realm = domain.ToUpperInvariant();
         string kdc = KerberosKdc ?? _host;
 
-        // Client key: -hashes NT hash (overpass-the-hash) if set, else derived from the password.
-        byte[] clientKey = NtlmClient.NtHashOverride ?? NtlmCrypto.NtHash(password);
+        // Choose the client-key path: -aesKey (AES overpass-the-hash), else -hashes NT hash (RC4
+        // overpass-the-hash), else derive from the password — which probes the KDC and prefers AES.
+        Tgt tgt;
+        if (KerberosAesKey is { } aesKey)
+        {
+            int etype = aesKey.Length == 32 ? Krb5Constants.Aes256CtsHmacSha1 : Krb5Constants.Aes128CtsHmacSha1;
+            tgt = KerberosClient.GetTgtWithKeyEtype(kdc, realm, user, aesKey, etype);
+        }
+        else if (NtlmClient.NtHashOverride is { } ntHash)
+        {
+            tgt = KerberosClient.GetTgtWithKey(kdc, realm, user, ntHash);
+        }
+        else
+        {
+            tgt = KerberosClient.GetTgt(kdc, realm, user, password);
+        }
 
-        Tgt tgt = KerberosClient.GetTgtWithKey(kdc, realm, user, clientKey);
         ServiceTicket st = KerberosClient.GetServiceTicket(kdc, tgt, $"cifs/{_host}");
         KerberosApReq apReq = KerberosGss.BuildApReqToken(st);
         byte[] spnego = Spnego.WrapKerberosInitialToken(apReq.GssToken);
@@ -264,11 +284,27 @@ public sealed class Smb2Client : IDisposable
         header.Unpack(response1);
         _sessionId = header.SessionId;
 
+        // We requested mutual auth, so the server returns an AP-REP. Per [MS-KILE] 3.1.1.2 the SMB
+        // session key is the AP-REP acceptor subkey (for AES it differs from the ticket session key);
+        // read it and key SMB signing on it. Fall back to the ticket session key if there is no subkey.
+        byte[] smbSessionKey = apReq.SessionKey;
+        if (header.Status == NtStatus.Success)
+        {
+            var setupResp = new Smb2SessionSetupResponse();
+            setupResp.Unpack(response1);
+            byte[] responseToken = Spnego.ExtractResponseToken(setupResp.SecurityBuffer);
+            KerberosSubkey? subkey = KerberosApRep.ExtractSubkey(responseToken, st.SessionKey, st.SessionKeyEtype);
+            if (subkey is not null)
+            {
+                smbSessionKey = subkey.Key;
+            }
+        }
+
         // Single round: the signing key derives from the preauth hash through this request.
         _preauthHash = Smb2Crypto.PreauthUpdate(_preauthHash, request1);
         if (_dialect == Smb2Dialect.Smb311 && header.Status == NtStatus.Success)
         {
-            _signingKey = Smb2Crypto.Smb311SigningKey(apReq.SessionKey, _preauthHash);
+            _signingKey = Smb2Crypto.Smb311SigningKey(smbSessionKey, _preauthHash);
         }
 
         return new Smb2LoginResult

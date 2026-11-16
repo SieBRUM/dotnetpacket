@@ -133,6 +133,10 @@ src/
     Krb5Constants.cs               #   app tags, etypes, kdc-options, PA/error codes
     Der.cs                         #   GeneralString DER helper (what AsnWriter can't emit)
     Krb5Crypto.cs                  #   RC4-HMAC encryption + keyed checksum (RFC 4757; reuses NtlmCrypto)
+    AesCtsCrypto.cs                #   AES128/256-CTS-HMAC-SHA1-96 (RFC 3962): nfold, DR/DK, PBKDF2 s2k, CBC-CS3, HMAC-SHA1-96 (byte-exact vs impacket + RFC 3962 vectors)
+    Krb5Cipher.cs                  #   etype dispatcher (RC4 23 / AES128 17 / AES256 18): encrypt/decrypt/checksum/string-to-key, prefers AES-256
+    EtypeInfo2.cs                  #   PA-ETYPE-INFO2 parse (KDC's etypes + AES salt + s2kparams) from the PREAUTH_REQUIRED error
+    KerberosApRep.cs               #   AP-REP parse + EncAPRepPart decrypt (usage 12) -> acceptor subkey (the SMB session key under mutual auth; [MS-KILE] 3.1.1.2)
     AsReq.cs                       #   AS-REQ builder (no-preauth for GetNPUsers; PA-ENC-TIMESTAMP for getTGT)
     TgsReq.cs                      #   TGS-REQ builder (AP-REQ + authenticator + req-body checksum; Kerberoast)
     KerberosResponse.cs            #   AS-REP / KRB-ERROR parser (enc-part + ticket)
@@ -142,7 +146,7 @@ src/
     AsRepRoast.cs                  #   $krb5asrep$ hashcat/john formatter
     KerbTgsRoast.cs                #   $krb5tgs$ hashcat formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
-    KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken
+    KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken (RC4 + AES)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -164,7 +168,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
-    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -no-pass, -k (Kerberos), -dc-ip, -target-ip, -proxy
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -dc-ip, -target-ip, -proxy
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)
 docs/

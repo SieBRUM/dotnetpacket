@@ -31,11 +31,12 @@ public static class KerberosGss
 
     public static KerberosApReq BuildApReqToken(ServiceTicket st)
     {
-        byte[] confounder = RandomNumberGenerator.GetBytes(8);
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
         byte[] authenticator = BuildAuthenticator(st, now, now.Microsecond);
-        byte[] encAuth = Krb5Crypto.Encrypt(st.SessionKey, ApReqAuthenticatorUsage, authenticator, confounder);
+        // Encrypt the authenticator under the service session key (usage 11), in the ticket's etype
+        // (RC4 or AES) — Krb5Cipher picks the right profile and confounder size.
+        byte[] encAuth = Krb5Cipher.Encrypt(st.SessionKeyEtype, st.SessionKey, ApReqAuthenticatorUsage, authenticator);
 
         var w = new AsnWriter(AsnEncodingRules.DER);
         using (w.PushSequence(new Asn1Tag(TagClass.Application, Krb5Constants.ApReq)))   // AP-REQ [APPLICATION 14]

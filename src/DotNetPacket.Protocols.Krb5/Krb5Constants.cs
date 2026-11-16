@@ -40,6 +40,21 @@ public static class Krb5Constants
     public const int Aes128CtsHmacSha1 = 17;
     public const int Aes256CtsHmacSha1 = 18;
 
+    /// <summary>HMAC-SHA1-96-AES128 keyed checksum type (RFC 3962), paired with etype 17.</summary>
+    public const int HmacSha1Aes128ChecksumType = 15;
+
+    /// <summary>HMAC-SHA1-96-AES256 keyed checksum type (RFC 3962), paired with etype 18.</summary>
+    public const int HmacSha1Aes256ChecksumType = 16;
+
+    // PA-DATA type carrying the KDC's supported etypes + salts (the authoritative AES salt source).
+    public const int PaEtypeInfo2 = 19;
+
+    /// <summary>
+    /// The etypes a client offers, in impacket's preference order: AES-256, AES-128, RC4. The KDC
+    /// picks one and (for AES) returns the matching salt in PA-ETYPE-INFO2.
+    /// </summary>
+    public static readonly int[] DefaultEtypes = { Aes256CtsHmacSha1, Aes128CtsHmacSha1, Rc4Hmac };
+
     // A handful of KDC error codes we care about for AS-REP roasting.
     public const int KdcErrPreauthFailed = 24;
     public const int KdcErrPreauthRequired = 25;

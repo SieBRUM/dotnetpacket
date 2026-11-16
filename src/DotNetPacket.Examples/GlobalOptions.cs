@@ -38,7 +38,10 @@ internal static class GlobalOptions
                     break;
                 case "-k":
                     Smb2Client.UseKerberos = true;
-                    Console.Error.WriteLine("[*] Kerberos authentication enabled (-k): SMB login uses a Kerberos AP-REQ (RC4). The login's domain is the realm; the host is the SPN (cifs/<host>).");
+                    Console.Error.WriteLine("[*] Kerberos authentication enabled (-k): SMB login uses a Kerberos AP-REQ. With a password the KDC's etypes are probed and the strongest is used (AES-256, matching impacket's default); the login's domain is the realm and the host is the SPN (cifs/<host>).");
+                    break;
+                case "-aesKey" when i + 1 < args.Length:
+                    SetAesKey(args[++i]);
                     break;
                 case "-dc-ip" when i + 1 < args.Length:
                     Smb2Client.KerberosKdc = args[++i];
@@ -67,6 +70,20 @@ internal static class GlobalOptions
 
         NtlmClient.NtHashOverride = Convert.FromHexString(ntHex);
         Console.Error.WriteLine("[*] Pass-the-hash enabled (authenticating with the supplied NT hash; the password argument is ignored).");
+    }
+
+    private static void SetAesKey(string value)
+    {
+        // impacket's -aesKey: a 128-bit (32 hex) or 256-bit (64 hex) AES Kerberos key.
+        string hex = value.Trim();
+        if ((hex.Length != 32 && hex.Length != 64) || !IsHex(hex))
+        {
+            throw new FormatException($"-aesKey: '{value}' must be 32 hex chars (AES-128) or 64 hex chars (AES-256).");
+        }
+
+        Smb2Client.KerberosAesKey = Convert.FromHexString(hex);
+        Smb2Client.UseKerberos = true;
+        Console.Error.WriteLine($"[*] Kerberos AES key supplied (-aesKey, aes{(hex.Length == 64 ? "256" : "128")}-cts); authenticating with it (overpass-the-hash).");
     }
 
     private static bool IsHex(string s)

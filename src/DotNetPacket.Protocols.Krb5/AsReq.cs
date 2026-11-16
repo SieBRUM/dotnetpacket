@@ -37,7 +37,7 @@ public static class AsReq
         DateTimeOffset now, int usec, byte[] confounder, int etype = Krb5Constants.Rc4Hmac, bool requestPac = true)
     {
         byte[] tsEnc = EncodePaEncTsEnc(now, usec);
-        byte[] encrypted = Krb5Crypto.Encrypt(clientKey, 1, tsEnc, confounder); // key usage 1
+        byte[] encrypted = Krb5Cipher.Encrypt(etype, clientKey, 1, tsEnc, confounder); // key usage 1
         byte[] encData = EncodeEncryptedData(etype, encrypted);
 
         return Encode(realm, user, nonce, till, new[] { etype }, w =>

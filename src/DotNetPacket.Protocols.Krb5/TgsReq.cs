@@ -18,12 +18,17 @@ public static class TgsReq
     /// <paramref name="authConfounder"/> is the RC4 confounder (fixed for deterministic tests).
     /// </summary>
     public static byte[] Build(Tgt tgt, string spn, uint nonce, DateTimeOffset till, DateTimeOffset now, int usec,
-        byte[] authConfounder, int etype = Krb5Constants.Rc4Hmac)
+        byte[] authConfounder, int? serviceEtype = null)
     {
         string[] snameComponents = spn.Split('/');
 
+        // The authenticator (and its req-body checksum) use the TGT session key's etype. The service
+        // ticket is requested for serviceEtype — null means "same as the TGT" (so an AES TGT yields an
+        // AES service session key for -k); Kerberoast passes RC4 (23) to force a roastable RC4 ticket.
+        int reqEtype = serviceEtype ?? tgt.SessionKeyEtype;
+
         // Encode the bare KDC-REQ-BODY first; its checksum goes into the authenticator (usage 6).
-        byte[] reqBody = EncodeKdcReqBody(tgt.Realm, snameComponents, till, nonce, etype);
+        byte[] reqBody = EncodeKdcReqBody(tgt.Realm, snameComponents, till, nonce, reqEtype);
         byte[] apReq = BuildApReq(tgt, now, usec, authConfounder, reqBody);
 
         var w = new AsnWriter(AsnEncodingRules.DER);
@@ -72,7 +77,7 @@ public static class TgsReq
     private static byte[] BuildApReq(Tgt tgt, DateTimeOffset now, int usec, byte[] authConfounder, byte[] reqBody)
     {
         byte[] authenticator = BuildAuthenticator(tgt, now, usec, reqBody);
-        byte[] encAuth = Krb5Crypto.Encrypt(tgt.SessionKey, 7, authenticator, authConfounder); // key usage 7
+        byte[] encAuth = Krb5Cipher.Encrypt(tgt.SessionKeyEtype, tgt.SessionKey, 7, authenticator, authConfounder); // key usage 7
 
         var w = new AsnWriter(AsnEncodingRules.DER);
         using (w.PushSequence(new Asn1Tag(TagClass.Application, Krb5Constants.ApReq)))
@@ -85,7 +90,7 @@ public static class TgsReq
             using (w.PushSequence(Ctx(4)))                                       // authenticator [4] EncryptedData
             using (w.PushSequence())
             {
-                using (w.PushSequence(Ctx(0))) w.WriteInteger(Krb5Constants.Rc4Hmac); // etype [0]
+                using (w.PushSequence(Ctx(0))) w.WriteInteger(tgt.SessionKeyEtype); // etype [0] (the TGT session key's)
                 using (w.PushSequence(Ctx(2))) w.WriteOctetString(encAuth);      // cipher [2]
             }
         }
@@ -97,7 +102,8 @@ public static class TgsReq
     // The cksum is a keyed HMAC-MD5 over the KDC-REQ-BODY (key usage 6) — required by the Heimdal/Samba KDC.
     private static byte[] BuildAuthenticator(Tgt tgt, DateTimeOffset now, int usec, byte[] reqBody)
     {
-        byte[] cksum = Krb5Crypto.Rc4HmacChecksum(tgt.SessionKey, 6, reqBody);
+        int etype = tgt.SessionKeyEtype;
+        byte[] cksum = Krb5Cipher.Checksum(etype, tgt.SessionKey, 6, reqBody);
 
         var w = new AsnWriter(AsnEncodingRules.DER);
         using (w.PushSequence(new Asn1Tag(TagClass.Application, Krb5Constants.Authenticator)))
@@ -109,7 +115,7 @@ public static class TgsReq
             using (w.PushSequence(Ctx(3)))                                       // cksum [3] Checksum
             using (w.PushSequence())
             {
-                using (w.PushSequence(Ctx(0))) w.WriteInteger(Krb5Constants.Rc4HmacChecksumType); // cksumtype [0]
+                using (w.PushSequence(Ctx(0))) w.WriteInteger(Krb5Cipher.ChecksumType(etype)); // cksumtype [0]
                 using (w.PushSequence(Ctx(1))) w.WriteOctetString(cksum);        // checksum [1]
             }
 

@@ -85,8 +85,9 @@ A realistic, **signed**, modern-Windows-style stack, validated end-to-end agains
   `lsarpc`, `lsat`, `samr`, `svcctl`, `winreg`, `tsch`, `mgmt`, `epm`.
 - **LDAP** (RFC 4511) — bind (simple + GSS-SPNEGO NTLM), search with the full filter grammar,
   add/modify/delete, and the `LDAP_SERVER_SD_FLAGS` control.
-- **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, RC4-HMAC,
-  AS-REP-roast and Kerberoast hash formatting.
+- **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, **RC4-HMAC and
+  AES128/256-CTS-HMAC-SHA1-96** (RFC 3962, byte-exact vs impacket + RFC vectors), AP-REQ/AP-REP SMB
+  login (`-k`, AES-256 by default), AS-REP-roast and Kerberoast hash formatting.
 - **NTLM / SPNEGO**, **TDS** (MS-TDS pre-login), **GPP**, **LAPS**, and an **ntlmrelayx** relay
   server (SMB→SMB, HTTP→SMB, SMB→LDAP) — lab-only, owner-authorized.
 
@@ -99,7 +100,7 @@ built for Windows, Linux, and macOS on x64 and arm64 — or build it yourself:
 
 ```bash
 dotnet build -c Release
-dotnet test                                     # 188 tests
+dotnet test                                     # 225 tests
 dotnet run --project src/DotNetPacket.Examples  # list every command
 ```
 
@@ -123,7 +124,8 @@ These work with **any** command and can appear anywhere on the line, just like i
 | --- | --- | --- |
 | `-hashes [LMHASH]:NTHASH` | `-hashes` | **Pass-the-hash** — authenticate with the NT hash instead of a password (only NTHASH is used for NTLMv2). The password argument becomes a placeholder. Covers every NTLM path: SMB, DCERPC-over-SMB, and the SMB-based examples. |
 | `-no-pass` | `-no-pass` | Don't use a password (pair with `-hashes`). |
-| `-k` | `-k` | **Kerberos** auth for SMB: a Kerberos AP-REQ (RC4) instead of NTLM. The login's domain is the realm (pass the FQDN, e.g. `lab.local`), and the host is the SPN host (`cifs/<host>`). Combine with `-hashes` for overpass-the-hash. |
+| `-k` | `-k` | **Kerberos** auth for SMB: a Kerberos AP-REQ instead of NTLM. With a password the KDC's etypes are probed and the strongest is used — **AES-256 by default**, matching impacket (RC4/AES-128 if that's all the KDC offers). The login's domain is the realm (pass the FQDN, e.g. `lab.local`), and the host is the SPN host (`cifs/<host>`). Combine with `-hashes` (RC4) or `-aesKey` (AES) for overpass-the-hash. |
+| `-aesKey <hex>` | `-aesKey` | **AES overpass-the-hash** for `-k`: a 128-bit (32 hex) or 256-bit (64 hex) AES Kerberos key as the client key (implies `-k`). |
 | `-dc-ip <ip>` | `-dc-ip` | KDC address for `-k` (defaults to the host). |
 | `-target-ip <ip>` | `-target-ip` | Connect the socket here while using the host argument as the SPN/logical name — for when the SPN host and the reachable address differ (e.g. a loopback lab). |
 | `-proxy <url>` | *(proxychains)* | Route **all** TCP through a proxy: `socks5://[user:pass@]host:port`, `socks4a://host:port`, `socks4://host:port`, or `http://[user:pass@]host:port`. The target hostname is handed to the proxy so it resolves on the far side of a pivot. |
@@ -139,14 +141,16 @@ dotnetpacket rpc-samrdump dc01.lab.local alice 'Passw0rd!' LAB -proxy socks5://1
 dotnetpacket smb2-login dc01.lab.local alice x lab.local -k -dc-ip 10.0.0.10 -hashes :ac8d0d...
 ```
 
-> **Honest about Kerberos parity.** `-k` performs a real Kerberos AP-REQ SMB login (TGT → service
-> ticket for `cifs/<host>` → AP-REQ → SESSION_SETUP), validated against the lab DC — the session
-> authenticates as the principal and SMB signing works. It is **RC4-only** (like the rest of
-> DotNetPacket's Kerberos). On a modern Samba AD DC the RC4 Kerberos session authenticates but
-> *privileged* share/RPC authorization is restricted (the PAC groups aren't applied to the token),
-> which is Samba's RC4 hardening — impacket defaults to **AES**, so AES enctypes (and ccache
-> read/write, S4U) are the remaining Kerberos parity work. `-aesKey` is not ported. LDAP commands use
-> a simple bind, so `-hashes`/`-k` apply to the NTLM/SMB paths (where pass-the-hash belongs).
+> **Kerberos parity — AES-256, full authorization.** `-k` performs a real Kerberos AP-REQ SMB login
+> (AS exchange → service ticket for `cifs/<host>` → AP-REQ → SESSION_SETUP), validated end-to-end
+> against the lab DC: with a password it **probes the KDC's ETYPE-INFO2 and uses AES-256 by default**
+> (impacket's default), and a **signed `srvsvc` call then succeeds** — full privileged authorization,
+> same as an NTLM admin session. The AES128/256-CTS-HMAC-SHA1-96 crypto is byte-exact against impacket
+> and the RFC 3962 vectors. SMB signing keys on the **AP-REP acceptor subkey** ([MS-KILE] 3.1.1.2),
+> which is what the earlier RC4-only build got wrong (it looked authenticated but couldn't touch
+> privileged shares). Overpass-the-hash works with `-hashes` (RC4) or `-aesKey` (AES). Remaining
+> Kerberos breadth (not needed for `-k`): ccache read/write and S4U delegation. LDAP commands use a
+> simple bind, so `-hashes`/`-k` apply to the NTLM/SMB paths (where pass-the-hash belongs).
 
 ### Works with Proxynator 🔀
 
@@ -218,7 +222,7 @@ Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://githu
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
 | `get-npusers` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `GetNPUsers.py` | AS-REP roast (accounts without pre-auth) |
-| `kerb-tgt` | `<host> <user> <pass> <domain-fqdn> [port]` | `getTGT.py` | request a TGT (RC4 PA-ENC-TIMESTAMP) |
+| `kerb-tgt` | `<host> <user> <pass> <domain-fqdn> [port]` | `getTGT.py` | request a TGT (probes the KDC; AES-256 PA-ENC-TIMESTAMP by default, RC4 fallback) |
 | `get-userspns` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `GetUserSPNs.py` | Kerberoast SPN accounts |
 | `rpc-changepw` | `<host> <user> <oldpass> <newpass> [domain] [port]` | `changepasswd.py` | change your own password (SAMR) |
 

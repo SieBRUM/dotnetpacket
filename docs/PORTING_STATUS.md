@@ -264,32 +264,47 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
 - [x] **Kerberos-over-TCP** transport (`KerberosTcpClient`): 4-byte length-prefixed, port 88.
 - [x] **RC4-HMAC** encryption profile (`Krb5Crypto`, RFC 4757): string-to-key (NT hash),
       encrypt/decrypt with the key-usage mapping. Byte-for-byte equal to impacket's `_RC4`.
+- [x] **AES-CTS-HMAC-SHA1-96** encryption profiles (`AesCtsCrypto`, RFC 3962): aes128-cts (17) and
+      aes256-cts (18). n-fold, DR/DK key derivation, PBKDF2 string-to-key, AES-CBC ciphertext
+      stealing (CBC-CS3) and the HMAC-SHA1-96 integrity tag. **Byte-for-byte equal to impacket's
+      `_AES128CTS`/`_AES256CTS`** (encrypt + checksum known-answer tests, fixed confounder) and to
+      the **RFC 3962 Appendix B** string-to-key vectors; n-fold matches the MIT krb5 reference.
+- [x] **Etype dispatch** (`Krb5Cipher`): one place selects RC4 / AES-128 / AES-256 for encrypt,
+      decrypt, keyed checksum and string-to-key, so every Kerberos path is etype-agnostic and prefers
+      AES-256 (impacket's default) when the KDC offers it.
+- [x] **PA-ETYPE-INFO2** parse (`EtypeInfo2`): reads the KDC's supported etypes + the authoritative
+      AES salt / s2kparams from the `KDC_ERR_PREAUTH_REQUIRED` error, as impacket does.
 - [x] **PA-ENC-TIMESTAMP pre-auth + TGT** (`AsReq.BuildPreauth`, `EncKdcRepPart`, `KerberosClient.GetTgt`):
       the full getTGT path, validated live. TGT ticket bytes + session key are returned for reuse.
 - [x] **TGS-REQ / TGS-REP** (`TgsReq`, `TgsRep`, `KerbTgsRoast`): AP-REQ + authenticator (key
       usage 7) with the **req-body checksum** (HMAC-MD5, key usage 6), service-ticket enc-part
       extraction, `$krb5tgs$` formatting. `KerberosClient.Kerberoast` orchestrates it.
 - [x] **RC4-HMAC keyed checksum** (`Krb5Crypto.Rc4HmacChecksum`, cksumtype -138).
-- [~] **Kerberos SMB authentication (`-k`)** — the getST + AP-REQ path behind impacket's `-k`.
-      `KerberosClient.GetServiceTicket` (TGS for `cifs/<host>`, decrypt the TGS-REP enc-part with the
-      TGT session key → service session key), `KerberosGss.BuildApReqToken` (port of
-      `kerberosv5.getKerberosType1`: GSS checksum 0x8003 with the SMB flags, authenticator usage 11,
-      AP-REQ with `mutual-required`, GSS-framed `[APPLICATION 0]{krb5-OID, 0x0001, AP-REQ}`),
-      `Spnego.WrapKerberosInitialToken` (SPNEGO NegTokenInit offering **MS KRB5**), and
-      `Smb2Client.LoginKerberos` (single-round SESSION_SETUP; the SMB session key is the service
-      session key, from which the 3.1.1 signing key derives). Driven by `-k`/`-dc-ip`/`-target-ip`;
-      overpass-the-hash via `-hashes`. **Validated live against the lab DC:** the capture
-      (`dotnetpacket-kerberos.pcap`) dissects as AS-REQ/REP → TGS-REQ/REP (`cifs/vm.lab.local`) →
-      SPNEGO(MS KRB5) AP-REQ → **STATUS_SUCCESS**; the session authenticates as the principal
-      (non-guest) and SMB signing validates (Samba signs its responses). **Divergence vs
-      impacket:** impacket defaults to **AES**; DotNetPacket is **RC4** (as for the rest of its
-      Kerberos). On this modern Samba the RC4 Kerberos session authenticates but *privileged* share/RPC
-      authorization is restricted (the PAC groups are not applied to the token — Samba RC4 hardening),
-      so `-k` is complete at the auth layer but AES is needed for full post-auth access. The
-      SPNEGO/GSS/AP-REQ token structure is unit-tested; the `DCE_STYLE` flag is omitted (it makes Samba
-      demand a second SPNEGO leg) so auth completes in one round.
-- [ ] AES enctypes (RFC 3962), ccache read/write, S4U (getST delegation) — deferred (the remaining
-      Kerberos parity gap; AES would also unblock full `-k` authorization on modern Samba/Windows).
+- [x] **Kerberos SMB authentication (`-k`), RC4 *and* AES** — the getST + AP-REQ path behind
+      impacket's `-k`, now at full parity with impacket's default AES-256.
+      - `KerberosClient.GetTgt` probes the KDC for its etypes + salt (PA-ETYPE-INFO2) and picks the
+        strongest it offers (AES-256 → AES-128 → RC4), derives the client key and sends a
+        PA-ENC-TIMESTAMP pre-auth; overpass-the-hash keeps the RC4 (`-hashes`) and AES (`-aesKey`) paths.
+      - `KerberosClient.GetServiceTicket` (TGS for `cifs/<host>`, decrypt the TGS-REP enc-part → service
+        session key) and `KerberosGss.BuildApReqToken` (port of `kerberosv5.getKerberosType1`: GSS
+        checksum 0x8003 with the SMB flags, authenticator usage 11, `mutual-required` AP-REQ, GSS-framed
+        `[APPLICATION 0]{krb5-OID, 0x0001, AP-REQ}`) are etype-aware via `Krb5Cipher`.
+      - `KerberosApRep.ExtractSubkey` reads the **mutual-auth AP-REP** the server returns and recovers
+        the **acceptor subkey** (EncAPRepPart, key usage 12). Per [MS-KILE] 3.1.1.2 this is the SMB
+        session key when mutual auth is requested — and for AES it differs from the ticket session key,
+        so SMB signing keys on it. (This also fixed RC4 signing, which used the wrong key before.)
+      - `Smb2Client.LoginKerberos` runs the single-round SESSION_SETUP and derives the 3.1.1 signing key
+        from the AP-REP subkey. Driven by `-k` / `-dc-ip` / `-target-ip` / `-aesKey`.
+      - **Validated live against the lab DC:** the capture (`dotnetpacket-kerberos-aes256.pcap`) dissects
+        as AS probe (etype 18,17,23) → `KDC_ERR_PREAUTH_REQUIRED` (+ETYPE-INFO2 salt) → AES-256
+        PA-ENC-TIMESTAMP AS-REQ/REP → TGS-REQ/REP (`cifs/vm.lab.local`) → SPNEGO(MS KRB5) AP-REQ →
+        AP-REP → **STATUS_SUCCESS**, and a **signed `srvsvc NetrShareEnum` succeeds** (full authorization:
+        the earlier privileged-access denial was a wrong SMB signing key, *not* a PAC/RC4 limitation —
+        Samba logged "Bad SMB2 signature"; keying on the AP-REP subkey resolves it for RC4 and AES). The
+        `DCE_STYLE` flag is omitted (it makes Samba demand a second SPNEGO leg) so auth completes in one
+        round.
+- [ ] ccache read/write, S4U (getST delegation / constrained-delegation abuse) — deferred (not needed
+      for `-k` auth; would extend Kerberos tooling breadth).
 
 ## Examples (`DotNetPacket.Examples`)
 

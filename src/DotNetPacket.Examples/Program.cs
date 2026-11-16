@@ -2140,7 +2140,14 @@ switch (args[0])
         try
         {
             Tgt tgt = KerberosClient.GetTgt(host, realm, user, password, kdcPort);
-            Console.WriteLine($"TGT obtained for {tgt.User}@{tgt.Realm} (getTGT.py, RC4-HMAC pre-auth)");
+            string etypeName = tgt.SessionKeyEtype switch
+            {
+                18 => "AES256-CTS-HMAC-SHA1-96",
+                17 => "AES128-CTS-HMAC-SHA1-96",
+                23 => "RC4-HMAC",
+                _ => $"etype {tgt.SessionKeyEtype}",
+            };
+            Console.WriteLine($"TGT obtained for {tgt.User}@{tgt.Realm} (getTGT.py, {etypeName} pre-auth)");
             Console.WriteLine($"  Service:      {tgt.ServiceName}");
             Console.WriteLine($"  Session key:  etype {tgt.SessionKeyEtype}, {tgt.SessionKey.Length} bytes" +
                 $" ({Convert.ToHexString(tgt.SessionKey).ToLowerInvariant()})");

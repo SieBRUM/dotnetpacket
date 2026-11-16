@@ -21,6 +21,9 @@ public sealed class KerberosResponse
     /// <summary>AS-REP ticket, as its raw DER (the [APPLICATION 1] Ticket) — kept for a later TGS-REQ.</summary>
     public byte[] Ticket { get; private init; } = Array.Empty<byte>();
 
+    /// <summary>KRB-ERROR e-data (a METHOD-DATA with PA-ETYPE-INFO2), when present — the AES salt source.</summary>
+    public byte[] EData { get; private init; } = Array.Empty<byte>();
+
     private static Asn1Tag Ctx(int n) => new(TagClass.ContextSpecific, n, isConstructed: true);
 
     /// <summary>Parses a raw KDC reply (one DER message) as an AS-REP or a KRB-ERROR.</summary>
@@ -31,7 +34,8 @@ public sealed class KerberosResponse
 
         if (tag.TagClass == TagClass.Application && tag.TagValue == Krb5Constants.KrbError)
         {
-            return new KerberosResponse { IsAsRep = false, ErrorCode = ParseKrbError(top) };
+            (int code, byte[] edata) = ParseKrbError(top);
+            return new KerberosResponse { IsAsRep = false, ErrorCode = code, EData = edata };
         }
 
         if (tag.TagClass == TagClass.Application && tag.TagValue == Krb5Constants.AsRep)
@@ -43,22 +47,35 @@ public sealed class KerberosResponse
         throw new InvalidDataException($"Unexpected Kerberos reply tag {tag.TagClass}/{tag.TagValue}.");
     }
 
-    // KRB-ERROR ::= [APPLICATION 30] SEQUENCE { ... error-code [6] Int32 ... }
-    private static int ParseKrbError(AsnReader top)
+    // KRB-ERROR ::= [APPLICATION 30] SEQUENCE { ... error-code [6] Int32 ... e-data [12] OCTET STRING OPTIONAL }
+    private static (int Code, byte[] EData) ParseKrbError(AsnReader top)
     {
         AsnReader body = top.ReadSequence(new Asn1Tag(TagClass.Application, Krb5Constants.KrbError)).ReadSequence();
+        int code = int.MinValue;
+        byte[] edata = Array.Empty<byte>();
         while (body.HasData)
         {
             Asn1Tag t = body.PeekTag();
             if (t.TagClass == TagClass.ContextSpecific && t.TagValue == 6)
             {
-                return (int)ReadExplicitInteger(body, Ctx(6));
+                code = (int)ReadExplicitInteger(body, Ctx(6));
             }
-
-            body.ReadEncodedValue();
+            else if (t.TagClass == TagClass.ContextSpecific && t.TagValue == 12)
+            {
+                edata = body.ReadSequence(Ctx(12)).ReadOctetString();
+            }
+            else
+            {
+                body.ReadEncodedValue();
+            }
         }
 
-        throw new InvalidDataException("KRB-ERROR without an error-code.");
+        if (code == int.MinValue)
+        {
+            throw new InvalidDataException("KRB-ERROR without an error-code.");
+        }
+
+        return (code, edata);
     }
 
     // AS-REP ::= [APPLICATION 11] SEQUENCE { ... ticket [5] Ticket, enc-part [6] EncryptedData }

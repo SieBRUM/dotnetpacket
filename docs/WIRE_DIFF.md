@@ -223,6 +223,40 @@ sname as the SPN (NT-SRV-INST), RC4 etype, and the `$krb5tgs$` format (incl. the
 SPN) is byte-compatible with impacket's. Detection signal: a flurry of TGS-REQs for many SPNs from
 one client — behavioral, independent of the checksum nuance.
 
+### Kerberos SMB login with AES-256 (`-k`) — 2026-11-16
+
+The headline parity feature: `-k` now authenticates to SMB with **AES-256** (impacket's default),
+not just RC4. Capture: `dotnetpacket-kerberos-aes256.pcap`. The full exchange on the wire matches a
+modern Windows/impacket client:
+
+| Stage | DotNetPacket (`-k`, password) | Note |
+| --- | --- | --- |
+| AS probe | AS-REQ etype `[18, 17, 23]`, no pre-auth | same list + order impacket offers (AES-256 first) |
+| KDC reply | `KDC_ERR_PREAUTH_REQUIRED` + PA-ETYPE-INFO2 (etype 18, salt `LAB.LOCALAdministrator`) | we read the salt from here, as impacket does |
+| AS-REQ #2 | PA-ENC-TIMESTAMP encrypted **aes256-cts-hmac-sha1-96**, etype `[18]` | key = RFC 3962 string-to-key(password, salt, 4096) |
+| TGS-REQ | AP-REQ authenticator + req-body checksum both **AES** (enc usage 7, cksumtype 16 usage 6) | etype-driven by the TGT session key |
+| AP-REQ | SPNEGO(MS KRB5) `[APPLICATION 0]{krb5-OID, 0x0001, AP-REQ}`, authenticator usage 11, `mutual-required` | byte-structure unit-tested |
+| AP-REP | server returns `krb-ap-rep`; we decrypt EncAPRepPart (usage 12) → **acceptor subkey** | the SMB session key under AES |
+| SESSION_SETUP | single round → **STATUS_SUCCESS**; signing key = KDF(AP-REP subkey) | signed `srvsvc` then succeeds |
+
+**The subtle, important finding.** Authenticating is not enough: the first AES attempt reached
+`STATUS_SUCCESS` but every *signed* follow-up (TREE_CONNECT, the `srvsvc` pipe) was rejected, and
+Samba logged **`Bad SMB2 (sign_algo_id=1) signature for message`**. The earlier RC4 `-k` work had
+mis-attributed this to "Samba RC4 PAC hardening" — but AES failed *identically*, which ruled that
+out. The real cause is [MS-KILE] 3.1.1.2: when the client requests **mutual authentication** (we do),
+the GSS/SMB session key is the **subkey in the server's AP-REP**, not the ticket session key — and
+*for AES the two differ* (for RC4 they happen to coincide, which is why RC4 "looked" authenticated).
+Keying SMB signing on the recovered AP-REP subkey fixes authorization for **both** RC4 and AES; a
+signed `srvsvc NetrShareEnum` now returns the share list, matching an NTLM admin session.
+
+**Crypto fidelity.** The aes128/aes256-cts-hmac-sha1-96 profiles (`AesCtsCrypto`) are verified
+**byte-for-byte against stock impacket** (encrypt + keyed-checksum known-answer tests with a fixed
+confounder) and against the **RFC 3962 Appendix B** string-to-key vectors; n-fold matches the MIT
+krb5 reference (note: the widely-copied `be07…` n-fold value for `"012345678"` is wrong — MIT and
+impacket both produce `a928a426e3e36b30`). So there is no client crypto fingerprint separating the
+runtimes on the AES path. Detection signal: ordinary Kerberos — AS/TGS/AP-REQ sequences and volume,
+not bytes.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted
