@@ -397,6 +397,33 @@ must — read until PFC_LAST_FRAG, unseal/verify each fragment independently (si
 concatenate. No divergence from impacket or Windows on the wire; the fragment boundaries are the server's
 choice, not the client's.
 
+### Kerberos (-k) DCSync — DCE-style GSS-authenticated DRSUAPI (`dcsync-k`) — 2026-11-17
+
+DCSync authenticated with a Kerberos ticket instead of NTLM (`secretsdump -k`). The DCERPC bind uses
+RPC_C_AUTHN_GSS_NEGOTIATE with the Microsoft DCE-style three-leg handshake — distinct from the single-leg
+NTLM bind and a strong behavioral signal in itself:
+
+`AS-REQ/AS-REP` (or a cached TGT) → `TGS-REQ/TGS-REP` for `host/<dc-fqdn>` → `BIND` (GSS AP-REQ,
+ap-options mutual-required, GSS checksum flags incl. **DCE_STYLE 0x1000**) → `BIND_ACK` (AP-REP) →
+`ALTER_CONTEXT` (the client's mutual-auth completion AP-REP + SPNEGO mechListMIC) → `ALTER_CONTEXT_RESP`
+→ sealed `DsGetNCChanges`. Per-PDU protection is RFC 4121 AES CFX `GSS_Wrap` (the acceptor subkey from the
+AP-REP), the same CFX machinery as the sealed Kerberos LDAP bind but with the DCERPC token split (sealed
+stub in the PDU, 16-byte header + rotated front slice in the auth verifier).
+
+**Detection.** Two tells stack on the EXOP_REPL_OBJ-from-a-non-DC signature: the replication is now
+preceded by a Kerberos service-ticket request for the DC's `host/` SPN, and the DCERPC bind is a
+DCE-style GSS-NEGOTIATE three-leg exchange (BIND→ALTER_CONTEXT) rather than NTLM. A `host/<dc>` TGS
+followed by a sealed DRSUAPI replication from a workstation is a crisp DCSync-over-Kerberos pattern.
+
+**vs impacket (a real divergence worth recording).** impacket's `getKerberosType3` sends **no**
+SPNEGO mechListMIC in the ALTER_CONTEXT. Against Samba 4.19.5's strict SPNEGO that leaves the context
+accept-incomplete and the first sealed request faults `nca_s_proto_error`; DotNetPacket sends the client
+mechListMIC (a GSS MIC over the offered MS-KRB5 MechTypeList) and completes the bind. Doing so surfaced
+two impacket bugs that are latent because real DCs don't require the mechListMIC: its
+`GSSAPI_AES.GSS_GetMIC` adds a `_calculateMICPad` that is wrong for a CFX MIC token (a correct MIC
+checksums `data || header` with no pad), and the MIC must be over the MS-KRB5 OID (`1.2.840.48018.1.2.2`)
+as offered, not the canonical KRB5 OID. DotNetPacket emits the RFC-correct, Samba-accepted form.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted

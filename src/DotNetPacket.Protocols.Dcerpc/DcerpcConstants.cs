@@ -52,6 +52,9 @@ public static class Dcerpc
 
     /// <summary>Authentication service id: NTLMSSP (MS-RPCE 2.2.1.1.7, RPC_C_AUTHN_WINNT).</summary>
     public const byte AuthTypeNtlm = 0x0A;
+
+    /// <summary>Authentication service id: SPNEGO/Kerberos (MS-RPCE 2.2.1.1.7, RPC_C_AUTHN_GSS_NEGOTIATE).</summary>
+    public const byte AuthTypeGssNegotiate = 0x09;
 }
 
 /// <summary>DCERPC authentication level (MS-RPCE 2.2.1.1.8 / RPC_C_AUTHN_LEVEL_*).</summary>

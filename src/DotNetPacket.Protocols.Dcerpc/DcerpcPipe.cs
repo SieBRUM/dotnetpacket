@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Smb;
 
@@ -17,6 +18,7 @@ public sealed class DcerpcPipe
     private uint _callId = 1;
 
     private NtlmSecurityContext? _security;
+    private KerberosDcerpcSecurity? _kerberos;
     private DcerpcAuthLevel _authLevel = DcerpcAuthLevel.None;
     private uint _authContextId;
     private byte[]? _sessionKey;
@@ -131,6 +133,77 @@ public sealed class DcerpcPipe
     }
 
     /// <summary>
+    /// Binds with Kerberos (RPC_C_AUTHN_GSS_NEGOTIATE) using <paramref name="ticket"/>, at
+    /// <paramref name="level"/>, via the DCE-style three-leg handshake: BIND carries a DCE-style GSS
+    /// AP-REQ; BIND_ACK returns the AP-REP; the ALTER_CONTEXT returns the mutual-auth completion token.
+    /// After this, <see cref="Call"/> seals/signs each request with the AP-REP acceptor subkey.
+    /// </summary>
+    public DcerpcBindAck BindKerberos(DcerpcInterface iface, ServiceTicket ticket, DcerpcAuthLevel level)
+    {
+        _authLevel = level;
+        _authContextId = BitConverter.ToUInt32(RandomNumberGenerator.GetBytes(4), 0);
+
+        KerberosApReq apReq = KerberosGss.BuildApReqToken(ticket, mutualAuth: true, gssFlags: KerberosGss.DcerpcGssFlags);
+        byte[] spnegoInit = Spnego.WrapKerberosInitialToken(apReq.GssToken);
+
+        uint bindCallId = _callId++;
+        var bind = new DcerpcBind
+        {
+            InterfaceUuid = iface.Uuid,
+            InterfaceVersionMajor = iface.VersionMajor,
+            InterfaceVersionMinor = iface.VersionMinor,
+            CallId = bindCallId,
+            AuthTrailer = new DcerpcSecTrailer
+            {
+                AuthType = Dcerpc.AuthTypeGssNegotiate,
+                AuthLevel = (byte)level,
+                AuthContextId = _authContextId,
+            },
+            AuthToken = spnegoInit,
+        };
+
+        DcerpcBindAck ack = DcerpcBindAck.Parse(_transport.Transceive(bind.Pack()));
+        if (!ack.Accepted || ack.AuthValue.Length == 0)
+        {
+            return ack;
+        }
+
+        // Process the AP-REP and build the third-leg (ALTER_CONTEXT) completion token.
+        byte[] apRepToken = Spnego.ExtractResponseToken(ack.AuthValue);
+        KerberosApRep.DceApRep dce = KerberosApRep.ProcessDceApRep(apRepToken, ticket.SessionKey, ticket.SessionKeyEtype);
+
+        // The GSS context is keyed on the AP-REP acceptor subkey. The ALTER_CONTEXT carries the SPNEGO
+        // mechListMIC (GSS MIC over the offered MechTypeList) — the first per-message token (seq 0), so
+        // data messages start at seq 1.
+        // The GSS context is keyed on the AP-REP acceptor subkey. Samba's strict SPNEGO requires the
+        // client to send a mechListMIC (a GSS MIC over the offered MS-KRB5 MechTypeList) in the
+        // ALTER_CONTEXT to complete the context — it is the first per-message token (seq 0), so data
+        // messages start at seq 1.
+        _kerberos = new KerberosDcerpcSecurity(dce.Subkey.Key, dce.Subkey.Etype);
+        byte[] mechListMic = _kerberos.GetMic(Spnego.KerberosMechListDer());
+
+        var alter = new DcerpcBind
+        {
+            InterfaceUuid = iface.Uuid,
+            InterfaceVersionMajor = iface.VersionMajor,
+            InterfaceVersionMinor = iface.VersionMinor,
+            CallId = bindCallId,
+            PduType = DcerpcPduType.AlterContext,
+            AuthTrailer = new DcerpcSecTrailer
+            {
+                AuthType = Dcerpc.AuthTypeGssNegotiate,
+                AuthLevel = (byte)level,
+                AuthContextId = _authContextId,
+            },
+            AuthToken = Spnego.WrapResponseToken(dce.AltContextApRep, mechListMic),
+        };
+
+        _transport.Transceive(alter.Pack()); // ALTER_CONTEXT_RESP — context accepted
+        _sessionKey = dce.Subkey.Key;
+        return ack;
+    }
+
+    /// <summary>
     /// Invokes an opnum with an NDR request stub and returns the NDR response stub (throws on FAULT).
     /// A response larger than the server's fragment size arrives as several PDUs (PFC_FIRST_FRAG …
     /// PFC_LAST_FRAG); they are read and their stub bodies concatenated until the last fragment, with
@@ -139,12 +212,13 @@ public sealed class DcerpcPipe
     public byte[] Call(ushort opnum, byte[] stub)
     {
         var request = new DcerpcRequest { Opnum = opnum, Stub = stub, CallId = _callId++ };
-        byte[] pdu = _security is null
-            ? request.Pack()
-            : request.PackAuthenticated(_security, _authLevel, _authContextId);
+        byte[] pdu = _kerberos is not null
+            ? request.PackKerberos(_kerberos, _authLevel, _authContextId)
+            : _security is null
+                ? request.Pack()
+                : request.PackAuthenticated(_security, _authLevel, _authContextId);
 
-        byte[] firstPdu = _transport.Transceive(pdu);
-        DcerpcResponse first = DcerpcResponse.Parse(firstPdu, _security, _authLevel);
+        DcerpcResponse first = ParseResponse(_transport.Transceive(pdu));
         if (first.IsLastFragment)
         {
             return first.Stub;
@@ -154,7 +228,7 @@ public sealed class DcerpcPipe
         var assembled = new List<byte>(first.Stub);
         while (true)
         {
-            DcerpcResponse next = DcerpcResponse.Parse(_transport.Receive(), _security, _authLevel);
+            DcerpcResponse next = ParseResponse(_transport.Receive());
             assembled.AddRange(next.Stub);
             if (next.IsLastFragment)
             {
@@ -162,6 +236,10 @@ public sealed class DcerpcPipe
             }
         }
     }
+
+    private DcerpcResponse ParseResponse(byte[] pdu) => _kerberos is not null
+        ? DcerpcResponse.ParseKerberos(pdu, _kerberos, _authLevel)
+        : DcerpcResponse.Parse(pdu, _security, _authLevel);
 
     /// <summary>Closes the underlying transport.</summary>
     public void Close() => _transport.Close();

@@ -1,4 +1,5 @@
 using DotNetPacket.Core;
+using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Ntlm;
 
 namespace DotNetPacket.Protocols.Dcerpc;
@@ -82,6 +83,63 @@ public sealed class DcerpcRequest
         var writer = new ByteWriter(ByteOrder.Little);
         writer.WriteBytes(preBytes);
         writer.WriteBytes(seal ? sealedData : plainData);
+        writer.WriteBytes(trailerBytes);
+        writer.WriteBytes(signature);
+        return writer.ToArray();
+    }
+
+    /// <summary>
+    /// Serializes an authenticated REQUEST PDU using a Kerberos GSS context (RPC_C_AUTHN_GSS_NEGOTIATE).
+    /// The stub is 4-byte padded, then GSS-wrapped (privacy) or MIC'd (integrity); the sealed body
+    /// replaces the stub and the GSS token's verifier becomes the (variable-length) auth_data. Mirrors
+    /// impacket <c>rpcrt._transport_send</c> for the GSS_NEGOTIATE path.
+    /// </summary>
+    public byte[] PackKerberos(KerberosDcerpcSecurity context, DcerpcAuthLevel level, uint authContextId)
+    {
+        bool seal = level == DcerpcAuthLevel.PacketPrivacy;
+
+        int padLength = (4 - (Stub.Length % 4)) % 4;
+        byte[] plainData = new byte[Stub.Length + padLength];
+        Array.Copy(Stub, plainData, Stub.Length);
+        for (int i = Stub.Length; i < plainData.Length; i++)
+        {
+            plainData[i] = 0xBB; // auth pad fill (ignored on receipt)
+        }
+
+        byte[] body;
+        byte[] signature;
+        if (seal)
+        {
+            (body, signature) = context.Wrap(plainData);
+        }
+        else
+        {
+            body = plainData;
+            signature = context.GetMic(plainData);
+        }
+
+        byte[] trailerBytes = new DcerpcSecTrailer
+        {
+            AuthType = Dcerpc.AuthTypeGssNegotiate,
+            AuthLevel = (byte)level,
+            AuthPadLength = (byte)padLength,
+            AuthContextId = authContextId,
+        }.Pack();
+
+        var header = new DcerpcHeader
+        {
+            PduType = (byte)DcerpcPduType.Request,
+            CallId = CallId,
+            FragLength = (ushort)(DcerpcHeader.Size + 8 + body.Length + DcerpcSecTrailer.Size + signature.Length),
+            AuthLength = (ushort)signature.Length,
+        };
+
+        var writer = new ByteWriter(ByteOrder.Little);
+        writer.WriteBytes(header.Pack());
+        writer.WriteUInt32((uint)plainData.Length); // alloc_hint = stub + pad
+        writer.WriteUInt16(ContextId);
+        writer.WriteUInt16(Opnum);
+        writer.WriteBytes(body);
         writer.WriteBytes(trailerBytes);
         writer.WriteBytes(signature);
         return writer.ToArray();
@@ -187,6 +245,52 @@ public sealed class DcerpcResponse
         byte[] signedRegion = Concat(pdu[..stubStart], plain, trailerBytes);
         context.Verify(signedRegion, signature);
 
+        int stubLength = plain.Length - trailer.AuthPadLength;
+        return new DcerpcResponse { Stub = plain[..stubLength], IsLastFragment = lastFragment };
+    }
+
+    /// <summary>
+    /// Parses a RESPONSE PDU authenticated with a Kerberos GSS context (RPC_C_AUTHN_GSS_NEGOTIATE):
+    /// the sealed body is GSS-unwrapped using the trailing auth verifier, then the sec_trailer
+    /// auth_pad_len is stripped. Throws on FAULT.
+    /// </summary>
+    public static DcerpcResponse ParseKerberos(byte[] pdu, KerberosDcerpcSecurity context, DcerpcAuthLevel level)
+    {
+        var reader = new ByteReader(pdu, ByteOrder.Little);
+        var header = new DcerpcHeader();
+        header.Unpack(reader);
+
+        if ((DcerpcPduType)header.PduType == DcerpcPduType.Fault)
+        {
+            reader.ReadUInt32();
+            reader.ReadUInt16();
+            reader.ReadByte();
+            reader.ReadByte();
+            throw new DcerpcFaultException(reader.ReadUInt32());
+        }
+
+        if ((DcerpcPduType)header.PduType != DcerpcPduType.Response)
+        {
+            throw new InvalidDataException($"Expected RESPONSE PDU but got {(DcerpcPduType)header.PduType}.");
+        }
+
+        reader.ReadUInt32(); // alloc_hint
+        reader.ReadUInt16(); // p_cont_id
+        reader.ReadByte();   // cancel_count
+        reader.ReadByte();   // reserved
+
+        bool lastFragment = ((DcerpcPfcFlags)header.PfcFlags & DcerpcPfcFlags.LastFragment) != 0;
+        int stubStart = reader.Position;
+        int trailerStart = header.FragLength - header.AuthLength - DcerpcSecTrailer.Size;
+        int sigStart = trailerStart + DcerpcSecTrailer.Size;
+
+        byte[] body = pdu[stubStart..trailerStart];
+        byte[] trailerBytes = pdu[trailerStart..sigStart];
+        byte[] signature = pdu[sigStart..header.FragLength];
+        DcerpcSecTrailer trailer = DcerpcSecTrailer.Parse(new ByteReader(trailerBytes, ByteOrder.Little));
+
+        bool seal = level == DcerpcAuthLevel.PacketPrivacy;
+        byte[] plain = seal ? context.Unwrap(body, signature) : body;
         int stubLength = plain.Length - trailer.AuthPadLength;
         return new DcerpcResponse { Stub = plain[..stubLength], IsLastFragment = lastFragment };
     }

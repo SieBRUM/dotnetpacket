@@ -70,6 +70,21 @@ public static class Spnego
     /// Wraps a GSS-API Kerberos AP-REQ token as a SPNEGO <c>NegTokenInit</c> offering the krb5
     /// mechanism — the single-round token a Kerberos (-k) SMB SESSION_SETUP or LDAP GSS-SPNEGO bind sends.
     /// </summary>
+    /// <summary>
+    /// The DER encoding of the Kerberos SPNEGO MechTypeList (<c>SEQUENCE OF { MS-KRB5 OID }</c>) — the
+    /// exact bytes a NegTokenInit offers and over which the SPNEGO mechListMIC is computed (RFC 4178).
+    /// </summary>
+    public static byte[] KerberosMechListDer()
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence())
+        {
+            writer.WriteObjectIdentifier(MsKrb5Oid);
+        }
+
+        return writer.Encode();
+    }
+
     public static byte[] WrapKerberosInitialToken(byte[] kerberosApReqToken)
     {
         var writer = new AsnWriter(AsnEncodingRules.DER);

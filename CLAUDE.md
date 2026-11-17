@@ -141,7 +141,7 @@ src/
     AesCtsCrypto.cs                #   AES128/256-CTS-HMAC-SHA1-96 (RFC 3962): nfold, DR/DK, PBKDF2 s2k, CBC-CS3, HMAC-SHA1-96 (byte-exact vs impacket + RFC 3962 vectors)
     Krb5Cipher.cs                  #   etype dispatcher (RC4 23 / AES128 17 / AES256 18): encrypt/decrypt/checksum/string-to-key, prefers AES-256
     EtypeInfo2.cs                  #   PA-ETYPE-INFO2 parse (KDC's etypes + AES salt + s2kparams) from the PREAUTH_REQUIRED error
-    KerberosApRep.cs               #   AP-REP parse + EncAPRepPart decrypt (usage 12) -> acceptor subkey (the SMB session key under mutual auth; [MS-KILE] 3.1.1.2)
+    KerberosApRep.cs               #   AP-REP parse + EncAPRepPart decrypt (usage 12) -> acceptor subkey (the SMB session key under mutual auth; [MS-KILE] 3.1.1.2); ProcessDceApRep builds the DCERPC ALTER_CONTEXT third leg
     KerberosGssContext.cs          #   GSS per-message Wrap/Unwrap for the sealed Kerberos LDAP bind: RFC 4121 CFX (AES) + RFC 1964 RC4-HMAC (byte-exact vs impacket GSS_Wrap_LDAP)
     AsReq.cs                       #   AS-REQ builder (no-preauth for GetNPUsers; PA-ENC-TIMESTAMP for getTGT)
     TgsReq.cs                      #   TGS-REQ builder (AP-REQ + authenticator + req-body checksum; Kerberoast)
@@ -153,7 +153,8 @@ src/
     KerbTgsRoast.cs                #   $krb5tgs$ hashcat formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
     CCache.cs                      #   MIT ccache v4 read/write (KRB5CCNAME ticket store): -k consumes one, kerb-tgt/get-st save one (impacket-interop)
-    KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken (RC4 + AES)
+    KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken (RC4 + AES); DcerpcGssFlags adds DCE_STYLE
+    KerberosDcerpcSecurity.cs      #   GSS per-message Wrap/Unwrap/GetMIC for the sealed Kerberos DCERPC bind (RFC 4121 AES CFX; the DCSync -k seal + mechListMIC)
     S4uReq.cs                      #   S4U2self (PA-FOR-USER) + S4U2proxy (additional-tickets + PA-PAC-OPTIONS) TGS-REQ builders (getST; constrained-delegation abuse)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
@@ -274,6 +275,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interf
 dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <lab-host> <user> <password> [domain]  # ept_map -> sealed samr over TCP
 dotnet run --project src/DotNetPacket.Examples -- dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)
 dotnet run --project src/DotNetPacket.Examples -- dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)
+dotnet run --project src/DotNetPacket.Examples -- dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)
 dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
 dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <lab-host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
 dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)

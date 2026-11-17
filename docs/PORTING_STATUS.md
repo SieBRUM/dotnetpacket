@@ -1173,3 +1173,25 @@ captures here (what differs, why, and whether it is detection-relevant).
     concatenate the stub bodies. `IDcerpcTransport` gains `Receive()` (TCP + SMB-pipe); pinned by a
     fake-transport reassembly test. 252 tests pass. This is why the single-account `dcsync` always worked
     (its reply fit in one fragment or the first fragment held the whole object) while the bulk dump did not.
+- **2026-11-17 — Kerberos (-k) for the DRSUAPI bind: DCE-style GSS auth + seal (`dcsync-k`).**
+  Added RPC_C_AUTHN_GSS_NEGOTIATE to the DCERPC stack so DCSync can authenticate with a Kerberos ticket
+  instead of NTLM. `DcerpcPipe.BindKerberos` drives the MS-RPCE three-leg DCE-style handshake: BIND
+  carries a DCE-style GSS AP-REQ (`KerberosGss.DcerpcGssFlags` = CONF|INTEG|SEQUENCE|REPLAY|MUTUAL|
+  DCE_STYLE), the BIND_ACK returns the AP-REP, and an ALTER_CONTEXT returns the mutual-auth completion
+  (`KerberosApRep.ProcessDceApRep` re-encodes EncAPRepPart under the ticket key) plus the SPNEGO
+  mechListMIC. Per-PDU sealing is RFC 4121 AES CFX `GSS_Wrap`/`GSS_Unwrap` with the DCERPC RRC=28 split
+  (`KerberosDcerpcSecurity`), keyed on the AP-REP acceptor subkey. **Validated live: `dcsync-k` replicates
+  Administrator over a Kerberos-authenticated sealed DRSUAPI bind and recovers the known NT hash
+  `ac8d0d3c9858659864b8493a51050efd` + the AES/DES Kerberos keys**; pcap shows the AS/TGS exchange then
+  BIND → ALTER_CONTEXT → sealed GetNCChanges with no faults. Crypto pinned by a GSS MIC known-answer test
+  and a Wrap self-consistency test (255 tests).
+  - **Finding — Samba 4.19.5 strict SPNEGO requires a client mechListMIC that impacket never sends.**
+    impacket's `getKerberosType3` returns only the AP-REP (no mechListMIC); against this Samba the sealed
+    request then faults `nca_s_proto_error`, and the ALTER_CONTEXT's SPNEGO negState stays accept-INCOMPLETE
+    — Samba waits for the client mechListMIC. Supplying it fixed the bind. Two sub-findings pinned by the
+    Samba gensec log: (1) **impacket's `GSSAPI_AES.GSS_GetMIC` adds a `_calculateMICPad` that is wrong for a
+    CFX MIC token** — a correct RFC 4121 MIC checksums `data || header16` with *no* pad (the pad is an
+    impacket bug that is never exercised because real DCs don't require the mechListMIC); (2) the mechListMIC
+    is computed over the **MS-KRB5** MechTypeList exactly as offered (`1.2.840.48018.1.2.2`), not the
+    canonical KRB5 OID. The acceptor subkey extraction and the AES checksum were both confirmed correct by
+    verifying Samba's own acceptor GetMic against the extracted subkey.

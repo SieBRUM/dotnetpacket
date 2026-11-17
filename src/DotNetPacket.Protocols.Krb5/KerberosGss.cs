@@ -28,6 +28,13 @@ public static class KerberosGss
 
     /// <summary>GSS checksum flags for the LDAP bind: REPLAY|SEQUENCE|CONF|INTEG, no MUTUAL (matches impacket's ldap.py).</summary>
     public const uint LdapGssFlags = 0x0000003C;
+
+    /// <summary>
+    /// GSS checksum flags for the DCERPC bind: CONF|INTEG|SEQUENCE|REPLAY|MUTUAL|DCE_STYLE (impacket's
+    /// <c>getKerberosType1</c>). DCE_STYLE (0x1000) triggers the three-leg handshake (BIND → AP-REP →
+    /// ALTER_CONTEXT) that MS-RPCE requires.
+    /// </summary>
+    public const uint DcerpcGssFlags = 0x0000103E;
     private const int ApReqAuthenticatorUsage = 11;      // KU_AP_REQ_AUTHENTICATOR
 
     private static Asn1Tag Ctx(int n) => new(TagClass.ContextSpecific, n, isConstructed: true);

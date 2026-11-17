@@ -76,6 +76,119 @@ public static class KerberosApRep
         return ParseSubkey(plain);
     }
 
+    /// <summary>The result of processing a DCE-style AP-REP: the acceptor subkey and the ALTER_CONTEXT response token.</summary>
+    public sealed record DceApRep(KerberosSubkey Subkey, int SequenceNumber, byte[] AltContextApRep);
+
+    /// <summary>
+    /// Processes the AP-REP from a DCE-style Kerberos DCERPC BIND_ACK (impacket's
+    /// <c>getKerberosType3</c>): decrypts EncAPRepPart (usage 12) to recover the acceptor subkey and
+    /// sequence number, then builds the third-leg AP-REP to send in the ALTER_CONTEXT — a re-encoded
+    /// EncAPRepPart (subkey removed, ctime/cusec refreshed, same seq-number) re-encrypted under the
+    /// ticket session key. Returns a bare (non-GSS-framed) AP-REP, as the response token.
+    /// </summary>
+    public static DceApRep ProcessDceApRep(byte[] responseToken, byte[] sessionKey, int sessionKeyEtype)
+    {
+        byte[] apRep = UnwrapGssApRep(responseToken) ?? responseToken;
+
+        AsnReader body = new AsnReader(apRep, AsnEncodingRules.DER)
+            .ReadSequence(new Asn1Tag(TagClass.Application, ApRepApp))
+            .ReadSequence();
+
+        byte[] cipher = Array.Empty<byte>();
+        while (body.HasData)
+        {
+            if (body.PeekTag().HasSameClassAndValue(Ctx(2)))
+            {
+                AsnReader enc = body.ReadSequence(Ctx(2)).ReadSequence();
+                while (enc.HasData)
+                {
+                    if (enc.PeekTag().HasSameClassAndValue(Ctx(2)))
+                    {
+                        cipher = enc.ReadSequence(Ctx(2)).ReadOctetString();
+                    }
+                    else
+                    {
+                        enc.ReadEncodedValue();
+                    }
+                }
+            }
+            else
+            {
+                body.ReadEncodedValue();
+            }
+        }
+
+        if (cipher.Length == 0)
+        {
+            throw new InvalidDataException("DCE AP-REP carries no enc-part.");
+        }
+
+        byte[] plain = Krb5Cipher.Decrypt(sessionKeyEtype, sessionKey, ApRepEncPartUsage, cipher);
+        KerberosSubkey subkey = ParseSubkey(plain) ?? throw new InvalidDataException("DCE AP-REP has no subkey.");
+        int seq = ParseSeqNumber(plain);
+
+        byte[] newEncPart = BuildEncApRepPart(DateTimeOffset.UtcNow, seq);
+        byte[] reEncrypted = Krb5Cipher.Encrypt(sessionKeyEtype, sessionKey, ApRepEncPartUsage, newEncPart);
+        byte[] altApRep = BuildApRep(sessionKeyEtype, reEncrypted);
+        return new DceApRep(subkey, seq, altApRep);
+    }
+
+    private static Asn1Tag App(int n) => new(TagClass.Application, n, isConstructed: true);
+
+    // EncAPRepPart ::= [APPLICATION 27] SEQUENCE { ctime [0], cusec [1], seq-number [3] } (no subkey for the DCE reply).
+    private static byte[] BuildEncApRepPart(DateTimeOffset now, int seq)
+    {
+        var w = new AsnWriter(AsnEncodingRules.DER);
+        using (w.PushSequence(App(EncApRepPartApp)))
+        using (w.PushSequence())
+        {
+            using (w.PushSequence(Ctx(0))) w.WriteGeneralizedTime(now, omitFractionalSeconds: true);
+            using (w.PushSequence(Ctx(1))) w.WriteInteger(now.Microsecond);
+            using (w.PushSequence(Ctx(3))) w.WriteInteger(seq);
+        }
+
+        return w.Encode();
+    }
+
+    // AP-REP ::= [APPLICATION 15] SEQUENCE { pvno [0]=5, msg-type [1]=15, enc-part [2] EncryptedData }
+    private static byte[] BuildApRep(int etype, byte[] encryptedPart)
+    {
+        var w = new AsnWriter(AsnEncodingRules.DER);
+        using (w.PushSequence(App(ApRepApp)))
+        using (w.PushSequence())
+        {
+            using (w.PushSequence(Ctx(0))) w.WriteInteger(5);   // pvno
+            using (w.PushSequence(Ctx(1))) w.WriteInteger(15);  // msg-type = AP-REP
+            using (w.PushSequence(Ctx(2)))                      // enc-part EncryptedData
+            using (w.PushSequence())
+            {
+                using (w.PushSequence(Ctx(0))) w.WriteInteger(etype);
+                using (w.PushSequence(Ctx(2))) w.WriteOctetString(encryptedPart);
+            }
+        }
+
+        return w.Encode();
+    }
+
+    // EncAPRepPart seq-number [3].
+    private static int ParseSeqNumber(byte[] encApRepPart)
+    {
+        AsnReader b = new AsnReader(encApRepPart, AsnEncodingRules.DER)
+            .ReadSequence(App(EncApRepPartApp))
+            .ReadSequence();
+        while (b.HasData)
+        {
+            if (b.PeekTag().HasSameClassAndValue(Ctx(3)))
+            {
+                return (int)b.ReadSequence(Ctx(3)).ReadInteger();
+            }
+
+            b.ReadEncodedValue();
+        }
+
+        return 0;
+    }
+
     // EncAPRepPart ::= [APPLICATION 27] SEQUENCE { ctime [0], cusec [1], subkey [2] EncryptionKey OPTIONAL, ... }
     private static KerberosSubkey? ParseSubkey(byte[] encApRepPart)
     {

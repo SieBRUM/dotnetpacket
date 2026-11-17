@@ -41,6 +41,9 @@ public sealed class DcerpcBind
     /// <summary>Optional authentication token (e.g. an NTLMSSP NEGOTIATE) carried after the sec_trailer.</summary>
     public byte[]? AuthToken { get; set; }
 
+    /// <summary>The PDU type to emit — BIND by default, or ALTER_CONTEXT for the Kerberos DCE-style third leg.</summary>
+    public DcerpcPduType PduType { get; set; } = DcerpcPduType.Bind;
+
     /// <summary>Serializes the full BIND PDU (header + body + optional auth trailer/token).</summary>
     public byte[] Pack()
     {
@@ -88,7 +91,7 @@ public sealed class DcerpcBind
 
         var header = new DcerpcHeader
         {
-            PduType = (byte)DcerpcPduType.Bind,
+            PduType = (byte)PduType,
             CallId = CallId,
             FragLength = (ushort)(DcerpcHeader.Size + bodyBytes.Length + trailerLength + authLength),
             AuthLength = (ushort)authLength,
