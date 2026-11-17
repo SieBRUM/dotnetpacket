@@ -146,6 +146,33 @@ internal static class DcSync
         Console.WriteLine($"{sam}:{rid}:{lm}:{nt}:::");
 
         PrintHistory(obj, sessionKey, rid, sam, "NT", Drsuapi.AttNtPwdHistory);
+        PrintKerberosKeys(obj, sessionKey, sam);
+    }
+
+    private static void PrintKerberosKeys(DrsReplicaObject obj, byte[] sessionKey, string sam)
+    {
+        byte[]? enc = obj.FirstValue(Drsuapi.AttSupplementalCredentials);
+        if (enc is null)
+        {
+            return;
+        }
+
+        SupplementalCredentials creds = SupplementalCredentials.Parse(
+            DrsCrypto.DecryptAttributeValue(sessionKey, enc));
+
+        if (creds.KerberosKeys.Count > 0)
+        {
+            Console.WriteLine("  Kerberos keys:");
+            foreach (KerberosStoredKey k in creds.KerberosKeys)
+            {
+                Console.WriteLine($"    {sam}:{k.KeyTypeName}:{Convert.ToHexString(k.Key).ToLowerInvariant()}");
+            }
+        }
+
+        if (creds.Cleartext is not null)
+        {
+            Console.WriteLine($"    {sam}:CLEARTEXT:{creds.Cleartext}");
+        }
     }
 
     private static void PrintHistory(

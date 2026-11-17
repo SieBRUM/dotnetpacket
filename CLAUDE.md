@@ -114,6 +114,7 @@ src/
     Epm.cs                         #   endpoint mapper ept_map (resolve an interface to its TCP port)
     Drsuapi.cs                     #   DRSUAPI (MS-DRSR): DRSBind/DRSDomainControllerInfo/DRSCrackNames/DRSGetNCChanges (EXOP_REPL_OBJ) — DCSync replication (secretsdump)
     DrsCrypto.cs                   #   DCSync secret decryption: ENCRYPTED_PAYLOAD (MD5+RC4+CRC32) + per-RID DES (MS-SAMR); decrypt-only, lab-first
+    SupplementalCredentials.cs     #   DCSync supplementalCredentials parse: USER_PROPERTIES -> Kerberos keys (aes256/aes128/des) + cleartext (MS-SAMR 2.2.10)
     PrefixTable.cs                 #   SCHEMA_PREFIX_TABLE + MakeAttid ATTRTYP<->OID conversion (MS-DRSR 5.16.4)
     IDcerpcTransport.cs            #   transport abstraction (ncacn_np vs ncacn_ip_tcp)
     SmbPipeTransport.cs            #   ncacn_np: PDUs over an SMB2 named pipe (IPC$)

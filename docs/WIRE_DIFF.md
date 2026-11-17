@@ -367,6 +367,15 @@ their own base schema. (`PrefixTable.MakeAttid` is still ported and unit-tested 
 `MD5(DCERPC seal session key ‖ salt) → RC4 → CRC-32` (ENCRYPTED_PAYLOAD) then per-RID single-DES
 (MS-SAMR). No divergence here — the bytes must match or the hash is wrong.
 
+**Kerberos keys (supplementalCredentials).** DCSync also returns the directory's *stored* Kerberos
+keys, which `dcsync` decrypts and prints after the hash line — the aes256-cts/aes128-cts/des-cbc-md5
+keys from the `Primary:Kerberos-Newer-Keys` property of the MS-SAMR USER_PROPERTIES blob (and the
+cleartext password where one is stored). A second correctness oracle: Administrator's replicated
+AES-256/AES-128 keys match the keys derived independently from the known password + salt via PBKDF2.
+These keys are reusable for pass-the-key (Silver/Golden tickets) without cracking, so pulling them is
+the same high-value, non-DC-source detection as pulling the hashes — same sealed GetNCChanges, nothing
+extra on the wire (supplementalCredentials is just another attribute in the already-requested set).
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted

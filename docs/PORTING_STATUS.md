@@ -1146,3 +1146,14 @@ captures here (what differs, why, and whether it is detection-relevant).
     integers or slices, not str`; its `DRS_MSG_GETCHGREPLY_V6` leaves `rgValues` as a stubbed
     DWORD). DotNetPacket's hand-written deferred-pointer walk of REPLENTINFLIST → ENTINF →
     ATTRBLOCK parses the real 4224-byte Samba reply where stock impacket cannot.
+- **2026-11-17 — DCSync supplementalCredentials (Kerberos keys + cleartext) parsed (`dcsync`).**
+  `SupplementalCredentials.cs` decodes the MS-SAMR USER_PROPERTIES blob that the supplementalCredentials
+  attribute wraps (after the same ENCRYPTED_PAYLOAD decrypt as the hashes): the USER_PROPERTY entries,
+  `Primary:Kerberos-Newer-Keys` (KERB_STORED_CREDENTIAL_NEW → KERB_KEY_DATA_NEW: aes256-cts/aes128-cts/
+  des-cbc-md5/dec-cbc-crc keys) and `Primary:CLEARTEXT`. Ported from impacket's `samr` structures and
+  secretsdump's `__decryptSupplementalInfo`. `dcsync` now prints the Kerberos keys and cleartext after
+  the hash line. **Validated live: Administrator's replicated aes256/aes128 keys match the keys derived
+  independently from the known password `LabAdm1n!Pass` + salt `LAB.LOCALAdministrator` via PBKDF2** (a
+  second correctness oracle, over the NT-hash oracle). These are the directory's *stored* Kerberos keys —
+  reusable for pass-the-key without cracking — so a DCSync that pulls them is the same high-value
+  detection as the hash pull. Parser pinned by a synthetic USER_PROPERTIES known-answer test (250 tests).
