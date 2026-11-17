@@ -1118,4 +1118,31 @@ captures here (what differs, why, and whether it is detection-relevant).
   not match this server and matching this server would be Samba-specific, not Windows-like.
   Deferred until a Windows capture confirms the real layout. (Levels 1/5 do return via impacket but
   the decode does not match the spec — not shipping a guessed parser. The home/script/profile
-  fields are also empty for the lab accounts, so there is little to demonstrate here anyway.)
+  fields are also empty for the lab accounts, so there is little to demonstrate here anyway.)- **2026-11-17 — secretsdump DCSync (DRSUAPI replication) ported as `dcsync`.** The MS-DRSR
+  replication path from impacket's `examples/secretsdump.py` (NTDSHashes DRSUAPI method):
+  `Drsuapi.cs` builds IDL_DRSBind (opnum 0, with the DRS_EXTENSIONS_INT capability blob),
+  IDL_DRSDomainControllerInfo (opnum 16, for the DC's NtdsDsaObjectGuid), IDL_DRSCrackNames
+  (opnum 12, NT4 account → objectGUID) and IDL_DRSGetNCChanges (opnum 3, `ulExtendedOp =
+  EXOP_REPL_OBJ`, single-object replication), all over the existing sealed ncacn_ip_tcp path
+  (ept_map → NTLMSSP packet-privacy bind, reusing the `rpc-samr-tcp` transport). `DrsCrypto.cs`
+  removes the two secret-wrapping layers: the outer ENCRYPTED_PAYLOAD (`MD5(DCERPC seal session
+  key ‖ salt)` → RC4 → CRC-32 verify) and the inner per-RID DES (MS-SAMR 2.2.11.1). **Validated
+  live against the lab DC: Administrator decrypts to the known NT hash
+  `ac8d0d3c9858659864b8493a51050efd` (RID 500) and krbtgt (RID 502) replicates cleanly** — the
+  built-in correctness oracle. Captured pcap shows the full sealed sequence
+  `DsBind → DsGetDomainControllerInfo → DsCrackNames → DsGetNCChanges → DsUnbind`, each decoded by
+  Wireshark as a valid DRSUAPI operation (the GetNCChanges stub is sealed at packet-privacy, as
+  real DCSync is). Crypto pinned by a known-answer test from impacket's `DecryptAttributeValue` +
+  `removeDESLayer`; ATTRTYP/MakeAttid and the bind blob pinned byte-exact; the reply parser
+  exercised end-to-end by a synthetic GETCHGREPLY_V6 known-answer test (248 tests total).
+  - **Note — empty request prefix map, canonical attids.** Samba's `getncchanges.c` rejects a
+    custom remote prefixMap ("Failed to decode remote prefixMap: WERR_INVALID_PARAMETER") and
+    silently replicates 0 objects. The interoperable path (which Windows DCs also accept) is to
+    send the partial attribute set as the well-known reply-side ATTRTYP ids (unicodePwd `0x9005A`,
+    objectSid `0x90092`, …) with `PrefixCount = 0`, letting the DC resolve them through its own
+    base schema prefix map. `PrefixTable.MakeAttid` (the on-the-fly prefix-table builder) is ported
+    and unit-tested for fidelity but is not sent on the wire for this reason.
+  - **Note — impacket's own DRSUAPI reply parser is broken on this box** (`byte indices must be
+    integers or slices, not str`; its `DRS_MSG_GETCHGREPLY_V6` leaves `rgValues` as a stubbed
+    DWORD). DotNetPacket's hand-written deferred-pointer walk of REPLENTINFLIST → ENTINF →
+    ATTRBLOCK parses the real 4224-byte Samba reply where stock impacket cannot.

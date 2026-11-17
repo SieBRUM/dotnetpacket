@@ -115,6 +115,14 @@ public sealed record DcerpcInterface(string Name, Guid Uuid, ushort VersionMajor
     public static readonly DcerpcInterface Epm =
         new("epm", new Guid("e1af8308-5d1f-11c9-91a4-08002b14a0fa"), 3, 0, "epmapper");
 
+    /// <summary>
+    /// The directory replication service (DRSUAPI / MS-DRSR). Reached over ncacn_ip_tcp on a
+    /// dynamic port (resolved via the endpoint mapper); its replication opnums are what DCSync
+    /// (secretsdump's -use-vss alternative) drives to extract account secrets from a DC.
+    /// </summary>
+    public static readonly DcerpcInterface Drsuapi =
+        new("drsuapi", new Guid("e3514235-4b06-11d1-ab04-00c04fc2dcd2"), 4, 0, "drsuapi");
+
     public static readonly IReadOnlyList<DcerpcInterface> WellKnown =
         new[] { Srvsvc, Wkssvc, Lsarpc, Samr, Svcctl, Winreg };
 

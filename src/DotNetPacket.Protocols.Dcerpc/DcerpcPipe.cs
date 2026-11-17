@@ -19,8 +19,17 @@ public sealed class DcerpcPipe
     private NtlmSecurityContext? _security;
     private DcerpcAuthLevel _authLevel = DcerpcAuthLevel.None;
     private uint _authContextId;
+    private byte[]? _sessionKey;
 
     public DcerpcPipe(IDcerpcTransport transport) => _transport = transport;
+
+    /// <summary>
+    /// The NTLMSSP exported session key negotiated by the authenticated bind (null until
+    /// <see cref="BindAuthenticated"/> succeeds). This is the key MS-DRSR uses to decrypt
+    /// ENCRYPTED_PAYLOAD attribute values during replication (DCSync) — the DCERPC sign/seal
+    /// session key, NOT any SMB session key.
+    /// </summary>
+    public byte[]? SessionKey => _sessionKey;
 
     /// <summary>Opens <paramref name="pipeName"/> on an IPC$ tree and wraps it as a pipe (ncacn_np).</summary>
     public static DcerpcPipe Open(Smb2Client client, uint ipcTreeId, string pipeName) =>
@@ -117,6 +126,7 @@ public sealed class DcerpcPipe
         _transport.Send(auth3.Pack());
 
         _security = new NtlmSecurityContext(auth.SessionKey);
+        _sessionKey = auth.SessionKey;
         return ack;
     }
 

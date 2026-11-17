@@ -112,6 +112,9 @@ src/
     Tsch.cs                        #   Task Scheduler (MS-TSCH) SchRpcRegisterTask/Run/Delete/GetLastRunInfo + atexec task XML (same behaviour as impacket, deliberately divergent IOC constants; see WIRE_DIFF) (Windows-only)
     Mgmt.cs                        #   rpc_mgmt inq_if_ids (rpcdump: enumerate registered interfaces)
     Epm.cs                         #   endpoint mapper ept_map (resolve an interface to its TCP port)
+    Drsuapi.cs                     #   DRSUAPI (MS-DRSR): DRSBind/DRSDomainControllerInfo/DRSCrackNames/DRSGetNCChanges (EXOP_REPL_OBJ) — DCSync replication (secretsdump)
+    DrsCrypto.cs                   #   DCSync secret decryption: ENCRYPTED_PAYLOAD (MD5+RC4+CRC32) + per-RID DES (MS-SAMR); decrypt-only, lab-first
+    PrefixTable.cs                 #   SCHEMA_PREFIX_TABLE + MakeAttid ATTRTYP<->OID conversion (MS-DRSR 5.16.4)
     IDcerpcTransport.cs            #   transport abstraction (ncacn_np vs ncacn_ip_tcp)
     SmbPipeTransport.cs            #   ncacn_np: PDUs over an SMB2 named pipe (IPC$)
     TcpDcerpcTransport.cs          #   ncacn_ip_tcp: PDUs framed directly on a TCP socket (e.g. epmapper:135)
@@ -268,6 +271,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind
 dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interface] [port]  # endpoint mapper ept_map
 dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <lab-host> <user> <password> [domain]  # ept_map -> sealed samr over TCP
+dotnet run --project src/DotNetPacket.Examples -- dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)
 dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
 dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <lab-host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
 dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)

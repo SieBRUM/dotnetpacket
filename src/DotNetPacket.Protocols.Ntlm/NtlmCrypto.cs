@@ -167,9 +167,12 @@ public static class NtlmCrypto
         return o1.Concat(o2).ToArray();
     }
 
-    // Expand a 7-byte key into the 8-byte DES key (the classic LM/MS "str_to_key"), with the
-    // parity bit in the LSB (where .NET's DES expects it).
-    private static byte[] ExpandDesKey(byte[] k)
+    /// <summary>
+    /// Expands a 7-byte key into an 8-byte DES key (the classic LM/MS "str_to_key"), parity
+    /// bit in the LSB where .NET's DES expects it. Port of impacket's <c>crypto.transformKey</c>;
+    /// shared with the DRSUAPI (DCSync) per-RID DES layer.
+    /// </summary>
+    public static byte[] ExpandDesKey(byte[] k)
     {
         byte[] b =
         {
@@ -198,6 +201,20 @@ public static class NtlmCrypto
         des.Key = key8;
         using System.Security.Cryptography.ICryptoTransform e = des.CreateEncryptor();
         return e.TransformFinalBlock(block8, 0, 8);
+    }
+
+    /// <summary>
+    /// Single-DES ECB decrypt of one 8-byte block with an already-expanded 8-byte key.
+    /// Shared with the DRSUAPI (DCSync) per-RID DES layer (impacket <c>drsuapi.removeDESLayer</c>).
+    /// </summary>
+    public static byte[] DesDecryptBlock(byte[] key8, byte[] block8)
+    {
+        using var des = System.Security.Cryptography.DES.Create();
+        des.Mode = System.Security.Cryptography.CipherMode.ECB;
+        des.Padding = System.Security.Cryptography.PaddingMode.None;
+        des.Key = key8;
+        using System.Security.Cryptography.ICryptoTransform d = des.CreateDecryptor();
+        return d.TransformFinalBlock(block8, 0, 8);
     }
 
     /// <summary>MD4 message digest (RFC 1320). Needed for the NT hash; not available in the BCL.</summary>

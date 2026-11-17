@@ -254,6 +254,18 @@ Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://githu
 | `atexec` | `<host> <user> <pass> <command> [domain] [port]` | `atexec.py` | command exec via the Task Scheduler |
 | `rpc-svcctl` | `<host> <user> <pass> [domain] [port]` | `psexec`-ish | benign service-create/delete signature demo |
 
+### Credential extraction 🎯 — DCSync
+
+| Command | Parameters | impacket | Does |
+| --- | --- | --- | --- |
+| `dcsync` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> [netbios-domain] [epm-port]` | `secretsdump.py` | replicate one account's secrets via DRSUAPI (`DsGetNCChanges` / `EXOP_REPL_OBJ`), decrypt the NT hash |
+
+DCSync's detection tell is behavioral, not textual: a `DsGetNCChanges` replication request from a
+host that **isn't a domain controller**. The command drives the full sealed sequence
+(`DsBind → DsGetDomainControllerInfo → DsCrackNames → DsGetNCChanges → DsUnbind`) so the SOC can
+generate and study that traffic; the hashes come back doubly encrypted (ENCRYPTED_PAYLOAD + per-RID
+DES) and are decrypted exactly as a replicating DC would. Lab-first, authorized use only.
+
 ### NTLM relay 🎯 — `ntlmrelayx`, owner-authorized, loopback-bound
 
 | Command | Parameters | impacket | Does |

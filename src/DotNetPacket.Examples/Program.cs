@@ -2528,6 +2528,9 @@ switch (args[0])
         return 0;
     }
 
+    case "dcsync":
+        return DcSync.Run(args);
+
     case "mssql-cbt":
     {
         // checkMSSQLStatus.py: send a TDS PRELOGIN to SQL Server and read back its
@@ -5303,6 +5306,7 @@ static void PrintUsage()
     Console.WriteLine("  rpc-epm-map <host> [interface=samr] [port]");
     Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
     Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
+    Console.WriteLine("  dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)");
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
     Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
     Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");

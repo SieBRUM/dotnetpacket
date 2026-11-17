@@ -328,6 +328,45 @@ session key, principals and the `0x50e10000` flag set). The only behavior change
 detection note (a Kerberos service access with no preceding AS-REQ from that client = a cached/replayed
 or injected ticket).
 
+### secretsdump DCSync (DRSUAPI replication) (`dcsync`) — 2026-11-17
+
+The highest-value detection target in this whole port: replicating an account's secrets out of a DC
+with the directory replication service, the way a second DC would — [MS-DRSR] `IDL_DRSGetNCChanges`
+with `ulExtendedOp = EXOP_REPL_OBJ`. DotNetPacket drives the full sealed sequence over ncacn_ip_tcp:
+`DsBind(0) → DsGetDomainControllerInfo(16) → DsCrackNames(12) → DsGetNCChanges(3) → DsUnbind(1)`,
+and Wireshark decodes every request as a valid DRSUAPI operation.
+
+**The behavioral signature (the whole point).** DCSync's tell is not a string — it is *who* is
+replicating. A `DsGetNCChanges` from a source IP that is **not a domain controller** (not in the
+DC's own replication topology / not a member of `Domain Controllers`) is the classic detection, and
+on a well-run network it fires regardless of the tool's language or TLS/seal state. Secondary tells
+in the same flow: the `DsBind` carries a `DRS_EXTENSIONS_INT` with `dwExtCaps = 0xFFFFFFFF` and the
+`GETCHGREQ_V8`/`GETCHGREPLY_V6` capability bits a replication partner advertises; the `DsCrackNames`
+immediately before resolves the single victim account (`DS_NT4_ACCOUNT_NAME → DS_UNIQUE_ID_NAME`);
+and `cMaxObjects = 1` + `EXOP_REPL_OBJ` marks a *single-object* pull (secretsdump's `-just-dc-user`),
+distinct from a full-domain sync. DotNetPacket emits all of these faithfully.
+
+**Sealed on the wire, like the real thing.** The bind negotiates NTLMSSP **packet privacy**, so the
+`DsGetNCChanges` request stub and the reply (the ENCRYPTED_PAYLOAD-wrapped hashes) are encrypted —
+a sensor sees the opnum/sequence and the non-DC source, not the cleartext attributes. This matches
+real DCSync; detection keys on behavior, not payload bytes.
+
+**Request marshalling vs impacket.** Byte-for-byte identical to impacket's `DRSGetNCChanges` V8 stub
+*except* the two already-documented, Windows-matching divergences (see *NDR request-marshalling
+choices*): sequential MIDL referent ids (vs impacket's heap-ish ids) and `0x00` NDR alignment pad
+(vs impacket's `0xAB`/`0xEE` filler — the V8 struct is 8-aligned because it carries `hyper` fields).
+Verified against impacket's own `getData()` for identical inputs (`scratchpad/cmp_req.py`). One
+deliberate protocol choice differs from a naive impacket port: DotNetPacket sends an **empty request
+prefix map** and the **canonical well-known ATTRTYP ids** (unicodePwd `0x9005A`, …) rather than a
+MakeAttid-built custom prefix table — Samba rejects a custom remote prefixMap and silently returns
+zero objects, while the empty-map/canonical-attid form is what both Samba and Windows DCs resolve via
+their own base schema. (`PrefixTable.MakeAttid` is still ported and unit-tested for fidelity.)
+
+**Crypto.** The recovered secrets prove correctness: Administrator decrypts to the known NT hash
+`ac8d0d3c9858659864b8493a51050efd` (RID 500). Two layers, both ported faithfully from impacket:
+`MD5(DCERPC seal session key ‖ salt) → RC4 → CRC-32` (ENCRYPTED_PAYLOAD) then per-RID single-DES
+(MS-SAMR). No divergence here — the bytes must match or the hash is wrong.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted
