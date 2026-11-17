@@ -74,9 +74,26 @@ public class GssSealTests
     }
 
     [Fact]
-    public void Rc4_IsNotSupportedForSealing()
+    public void Rc4Wrap_MatchesImpacket()
     {
-        Assert.False(KerberosGssContext.Supports(23));
-        Assert.Throws<NotSupportedException>(() => new KerberosGssContext(new byte[16], 23));
+        // impacket GSSAPI_RC4.GSS_Wrap_LDAP with a fixed 8-byte confounder "ABCDEFGH".
+        byte[] rc4Key = Hex("ac8d0d3c9858659864b8493a51050efd");
+        byte[] confounder = System.Text.Encoding.ASCII.GetBytes("ABCDEFGH");
+        var ctx = new KerberosGssContext(rc4Key, 23, 0x11223344);
+        byte[] token = ctx.Wrap(Hex("30050201014200"), confounder);
+        Assert.Equal(
+            "603306092a864886f712010202020111001000ffff0cc136c7f24036bb6f4e6122fe55ba284628badd8f114b4b00174e59d8f06b37",
+            Convert.ToHexString(token).ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Rc4_RoundTripsWithPeer()
+    {
+        byte[] key = Hex("ac8d0d3c9858659864b8493a51050efd");
+        // A peer context (same key) seals; we unseal. (RC4 wrap is symmetric across directions here.)
+        var sender = new KerberosGssContext(key, 23);
+        var receiver = new KerberosGssContext(key, 23);
+        byte[] token = sender.Wrap(Hex("30050201014200"));
+        Assert.Equal(Hex("30050201014200"), receiver.Unwrap(token));
     }
 }

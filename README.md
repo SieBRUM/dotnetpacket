@@ -101,7 +101,7 @@ built for Windows, Linux, and macOS on x64 and arm64 — or build it yourself:
 
 ```bash
 dotnet build -c Release
-dotnet test                                     # 238 tests
+dotnet test                                     # 239 tests
 dotnet run --project src/DotNetPacket.Examples  # list every command
 ```
 
@@ -156,10 +156,10 @@ dotnetpacket smb2-login dc01.lab.local alice x lab.local -k -dc-ip 10.0.0.10 -ha
 >
 > **`-k` also covers the LDAP tools** (GetADUsers, GetADComputers, findDelegation, GetLAPSPassword,
 > dacledit/owneredit/rbcd, …): a GSS-SPNEGO Kerberos bind for `ldap/<host>`, then the connection is
-> **sealed** — every LDAP PDU is GSS-wrapped (AES, RFC 4121 CFX) with the AP-REP acceptor subkey, as a
-> modern DC requires. The AES sign-and-seal crypto is byte-exact against impacket. (Simple bind is
-> still the default without `-k`; `-aesKey`/`-hashes` select the overpass-the-hash key, though LDAP
-> sealing needs AES, so pair `-hashes` with a password or use `-aesKey`.)
+> **sealed** — every LDAP PDU is GSS-wrapped with the AP-REP acceptor subkey, as a modern DC requires.
+> Both wrap profiles are byte-exact against impacket: **AES** (RFC 4121 CFX) for a password/`-aesKey`
+> ticket, and **RC4** (RFC 1964) for `-hashes` overpass-the-hash — so every `-k` path works for LDAP
+> too, not just SMB. (Simple bind is still the default without `-k`.)
 
 ### Works with Proxynator 🔀
 

@@ -49,13 +49,6 @@ internal static class LdapAuth
         ServiceTicket st = KerberosClient.GetServiceTicketForSpn(
             kdc, realm, user, password, NtlmClient.NtHashOverride, Smb2Client.KerberosAesKey, $"ldap/{spnHost}");
 
-        if (!KerberosGssContext.Supports(st.SessionKeyEtype))
-        {
-            throw new NotSupportedException(
-                "Kerberos LDAP (-k) requires AES (the DC seals the connection). The RC4 path (-hashes) " +
-                "is not supported for LDAP; use a password or -aesKey so an AES ticket is obtained.");
-        }
-
         KerberosApReq apReq = KerberosGss.BuildApReqToken(st, mutualAuth: true, gssFlags: KerberosGss.LdapGssFlags | 0x02);
         byte[] token = Spnego.WrapKerberosInitialToken(apReq.GssToken);
 

@@ -281,11 +281,14 @@ accepted by Samba. (We could not cross-check with impacket's own LDAP `-k` here:
 TGS authenticator checksum, so its `getKerberosTGS` fails against this Heimdal KDC before it ever
 binds — the same `KRB_AP_ERR_INAPP_CKSUM` quirk documented under Kerberoast above.)
 
-**Crypto fidelity.** The AES CFX Wrap/Unwrap (`KerberosGssContext`) is byte-for-byte equal to
-impacket's `GSSAPI_AES256.GSS_Wrap_LDAP` (fixed-confounder known-answer test). RC4 sealing (RFC 1964)
-is not ported, so LDAP `-k` uses an AES ticket. Detection signal: a Kerberos LDAP bind followed by
-GSS-API-Privacy traffic on 389 — i.e. LDAP that a sensor can no longer read in clear; the behavioral
-tell is the bind + the switch to sealed buffers, not the (encrypted) contents.
+**Crypto fidelity.** Both wrap profiles (`KerberosGssContext`) are byte-for-byte equal to impacket
+(fixed-confounder known-answer tests): the AES CFX Wrap (`GSSAPI_AES256.GSS_Wrap_LDAP`) and the RC4-HMAC
+Wrap (`GSSAPI_RC4.GSS_Wrap_LDAP`, RFC 1964 — the MechIndepToken GSS framing, the `key ^ 0xF0` seal key,
+the RC4-encrypted sequence/confounder). So LDAP `-k` now completes the matrix: password/`-aesKey` seal
+with AES, `-hashes` (overpass-the-hash) seals with RC4 — the RC4 path validated live (`-k -hashes` →
+sealed `get-adusers`). Detection signal: a Kerberos LDAP bind followed by GSS-API-Privacy traffic on
+389 — LDAP a sensor can no longer read in clear; the tell is the bind + the switch to sealed buffers,
+not the (encrypted) contents. (RC4-sealed LDAP is itself a weak-crypto signal on a modern network.)
 
 ### S4U / constrained delegation (`get-st`) — 2026-11-16
 

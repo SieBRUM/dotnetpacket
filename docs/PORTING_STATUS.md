@@ -317,8 +317,13 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
         AP-REQ and seals with the *ticket session key*; that is tolerated by real Windows AD but this
         Samba 4.19 DC rejects it (it `FIN`s the first sealed PDU). Per [MS-KILE] 3.1.1.2 the GSS key is
         the acceptor subkey, so DotNetPacket requests mutual auth, reads the AP-REP subkey and seals
-        with it — more MS-KILE-correct, and it works against Samba. RC4 sealing (RFC 1964) is not
-        ported, so LDAP `-k` needs an AES ticket (password or `-aesKey`, not `-hashes`).
+        with it — more MS-KILE-correct, and it works against Samba.
+      - **RC4 sealing too (RFC 1964 / RFC 4757):** `KerberosGssContext` also implements the RC4-HMAC
+        GSS Wrap token (`GSSAPI_RC4.GSS_Wrap_LDAP`: the MechIndepToken GSS framing, the `signaturekey`
+        MD5/HMAC chain, the `Klocal = key ^ 0xF0` seal key and the RC4-encrypted sequence/confounder),
+        byte-for-byte vs impacket. So LDAP `-k` now completes the matrix — it works with `-hashes` (RC4
+        overpass-the-hash), validated live (`-k -hashes` → sealed `get-adusers` returns all accounts),
+        not only with an AES ticket.
       - Lab note: the throwaway DC account had only `HOST/*` SPNs (Samba's HOST alias covers `cifs` but
         not `ldap`), so an `ldap/vm.lab.local` SPN was added to match a real DC before validating.
 - [x] **S4U / constrained delegation (`get-st`, getST.py)** — the abuse of the delegation that

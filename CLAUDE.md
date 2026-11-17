@@ -138,7 +138,7 @@ src/
     Krb5Cipher.cs                  #   etype dispatcher (RC4 23 / AES128 17 / AES256 18): encrypt/decrypt/checksum/string-to-key, prefers AES-256
     EtypeInfo2.cs                  #   PA-ETYPE-INFO2 parse (KDC's etypes + AES salt + s2kparams) from the PREAUTH_REQUIRED error
     KerberosApRep.cs               #   AP-REP parse + EncAPRepPart decrypt (usage 12) -> acceptor subkey (the SMB session key under mutual auth; [MS-KILE] 3.1.1.2)
-    KerberosGssContext.cs          #   GSS per-message Wrap/Unwrap (RFC 4121 CFX, AES) for the sealed Kerberos LDAP bind (byte-exact vs impacket GSS_Wrap_LDAP)
+    KerberosGssContext.cs          #   GSS per-message Wrap/Unwrap for the sealed Kerberos LDAP bind: RFC 4121 CFX (AES) + RFC 1964 RC4-HMAC (byte-exact vs impacket GSS_Wrap_LDAP)
     AsReq.cs                       #   AS-REQ builder (no-preauth for GetNPUsers; PA-ENC-TIMESTAMP for getTGT)
     TgsReq.cs                      #   TGS-REQ builder (AP-REQ + authenticator + req-body checksum; Kerberoast)
     KerberosResponse.cs            #   AS-REP / KRB-ERROR parser (enc-part + ticket)
