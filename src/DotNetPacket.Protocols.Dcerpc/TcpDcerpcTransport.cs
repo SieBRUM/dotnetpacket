@@ -28,6 +28,9 @@ public sealed class TcpDcerpcTransport : IDcerpcTransport
         return ReadPdu();
     }
 
+    /// <summary>Reads one response PDU off the socket (used to reassemble fragmented responses).</summary>
+    public byte[] Receive() => ReadPdu();
+
     public void Send(byte[] pdu) => _stream.Write(pdu, 0, pdu.Length);
 
     public void Close()

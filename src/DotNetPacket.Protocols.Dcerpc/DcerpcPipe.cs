@@ -130,18 +130,37 @@ public sealed class DcerpcPipe
         return ack;
     }
 
-    /// <summary>Invokes an opnum with an NDR request stub and returns the NDR response stub (throws on FAULT).</summary>
+    /// <summary>
+    /// Invokes an opnum with an NDR request stub and returns the NDR response stub (throws on FAULT).
+    /// A response larger than the server's fragment size arrives as several PDUs (PFC_FIRST_FRAG …
+    /// PFC_LAST_FRAG); they are read and their stub bodies concatenated until the last fragment, with
+    /// each fragment independently unsealed/verified (as the server sealed it).
+    /// </summary>
     public byte[] Call(ushort opnum, byte[] stub)
     {
         var request = new DcerpcRequest { Opnum = opnum, Stub = stub, CallId = _callId++ };
+        byte[] pdu = _security is null
+            ? request.Pack()
+            : request.PackAuthenticated(_security, _authLevel, _authContextId);
 
-        if (_security is null)
+        byte[] firstPdu = _transport.Transceive(pdu);
+        DcerpcResponse first = DcerpcResponse.Parse(firstPdu, _security, _authLevel);
+        if (first.IsLastFragment)
         {
-            return DcerpcResponse.Parse(_transport.Transceive(request.Pack())).Stub;
+            return first.Stub;
         }
 
-        byte[] pdu = request.PackAuthenticated(_security, _authLevel, _authContextId);
-        return DcerpcResponse.Parse(_transport.Transceive(pdu), _security, _authLevel).Stub;
+        // Reassemble a fragmented response: keep reading PDUs until PFC_LAST_FRAG.
+        var assembled = new List<byte>(first.Stub);
+        while (true)
+        {
+            DcerpcResponse next = DcerpcResponse.Parse(_transport.Receive(), _security, _authLevel);
+            assembled.AddRange(next.Stub);
+            if (next.IsLastFragment)
+            {
+                return assembled.ToArray();
+            }
+        }
     }
 
     /// <summary>Closes the underlying transport.</summary>

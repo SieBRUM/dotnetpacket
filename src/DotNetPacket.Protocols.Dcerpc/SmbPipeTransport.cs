@@ -53,6 +53,54 @@ public sealed class SmbPipeTransport : IDcerpcTransport
         return result.Output;
     }
 
+    /// <summary>
+    /// Reads one further response PDU from the pipe (SMB2 READ), to reassemble a fragmented
+    /// response. Reads the 16-byte common header, then the remainder per <c>frag_length</c>.
+    /// </summary>
+    public byte[] Receive()
+    {
+        byte[] header = ReadExactly(DcerpcHeader.Size);
+        var reader = new DotNetPacket.Core.ByteReader(header, DotNetPacket.Core.ByteOrder.Little);
+        var parsed = new DcerpcHeader();
+        parsed.Unpack(reader);
+
+        int remaining = parsed.FragLength - DcerpcHeader.Size;
+        if (remaining < 0)
+        {
+            throw new InvalidDataException($"DCERPC frag_length {parsed.FragLength} is smaller than the header.");
+        }
+
+        byte[] body = ReadExactly(remaining);
+        var pdu = new byte[header.Length + body.Length];
+        Array.Copy(header, 0, pdu, 0, header.Length);
+        Array.Copy(body, 0, pdu, header.Length, body.Length);
+        return pdu;
+    }
+
+    private byte[] ReadExactly(int count)
+    {
+        var buffer = new byte[count];
+        int offset = 0;
+        while (offset < count)
+        {
+            Smb2ReadResult result = _client.Read(_treeId, _fileId, 0, count - offset);
+            if (!result.Succeeded && result.Status != NtStatus.BufferOverflow)
+            {
+                throw new IOException($"Pipe read failed: {NtStatus.Describe(result.Status)}");
+            }
+
+            if (result.Data.Length == 0)
+            {
+                throw new IOException("Pipe read returned no data mid-PDU.");
+            }
+
+            Array.Copy(result.Data, 0, buffer, offset, Math.Min(result.Data.Length, count - offset));
+            offset += result.Data.Length;
+        }
+
+        return buffer;
+    }
+
     public void Send(byte[] pdu) => _client.Write(_treeId, _fileId, 0, pdu);
 
     public void Close() => _client.Close(_treeId, _fileId);

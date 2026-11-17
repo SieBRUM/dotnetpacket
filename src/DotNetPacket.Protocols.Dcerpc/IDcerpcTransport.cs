@@ -12,6 +12,9 @@ public interface IDcerpcTransport
     /// <summary>Sends one request PDU and returns the single response PDU.</summary>
     byte[] Transceive(byte[] pdu);
 
+    /// <summary>Reads one response PDU (for reassembling a fragmented response — see <see cref="DcerpcPipe"/>).</summary>
+    byte[] Receive();
+
     /// <summary>Sends one PDU with no reply expected (used for AUTH3).</summary>
     void Send(byte[] pdu);
 

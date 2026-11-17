@@ -118,6 +118,9 @@ public sealed class DcerpcResponse
 {
     public required byte[] Stub { get; init; }
 
+    /// <summary>Whether this PDU carries PFC_LAST_FRAG — false means more fragments follow.</summary>
+    public bool IsLastFragment { get; init; } = true;
+
     /// <summary>Parses an unauthenticated RESPONSE PDU (or one whose auth data is ignored).</summary>
     public static DcerpcResponse Parse(byte[] pdu) => Parse(pdu, null, DcerpcAuthLevel.None);
 
@@ -152,12 +155,17 @@ public sealed class DcerpcResponse
         reader.ReadByte();   // cancel_count
         reader.ReadByte();   // reserved
 
+        bool lastFragment = ((DcerpcPfcFlags)header.PfcFlags & DcerpcPfcFlags.LastFragment) != 0;
         int stubStart = reader.Position;
 
         if (context is null || header.AuthLength == 0)
         {
             int plainLength = header.FragLength - stubStart - header.AuthLength;
-            return new DcerpcResponse { Stub = pdu[stubStart..(stubStart + plainLength)] };
+            return new DcerpcResponse
+            {
+                Stub = pdu[stubStart..(stubStart + plainLength)],
+                IsLastFragment = lastFragment,
+            };
         }
 
         // Authenticated: [stub+pad][sec_trailer(8)][signature(AuthLength)].
@@ -180,7 +188,7 @@ public sealed class DcerpcResponse
         context.Verify(signedRegion, signature);
 
         int stubLength = plain.Length - trailer.AuthPadLength;
-        return new DcerpcResponse { Stub = plain[..stubLength] };
+        return new DcerpcResponse { Stub = plain[..stubLength], IsLastFragment = lastFragment };
     }
 
     private static byte[] Concat(params byte[][] parts)

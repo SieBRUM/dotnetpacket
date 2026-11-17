@@ -1157,3 +1157,19 @@ captures here (what differs, why, and whether it is detection-relevant).
   second correctness oracle, over the NT-hash oracle). These are the directory's *stored* Kerberos keys —
   reusable for pass-the-key without cracking — so a DCSync that pulls them is the same high-value
   detection as the hash pull. Parser pinned by a synthetic USER_PROPERTIES known-answer test (250 tests).
+- **2026-11-17 — whole-domain DCSync (`dcsync-all`) + DCERPC fragmented-response reassembly.**
+  `dcsync-all` enumerates every account over sealed SAMR (SamrEnumerateUsersInDomain), then replicates
+  each by SID via DRSGetNCChanges (EXOP_REPL_OBJ) — impacket's DRSGetNCChangesSid path, which skips the
+  per-account DRSCrackNames round-trip. A new `Drsuapi.BuildGetNCChangesStubBySid` writes the DSNAME with
+  the 28-byte NT4SID (SidLen=28, empty GUID) instead of an objectGUID. Validated live against the lab:
+  all 5 accounts (Administrator/Guest/krbtgt/roastme/svcroast) dump their NT hash + Kerberos keys in one
+  pass; Guest correctly shows the empty-password hash with no keys.
+  - **Transport fix (affects every large RPC response over TCP, not just DCSync).** The DC fragments a
+    large GetNCChanges reply into several DCERPC PDUs (PFC_FIRST_FRAG … PFC_LAST_FRAG). `TcpDcerpcTransport`
+    read only the first fragment, leaving the continuation in the socket — which then desynced the *next*
+    call (its reply came back as the previous account's trailing fragment: a 40-byte metadata record
+    repeated, parseable by neither DotNetPacket nor impacket). Fixed by reassembling in `DcerpcPipe.Call`:
+    read PDUs until PFC_LAST_FRAG, unseal/verify each fragment independently (sign/seal is per-PDU) and
+    concatenate the stub bodies. `IDcerpcTransport` gains `Receive()` (TCP + SMB-pipe); pinned by a
+    fake-transport reassembly test. 252 tests pass. This is why the single-account `dcsync` always worked
+    (its reply fit in one fragment or the first fragment held the whole object) while the bulk dump did not.

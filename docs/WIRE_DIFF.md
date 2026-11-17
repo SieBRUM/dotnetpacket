@@ -376,6 +376,27 @@ These keys are reusable for pass-the-key (Silver/Golden tickets) without crackin
 the same high-value, non-DC-source detection as pulling the hashes — same sealed GetNCChanges, nothing
 extra on the wire (supplementalCredentials is just another attribute in the already-requested set).
 
+### Whole-domain DCSync (`dcsync-all`) — 2026-11-17
+
+The default secretsdump behavior: dump *every* account, not one named target. impacket does this by
+**enumerating the accounts first (SAMR/LDAP) and then DCSync'ing each one individually** with
+`EXOP_REPL_OBJ` — it does not issue a single whole-NC replication. `dcsync-all` mirrors that exactly:
+a sealed SAMR `SamrEnumerateUsersInDomain` to list the RIDs, then one `DsGetNCChanges` per account
+addressed **by SID** (impacket's `DRSGetNCChangesSid`), which skips the per-account `DsCrackNames`.
+
+**Detection signature.** The tell is a *burst* of `DsGetNCChanges` / `EXOP_REPL_OBJ` requests from one
+non-DC source in quick succession (one per principal), optionally preceded by a SAMR enumeration from the
+same host — a stronger, noisier version of the single-object DCSync signature. All sealed at packet
+privacy, as before; detection keys on the call pattern and source, not payload.
+
+**Fragmentation is normal here, and is a wire characteristic worth noting.** A DC's GetNCChanges reply
+for an account with `supplementalCredentials` exceeds the DCERPC fragment size, so the reply comes back
+as PFC_FIRST_FRAG … PFC_LAST_FRAG across several PDUs (visible in the capture as `cn_flags` 0x01 then
+0x02, versus 0x03 for a single-PDU reply). DotNetPacket reassembles these the way any conformant client
+must — read until PFC_LAST_FRAG, unseal/verify each fragment independently (sign/seal is per-PDU), then
+concatenate. No divergence from impacket or Windows on the wire; the fragment boundaries are the server's
+choice, not the client's.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted

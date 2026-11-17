@@ -259,6 +259,7 @@ Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://githu
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
 | `dcsync` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> [netbios-domain] [epm-port]` | `secretsdump.py` | replicate one account's secrets via DRSUAPI (`DsGetNCChanges` / `EXOP_REPL_OBJ`): NT hash + stored Kerberos keys (aes256/aes128/des) + cleartext |
+| `dcsync-all` | `<dc-host> <user> <pass> <domain-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py` | enumerate every account (SAMR) and DCSync each by SID — the whole-domain dump |
 
 DCSync's detection tell is behavioral, not textual: a `DsGetNCChanges` replication request from a
 host that **isn't a domain controller**. The command drives the full sealed sequence
