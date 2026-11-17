@@ -1,4 +1,5 @@
 using DotNetPacket.Core.Net;
+using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Ntlm;
 using DotNetPacket.Protocols.Smb;
 
@@ -18,6 +19,9 @@ namespace DotNetPacket.Examples;
 /// </summary>
 internal static class GlobalOptions
 {
+    /// <summary>When set (<c>-save-ccache &lt;file&gt;</c>), kerb-tgt / get-st write the obtained ticket here.</summary>
+    public static string? SaveCcachePath { get; set; }
+
     public static string[] Apply(string[] args)
     {
         var rest = new List<string>(args.Length);
@@ -43,6 +47,12 @@ internal static class GlobalOptions
                 case "-aesKey" when i + 1 < args.Length:
                     SetAesKey(args[++i]);
                     break;
+                case "-ccache" when i + 1 < args.Length:
+                    LoadCcache(args[++i]);
+                    break;
+                case "-save-ccache" when i + 1 < args.Length:
+                    SaveCcachePath = args[++i];
+                    break;
                 case "-dc-ip" when i + 1 < args.Length:
                     Smb2Client.KerberosKdc = args[++i];
                     break;
@@ -55,7 +65,23 @@ internal static class GlobalOptions
             }
         }
 
+        // impacket also honours KRB5CCNAME; load it if -k is on and no -ccache was given explicitly.
+        if (KerberosClient.LoadedTgt is null && Smb2Client.UseKerberos &&
+            Environment.GetEnvironmentVariable("KRB5CCNAME") is { Length: > 0 } ccname && File.Exists(ccname))
+        {
+            LoadCcache(ccname);
+        }
+
         return rest.ToArray();
+    }
+
+    private static void LoadCcache(string path)
+    {
+        CCacheFile ccache = CCache.Parse(File.ReadAllBytes(path));
+        Tgt tgt = CCache.ToTgt(ccache);
+        KerberosClient.LoadedTgt = tgt;
+        Smb2Client.UseKerberos = true;
+        Console.Error.WriteLine($"[*] Loaded TGT for {tgt.User}@{tgt.Realm} (etype {tgt.SessionKeyEtype}) from ccache '{path}'; -k will use it.");
     }
 
     private static void SetHashes(string value)

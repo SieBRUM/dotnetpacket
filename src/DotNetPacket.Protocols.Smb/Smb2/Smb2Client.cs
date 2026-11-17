@@ -257,24 +257,10 @@ public sealed class Smb2Client : IDisposable
         string realm = domain.ToUpperInvariant();
         string kdc = KerberosKdc ?? _host;
 
-        // Choose the client-key path: -aesKey (AES overpass-the-hash), else -hashes NT hash (RC4
-        // overpass-the-hash), else derive from the password — which probes the KDC and prefers AES.
-        Tgt tgt;
-        if (KerberosAesKey is { } aesKey)
-        {
-            int etype = aesKey.Length == 32 ? Krb5Constants.Aes256CtsHmacSha1 : Krb5Constants.Aes128CtsHmacSha1;
-            tgt = KerberosClient.GetTgtWithKeyEtype(kdc, realm, user, aesKey, etype);
-        }
-        else if (NtlmClient.NtHashOverride is { } ntHash)
-        {
-            tgt = KerberosClient.GetTgtWithKey(kdc, realm, user, ntHash);
-        }
-        else
-        {
-            tgt = KerberosClient.GetTgt(kdc, realm, user, password);
-        }
-
-        ServiceTicket st = KerberosClient.GetServiceTicket(kdc, tgt, $"cifs/{_host}");
+        // Obtain a service ticket for cifs/<host>: from a loaded ccache if present, else by the chosen
+        // client-key path — -aesKey (AES OtH), -hashes NT hash (RC4 OtH), or the password (probes AES).
+        ServiceTicket st = KerberosClient.GetServiceTicketForSpn(
+            kdc, realm, user, password, NtlmClient.NtHashOverride, KerberosAesKey, $"cifs/{_host}");
         KerberosApReq apReq = KerberosGss.BuildApReqToken(st);
         byte[] spnego = Spnego.WrapKerberosInitialToken(apReq.GssToken);
 

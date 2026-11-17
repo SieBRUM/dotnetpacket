@@ -148,6 +148,7 @@ src/
     AsRepRoast.cs                  #   $krb5asrep$ hashcat/john formatter
     KerbTgsRoast.cs                #   $krb5tgs$ hashcat formatter
     KerberosTcpClient.cs           #   Kerberos-over-TCP (length-prefixed, port 88)
+    CCache.cs                      #   MIT ccache v4 read/write (KRB5CCNAME ticket store): -k consumes one, kerb-tgt/get-st save one (impacket-interop)
     KerberosGss.cs                 #   GSS-API Kerberos AP-REQ token (getKerberosType1): the -k SMB auth mechToken (RC4 + AES)
     S4uReq.cs                      #   S4U2self (PA-FOR-USER) + S4U2proxy (additional-tickets + PA-PAC-OPTIONS) TGS-REQ builders (getST; constrained-delegation abuse)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
@@ -171,7 +172,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
-    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -dc-ip, -target-ip, -proxy
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -proxy
     LdapAuth.cs                    #   LDAP connect+bind helper: simple bind, or -k Kerberos GSS-SPNEGO bind for ldap/<host> + GSS sealing (mutual auth -> AP-REP acceptor subkey)
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)

@@ -2144,6 +2144,12 @@ switch (args[0])
                 $" ({Convert.ToHexString(tgt.SessionKey).ToLowerInvariant()})");
             Console.WriteLine($"  Ticket:       {tgt.Ticket.Length} bytes (encrypted with the krbtgt key)");
             Console.WriteLine($"  Ends:         {(tgt.EndTime is { } e ? e.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") : "unknown")}");
+            if (GlobalOptions.SaveCcachePath is { } ccPath)
+            {
+                File.WriteAllBytes(ccPath, CCache.Build(tgt.User, tgt.Realm, new[] { CCache.FromTgt(tgt) }));
+                Console.WriteLine($"  Saved ccache: {ccPath} (set KRB5CCNAME to it, or pass -ccache, for -k)");
+            }
+
             return 0;
         }
         catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException)
@@ -2187,6 +2193,12 @@ switch (args[0])
             Console.WriteLine($"    Ticket:      {st.Ticket.Length} bytes (encrypted with the target service key)");
             Console.WriteLine($"    Session key: etype {st.SessionKeyEtype}, {st.SessionKey.Length} bytes" +
                 $" ({Convert.ToHexString(st.SessionKey).ToLowerInvariant()})");
+            if (GlobalOptions.SaveCcachePath is { } ccPath)
+            {
+                File.WriteAllBytes(ccPath, CCache.Build(impersonate, realm.ToUpperInvariant(), new[] { CCache.FromServiceTicket(st) }));
+                Console.WriteLine($"    Saved ccache: {ccPath} (usable as '{impersonate}' against {targetSpn})");
+            }
+
             return 0;
         }
         catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException)

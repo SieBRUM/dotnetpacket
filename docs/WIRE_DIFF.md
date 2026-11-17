@@ -313,6 +313,18 @@ so the scenario was set up with **classic** constrained delegation (`msDS-Allowe
 `TRUSTED_TO_AUTH_FOR_DELEGATION` UAC flag). The request still carries the PA-PAC-OPTIONS RBCD flag,
 as impacket's getST sends it unconditionally.
 
+### ccache (`KRB5CCNAME`) — off the wire, 2026-11-17
+
+No wire fingerprint: the MIT ccache is a local file, not a protocol. It earns a line here only because
+it is the **interop substrate for this whole document** — the way to feed the *same* ticket to
+DotNetPacket and to stock impacket so their on-wire behavior can be diffed. `-k` now loads a TGT from
+`-ccache` / `KRB5CCNAME` exactly as impacket does (so a ticket obtained once drives many tools), and
+`kerb-tgt -save-ccache` emits a ccache that impacket reads back intact (`describeTicket.py`: correct
+session key, principals and the `0x50e10000` flag set). The only behavior change on the wire is a
+*negative* one — with a loaded TGT the AS exchange simply does not happen, which is itself a useful
+detection note (a Kerberos service access with no preceding AS-REQ from that client = a cached/replayed
+or injected ticket).
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted

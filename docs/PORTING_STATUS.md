@@ -342,8 +342,20 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
         the request carries the PA-PAC-OPTIONS RBCD flag regardless, as impacket's getST does.
       - Dogfooding note: the `rbcd write` that set up the attribute ran over DotNetPacket's own sealed
         Kerberos (`-k`) LDAP, since impacket's `rbcd.py` was reset by the DC's LDAP sealing.
-- [ ] ccache read/write — deferred (not needed for `-k` auth; would extend Kerberos tooling breadth
-      and interop with the MIT/impacket ticket cache).
+- [x] **ccache read/write (`KRB5CCNAME`)** — the MIT credential-cache v4 format that drives impacket's
+      `-k`. `CCache.Build`/`Parse` (port of `impacket.krb5.ccache.CCache`): the 0x0504 mini-header, a
+      DeltaTime header, the default principal and a sequence of credentials (principals, keyblock,
+      times, flags, ticket), all big-endian. `kerb-tgt` / `get-st` save one with `-save-ccache`; `-k`
+      loads a TGT from `-ccache <file>` or `KRB5CCNAME` and uses it instead of a fresh AS exchange —
+      true impacket `-k` parity, and the interop substrate for feeding tickets between DotNetPacket and
+      the MIT/impacket toolchain (the "diff against stock impacket" workflow).
+      - **Validated cross-tool:** `kerb-tgt -save-ccache` → **impacket's `describeTicket.py` parses it**
+        fully (session key, principals, flags `0x50e10000` = forwardable/renewable/initial/pre_authent/…);
+        and that ccache loaded via `-k -ccache` / `KRB5CCNAME` drives a sealed SMB `srvsvc` and a sealed
+        LDAP `get-adusers` with no AS exchange. (impacket's own ccache *writer* is broken on this box's
+        pyasn1 — `__str__` on an ASN.1 schema object — so the impacket-write → our-read direction could
+        not be exercised here; our-write → impacket-read proves the format.)
+      - Round-trip + structural known-answer unit tests pin the format.
 
 ## Examples (`DotNetPacket.Examples`)
 

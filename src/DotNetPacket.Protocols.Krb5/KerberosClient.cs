@@ -10,7 +10,11 @@ public sealed record Tgt(
     DateTimeOffset? EndTime,
     string Realm,
     string User,
-    string ServiceName);
+    string ServiceName,
+    byte[]? TicketFlags = null,
+    DateTimeOffset? AuthTime = null,
+    DateTimeOffset? StartTime = null,
+    DateTimeOffset? RenewTill = null);
 
 /// <summary>A service ticket and its session key, ready to build an AP-REQ against the service.</summary>
 public sealed record ServiceTicket(
@@ -18,7 +22,13 @@ public sealed record ServiceTicket(
     int SessionKeyEtype,
     byte[] SessionKey,
     string Realm,
-    string User);
+    string User,
+    string? ServerName = null,
+    DateTimeOffset? EndTime = null,
+    DateTimeOffset? AuthTime = null,
+    DateTimeOffset? StartTime = null,
+    DateTimeOffset? RenewTill = null,
+    byte[]? Flags = null);
 
 /// <summary>
 /// High-level Kerberos client orchestration. <see cref="GetTgt"/> performs the full pre-auth AS
@@ -74,7 +84,8 @@ public static class KerberosClient
         byte[] plaintext = Krb5Cipher.Decrypt(etype, clientKey, 3, resp.EncPartCipher);
         EncKdcRepPart part = EncKdcRepPart.Parse(plaintext);
 
-        return new Tgt(resp.Ticket, part.SessionKeyEtype, part.SessionKey, part.EndTime, realm, user, $"krbtgt/{realm}");
+        return new Tgt(resp.Ticket, part.SessionKeyEtype, part.SessionKey, part.EndTime, realm, user, $"krbtgt/{realm}",
+            part.Flags, part.AuthTime, part.StartTime, part.RenewTill);
     }
 
     /// <summary>
@@ -122,9 +133,20 @@ public static class KerberosClient
     /// ticket for <paramref name="spn"/>. Exactly one of <paramref name="aesKey"/>/<paramref name="ntHash"/>
     /// should be set for overpass-the-hash; otherwise the password is used.
     /// </summary>
+    /// <summary>
+    /// A TGT loaded from a ccache (<c>KRB5CCNAME</c> / <c>-ccache</c>). When set, the <c>-k</c> paths use
+    /// it instead of requesting a fresh TGT — matching how impacket's <c>-k</c> is driven by a ccache.
+    /// </summary>
+    public static Tgt? LoadedTgt { get; set; }
+
     public static ServiceTicket GetServiceTicketForSpn(
         string kdcHost, string realm, string user, string password, byte[]? ntHash, byte[]? aesKey, string spn, int port = 88)
     {
+        if (LoadedTgt is { } cached)
+        {
+            return GetServiceTicket(kdcHost, cached, spn, port);
+        }
+
         Tgt tgt;
         if (aesKey is { } ak)
         {
@@ -166,7 +188,8 @@ public static class KerberosClient
         // TGS-REP enc-part is encrypted with the TGT session key (its etype), key usage 8.
         byte[] plaintext = Krb5Cipher.Decrypt(tgt.SessionKeyEtype, tgt.SessionKey, 8, rep.EncPartCipher);
         EncKdcRepPart part = EncKdcRepPart.Parse(plaintext);
-        return new ServiceTicket(rep.Ticket, part.SessionKeyEtype, part.SessionKey, tgt.Realm, tgt.User);
+        return new ServiceTicket(rep.Ticket, part.SessionKeyEtype, part.SessionKey, tgt.Realm, tgt.User,
+            spn, part.EndTime, part.AuthTime, part.StartTime, part.RenewTill, part.Flags);
     }
 
     /// <summary>
@@ -212,7 +235,8 @@ public static class KerberosClient
 
         byte[] plaintext = Krb5Cipher.Decrypt(tgt.SessionKeyEtype, tgt.SessionKey, 8, rep.EncPartCipher);
         EncKdcRepPart part = EncKdcRepPart.Parse(plaintext);
-        return new ServiceTicket(rep.Ticket, part.SessionKeyEtype, part.SessionKey, tgt.Realm, impersonate);
+        return new ServiceTicket(rep.Ticket, part.SessionKeyEtype, part.SessionKey, tgt.Realm, impersonate,
+            targetSpn, part.EndTime, part.AuthTime, part.StartTime, part.RenewTill, part.Flags);
     }
 
     /// <summary>

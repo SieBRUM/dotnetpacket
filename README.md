@@ -101,7 +101,7 @@ built for Windows, Linux, and macOS on x64 and arm64 — or build it yourself:
 
 ```bash
 dotnet build -c Release
-dotnet test                                     # 234 tests
+dotnet test                                     # 238 tests
 dotnet run --project src/DotNetPacket.Examples  # list every command
 ```
 
@@ -127,6 +127,8 @@ These work with **any** command and can appear anywhere on the line, just like i
 | `-no-pass` | `-no-pass` | Don't use a password (pair with `-hashes`). |
 | `-k` | `-k` | **Kerberos** auth for SMB: a Kerberos AP-REQ instead of NTLM. With a password the KDC's etypes are probed and the strongest is used — **AES-256 by default**, matching impacket (RC4/AES-128 if that's all the KDC offers). The login's domain is the realm (pass the FQDN, e.g. `lab.local`), and the host is the SPN host (`cifs/<host>`). Combine with `-hashes` (RC4) or `-aesKey` (AES) for overpass-the-hash. |
 | `-aesKey <hex>` | `-aesKey` | **AES overpass-the-hash** for `-k`: a 128-bit (32 hex) or 256-bit (64 hex) AES Kerberos key as the client key (implies `-k`). |
+| `-ccache <file>` | `KRB5CCNAME` | **Use a cached TGT** (MIT ccache v4) instead of an AS exchange — `-k` drives it, impacket-style; also honoured via the `KRB5CCNAME` env var. Pair it with `kerb-tgt -save-ccache` / `get-st -save-ccache`, or a ccache from `kinit` / impacket. |
+| `-save-ccache <file>` | *(getTGT.py output)* | **Write** the obtained ticket to a ccache (`kerb-tgt`, `get-st`) — readable by `klist` / impacket / `-ccache`. |
 | `-dc-ip <ip>` | `-dc-ip` | KDC address for `-k` (defaults to the host). |
 | `-target-ip <ip>` | `-target-ip` | Connect the socket here while using the host argument as the SPN/logical name — for when the SPN host and the reachable address differ (e.g. a loopback lab). |
 | `-proxy <url>` | *(proxychains)* | Route **all** TCP through a proxy: `socks5://[user:pass@]host:port`, `socks4a://host:port`, `socks4://host:port`, or `http://[user:pass@]host:port`. The target hostname is handed to the proxy so it resolves on the far side of a pivot. |
