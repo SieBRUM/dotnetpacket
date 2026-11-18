@@ -276,6 +276,7 @@ dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <lab-host> <user>
 dotnet run --project src/DotNetPacket.Examples -- dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)
 dotnet run --project src/DotNetPacket.Examples -- dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)
 dotnet run --project src/DotNetPacket.Examples -- dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)
+dotnet run --project src/DotNetPacket.Examples -- dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)
 dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
 dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <lab-host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
 dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)

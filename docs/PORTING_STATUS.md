@@ -1195,3 +1195,17 @@ captures here (what differs, why, and whether it is detection-relevant).
     is computed over the **MS-KRB5** MechTypeList exactly as offered (`1.2.840.48018.1.2.2`), not the
     canonical KRB5 OID. The acceptor subkey extraction and the AES checksum were both confirmed correct by
     verifying Samba's own acceptor GetMic against the extracted subkey.
+
+- **2026-11-18 — whole-domain DCSync over Kerberos (`dcsync-all-k`) + shared DRS driver.** The four
+  DCSync commands (NTLM/Kerberos × single/whole-domain) now run on one replication driver in
+  `DcSync.cs`, so the only thing that differs on the wire is the bind's authentication leg. `dcsync-all-k`
+  enumerates the domain's accounts over a **Kerberos-sealed SAMR** bind, then replicates each by SID over
+  a **Kerberos-sealed DRSUAPI** bind — a single `host/<dc-fqdn>` service ticket authenticates both (each
+  `DcerpcPipe.BindKerberos` builds its own AP-REQ/authenticator and GSS context from the reusable ticket,
+  so the one TGS-REP is spent once). **Validated live: `dcsync-all-k` replicated all 5 lab accounts over
+  two Kerberos-authenticated sealed binds and recovered the known Administrator NT hash
+  `ac8d0d3c9858659864b8493a51050efd` + every account's AES/DES Kerberos keys**; `dcsync-all-kerberos.pcap`
+  shows AS-REQ/AS-REP → TGS-REQ/TGS-REP (one service ticket) → SAMR Bind/Alter_context/Enum* →
+  DRSUAPI Bind/Alter_context → DsBind → 5× DsGetNCChanges → DsUnbind, all dissected clean with no faults.
+  `GetServiceTicketForSpn` already honours a cached TGT (`-k` / `KRB5CCNAME`), so the Kerberos DCSync path
+  consumes a saved ticket as well as deriving one from a password. 255 tests pass (no new wire crypto).

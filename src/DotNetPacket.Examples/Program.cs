@@ -2537,6 +2537,9 @@ switch (args[0])
     case "dcsync-k":
         return DcSync.RunKerberos(args);
 
+    case "dcsync-all-k":
+        return DcSync.RunAllKerberos(args);
+
     case "mssql-cbt":
     {
         // checkMSSQLStatus.py: send a TDS PRELOGIN to SQL Server and read back its
@@ -5315,6 +5318,7 @@ static void PrintUsage()
     Console.WriteLine("  dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)");
     Console.WriteLine("  dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)");
     Console.WriteLine("  dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)");
+    Console.WriteLine("  dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)");
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
     Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
     Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");

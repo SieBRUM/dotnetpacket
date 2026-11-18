@@ -261,6 +261,7 @@ Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://githu
 | `dcsync` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> [netbios-domain] [epm-port]` | `secretsdump.py` | replicate one account's secrets via DRSUAPI (`DsGetNCChanges` / `EXOP_REPL_OBJ`): NT hash + stored Kerberos keys (aes256/aes128/des) + cleartext |
 | `dcsync-all` | `<dc-host> <user> <pass> <domain-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py` | enumerate every account (SAMR) and DCSync each by SID — the whole-domain dump |
 | `dcsync-k` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py -k` | DCSync authenticated with Kerberos (DCE-style GSS-NEGOTIATE sealed DRSUAPI bind) instead of NTLM |
+| `dcsync-all-k` | `<dc-host> <user> <pass> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py -k` | whole-domain DCSync over Kerberos — one `host/<dc-fqdn>` ticket seals both the SAMR enum and the DRSUAPI replication |
 
 DCSync's detection tell is behavioral, not textual: a `DsGetNCChanges` replication request from a
 host that **isn't a domain controller**. The command drives the full sealed sequence

