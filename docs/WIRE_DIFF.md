@@ -758,6 +758,7 @@ and *runtime fingerprint* either already diverges or was made to. Summary:
 | svcctl demo service name | n/a (impacket psexec drops RemComSvc) | `DotNetPacketLab` — our *own* benign, branded, self-deleting marker | intentionally non-impacket |
 | **DRSBind `puuidClientDsa`** | fixed **`e24d201a-…-0000f875ae0d`** (NTDSAPI GUID; impacket + mimikatz + ntdsapi) | **per-run GUID** (like a real DC's unique DSA objectGUID) | diverged (2026-11-19) |
 | **DRSBind `DRS_EXTENSIONS_INT.Pid`** | `0` (impacket hardcodes) | real process id (no real process is PID 0) | diverged (2026-11-19) |
+| **`BaseRegEnumKey` `lpClassIn`** | **64 literal space chars** as the class *input* (impacket `hBaseRegEnumKey`) | **empty** class input (Length 0) with a sized buffer, like `lpNameIn` / a real `RegEnumKeyExW` | diverged (2026-11-19) |
 | NDR referent ids / pad fill | random ids, `0xAB`/`0xBF` pad | MIDL-style `0x00020000+`, zero pad | diverged (anti-fingerprint pass) |
 | hashcat/john formats (`$krb5*$`, NetNTLMv2) | format is the *consumer contract* | identical (must match hashcat) | faithful by necessity |
 | GPP AES key, MS-DTYP SD/ACE/SID bytes, NDR stubs, Kerberos ASN.1 | protocol-mandated bytes | identical | faithful by necessity |
@@ -844,10 +845,30 @@ capture, and changing them blindly risks the server rejecting the call. They are
 left close to impacket **on purpose** and flagged here to revisit when we get a
 Windows capture as the third column:
 
-- **`BaseRegEnumKey` `lpClassIn` = 64 spaces, `lpNameIn` buffer = 1024 bytes.** Taken
-  from impacket's `hBaseRegEnumKey`. Real `reg.exe`/`RegEnumKeyExW` may send a
-  different class hint (possibly NULL) or a different buffer size. Left as-is because
-  a wrong pre-size can make the server truncate or fault.
+- **`BaseRegEnumKey` `lpClassIn`** — **resolved 2026-11-19 (diverged).** impacket sends 64 literal
+  space characters as the class *input* (a tool tell: the class is an OUTPUT, so a real client has no
+  reason to fill the input with spaces). DotNetPacket now sends an **empty** class input (Length 0) with
+  a sized buffer, exactly like its `lpNameIn` field and like a real `RegEnumKeyExW`. Validated live
+  against the Samba DC (`rpc-regkeys` still returns the subkeys) and confirmed on the wire
+  (`regenumkey-classdiverge.pcap`: the `BaseRegEnumKey` request loop carries no 64-space UTF-16 blob).
+  The **`lpNameIn` buffer = 1024 bytes** first-guess is left ≈ impacket (see the deliberate-non-divergence
+  note below).
+
+**Deliberately left ≈ impacket (not a guess worth making without a Windows capture).** The remaining
+items below were evaluated in the 2026-11-19 pass and *intentionally not* diverged, because the only
+honest realistic alternative is unknown and changing them blindly would risk creating a fresh
+*DotNetPacket-only* fingerprint — the opposite of this project's goal — or making the server truncate/
+fault. They stay flagged for a real Windows capture rather than churned into guesses:
+  - the `0xFFFFFFFF` "return everything" length sentinels (`SamrEnumerate*`, `SamrQueryDisplayInformation`):
+    Windows paging tools often send bounded values, but Windows "slurp" wrappers send `0xFFFFFFFF` too, so
+    this is a coin-flip, not a known tell; diverging also needs an `EnumerationContext` paging loop added to
+    the `Enumerate*` path (today single-shot) or it would truncate a large domain — correctness risk on the
+    `dcsync-all` enumeration for no proven realism gain.
+  - samr open-handle `DesiredAccess = MAXIMUM_ALLOWED`: common and legitimate on real Windows too, so not a
+    clean tell; requesting a narrower specific mask risks under-granting and breaking the follow-on call.
+  - the `BaseRegEnumValue`/`BaseRegQueryValue` first-guess buffer sizes: a discretionary size behind a
+    grow-on-`ERROR_MORE_DATA` loop; the realistic value is derived from `RegQueryInfoKey`, which we don't
+    call, so any fixed guess is as arbitrary as impacket's.
 - **`BaseRegEnumValue` / `BaseRegQueryValue` pre-allocated buffer sizes** (256 / 512
   bytes, then grow on `ERROR_MORE_DATA`). The two-call grow pattern itself is
   protocol-driven and Windows-like; the exact first-guess size is a discretionary

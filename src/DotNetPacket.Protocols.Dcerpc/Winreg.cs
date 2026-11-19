@@ -203,8 +203,8 @@ public static class Winreg
 
     /// <summary>
     /// BaseRegEnumKey (opnum 9): enumerate a key's subkey names (the reg.py key walk). Port of
-    /// impacket's <c>hBaseRegEnumKey</c>: loop dwIndex from 0, pre-sizing lpNameIn (1024-byte
-    /// buffer) and lpClassIn (64 spaces) the way reg.exe does, until ERROR_NO_MORE_ITEMS.
+    /// impacket's <c>hBaseRegEnumKey</c>: loop dwIndex from 0, pre-sizing lpNameIn (1024-byte buffer),
+    /// until ERROR_NO_MORE_ITEMS. lpClassIn is sent empty (not impacket's 64 spaces — see WIRE_DIFF).
     /// </summary>
     public static IReadOnlyList<string> EnumerateKeys(DcerpcPipe pipe, byte[] hKey)
     {
@@ -225,8 +225,8 @@ public static class Winreg
 
     private static (string? Name, uint ReturnCode) EnumKeyCall(DcerpcPipe pipe, byte[] hKey, uint index)
     {
-        const uint nameMaxChars = 512; // 1024-byte pre-allocated name buffer, like reg.exe
-        const int classChars = 64;
+        const uint nameMaxChars = 512;  // 1024-byte pre-allocated name buffer, like reg.exe
+        const uint classMaxChars = 256; // pre-sized class buffer the server fills in
 
         var ndr = new NdrWriter();
         ndr.WriteContextHandle(hKey);              // hKey [in]
@@ -240,16 +240,19 @@ public static class Winreg
         ndr.WriteUInt32(0);                        //   Offset
         ndr.WriteUInt32(0);                        //   ActualCount (empty)
 
-        // lpClassIn [in,unique]: a pre-sized class string (reg.exe sends 64 spaces).
+        // lpClassIn [in,unique]: an EMPTY, pre-sized class string — deliberately divergent from
+        // impacket (docs/WIRE_DIFF.md). impacket's hBaseRegEnumKey sends 64 literal space characters
+        // as the class *input* (Length=128, 64 spaces of content) — a tool tell, since the class is an
+        // OUTPUT. A real RegEnumKeyExW sends an empty class input (Length=0) with a sized buffer, exactly
+        // like lpNameIn above; the server fills lpClassOut regardless. Not evasion: one protocol-valid
+        // field shaped the way a real client shapes it.
         ndr.WriteReferent(true);                   //   pointer present
-        ndr.WriteUInt16(classChars * 2);           //   Length (bytes)
-        ndr.WriteUInt16(classChars * 2);           //   MaximumLength
+        ndr.WriteUInt16(0);                        //   Length = 0 (empty input, not 64 spaces)
+        ndr.WriteUInt16((ushort)(classMaxChars * 2)); // MaximumLength (bytes)
         ndr.WriteReferent(true);                   //   Buffer ptr
-        ndr.WriteUInt32(classChars);               //   MaxCount
+        ndr.WriteUInt32(classMaxChars);            //   MaxCount (chars)
         ndr.WriteUInt32(0);                        //   Offset
-        ndr.WriteUInt32(classChars);               //   ActualCount
-        ndr.WriteBytes(System.Text.Encoding.Unicode.GetBytes(new string(' ', classChars)));
-        ndr.Align(4);
+        ndr.WriteUInt32(0);                        //   ActualCount (empty)
 
         ndr.WriteReferent(false);                  // lpftLastWriteTime [in,unique] = NULL
         return ParseEnumKeyResponse(pipe.Call(OpnumBaseRegEnumKey, ndr.ToArray()));

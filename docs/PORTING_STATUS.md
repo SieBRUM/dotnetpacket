@@ -1221,3 +1221,13 @@ captures here (what differs, why, and whether it is detection-relevant).
   live: `dcsync` still recovers Administrator's known NT hash `ac8d0d3c9858659864b8493a51050efd`. Pinned
   by two tests (the bind stub carries our GUID and **not** impacket's constant; the extensions blob equals
   impacket's except a non-zero Pid). 256 tests pass.
+
+- **2026-11-19 — `BaseRegEnumKey` `lpClassIn` diverged to an empty class input.** impacket's
+  `hBaseRegEnumKey` sends 64 literal space characters as the class *input* — a tool tell, since the class
+  is an OUTPUT the server fills in. DotNetPacket now sends an empty class input (Length 0) with a sized
+  buffer, exactly like its `lpNameIn` field and like a real `RegEnumKeyExW`. Validated live (`rpc-regkeys`
+  still enumerates `HKLM\SOFTWARE\Microsoft`'s subkeys) and confirmed on the wire (no 64-space UTF-16 blob
+  in the `BaseRegEnumKey` request loop). The same pass evaluated the other "Pending a Windows capture"
+  discretionary values (the `0xFFFFFFFF` length sentinels, samr `MAXIMUM_ALLOWED`, reg buffer first-guess
+  sizes) and **deliberately left them ≈ impacket** — the honest realistic value is unknown and diverging
+  blindly would risk a fresh DotNetPacket-only fingerprint (see docs/WIRE_DIFF.md). 256 tests pass.
