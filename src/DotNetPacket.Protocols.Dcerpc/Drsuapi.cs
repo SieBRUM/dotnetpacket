@@ -49,7 +49,19 @@ public static class Drsuapi
     public const ushort OpnumDrsCrackNames = 12;
     public const ushort OpnumDrsDomainControllerInfo = 16;
 
-    /// <summary>NTDSAPI client GUID impacket/Windows send in DRSBind (e24d201a-4fd6-11d1-a3da-0000f875ae0d).</summary>
+    /// <summary>
+    /// The <c>puuidClientDsa</c> GUID sent in IDL_DRSBind. Deliberately divergent from impacket (see
+    /// docs/WIRE_DIFF.md): impacket's secretsdump, mimikatz and ntdsapi.dll all send the fixed NTDSAPI
+    /// client GUID <c>e24d201a-4fd6-11d1-a3da-0000f875ae0d</c>, so a rule keying on that literal flags
+    /// every DCSync regardless of runtime. A real *replicating DC* sends its own unique DSA objectGUID,
+    /// not a shared constant — so DotNetPacket generates a fresh per-run GUID, which looks like a real
+    /// replication partner rather than the tool constant. The field is informational for the bind (the
+    /// returned DRS_HANDLE is what GetNCChanges uses), and the behavioral DCSync tell (EXOP_REPL_OBJ from
+    /// a non-DC source) is unchanged. Not evasion: one protocol-valid field value, no obfuscation.
+    /// </summary>
+    public static readonly Guid ClientDsaGuid = Guid.NewGuid();
+
+    /// <summary>The fixed NTDSAPI client GUID impacket/mimikatz/ntdsapi send; kept for reference/tests.</summary>
     public static readonly Guid NtdsApiClientGuid = new("e24d201a-4fd6-11d1-a3da-0000f875ae0d");
 
     // DRS_EXTENSIONS_INT dwFlags capability bits (MS-DRSR 5.39).
@@ -109,7 +121,8 @@ public static class Drsuapi
         w.WriteUInt32(DrsExtGetChgReqV6 | DrsExtGetChgReplyV6 | DrsExtGetChgReqV8 |
                       DrsExtStrongEncryption | DrsExtNonDomainNcs); // dwFlags
         w.WriteBytes(new byte[16]); // SiteObjGuid (NULLGUID)
-        w.WriteUInt32(0);           // Pid
+        w.WriteUInt32((uint)Environment.ProcessId); // Pid — our real process id; impacket hardcodes 0
+                                                    // (no real process has PID 0 → documented divergence)
         w.WriteUInt32(replEpoch);   // dwReplEpoch
         w.WriteUInt32(0);           // dwFlagsExt
         w.WriteBytes(new byte[16]); // ConfigObjGUID (NULLGUID)
@@ -123,7 +136,7 @@ public static class Drsuapi
         byte[] blob = BuildExtensionsBlob(replEpoch);
         var ndr = new NdrWriter();
         ndr.WriteReferent(true);                  // puuidClientDsa pointer
-        ndr.WriteBytes(NtdsApiClientGuid.ToByteArray());
+        ndr.WriteBytes(ClientDsaGuid.ToByteArray()); // per-run DSA GUID, not impacket's fixed NTDSAPI constant
         ndr.WriteReferent(true);                  // pextClient pointer
         ndr.WriteUInt32((uint)blob.Length);       // DRS_EXTENSIONS conformant max_count (rgb)
         ndr.WriteUInt32((uint)blob.Length);       // cb

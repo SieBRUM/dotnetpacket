@@ -1209,3 +1209,15 @@ captures here (what differs, why, and whether it is detection-relevant).
   DRSUAPI Bind/Alter_context → DsBind → 5× DsGetNCChanges → DsUnbind, all dissected clean with no faults.
   `GetServiceTicketForSpn` already honours a cached TGT (`-k` / `KRB5CCNAME`), so the Kerberos DCSync path
   consumes a saved ticket as well as deriving one from a password. 255 tests pass (no new wire crypto).
+
+- **2026-11-19 — DCSync bind signature divergence (client DSA GUID + Pid).** Ran the DCSync family
+  through the signature-divergence audit (docs/WIRE_DIFF.md). Two discretionary identifiers in the
+  `IDL_DRSBind` request were tool fingerprints, not protocol structure, and now diverge toward what a
+  real replicating DC sends: `puuidClientDsa` is a **fresh per-run GUID** instead of impacket/mimikatz/
+  ntdsapi's hardcoded `e24d201a-4fd6-11d1-a3da-0000f875ae0d`, and `DRS_EXTENSIONS_INT.Pid` is the real
+  process id instead of impacket's hardcoded `0`. Both make the bind look like a genuine DC replication
+  partner rather than a tool; both are single protocol-valid fields (no obfuscation/encoding — not
+  evasion), and the behavioral DCSync tell (EXOP_REPL_OBJ from a non-DC source) is unchanged. Validated
+  live: `dcsync` still recovers Administrator's known NT hash `ac8d0d3c9858659864b8493a51050efd`. Pinned
+  by two tests (the bind stub carries our GUID and **not** impacket's constant; the extensions blob equals
+  impacket's except a non-zero Pid). 256 tests pass.

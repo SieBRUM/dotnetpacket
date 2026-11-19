@@ -84,14 +84,39 @@ public class DrsuapiTests
     }
 
     [Fact]
-    public void BuildExtensionsBlob_IsByteExact()
+    public void BuildExtensionsBlob_MatchesImpacketExceptDivergentPid()
     {
         // impacket DRS_EXTENSIONS_INT (scratchpad/drs_oracle.py DRSBIND_EXT_BLOB): dwFlags=0x05c08000,
-        // NULL guids, dwReplEpoch/dwFlagsExt/Pid=0, dwExtCaps=0xffffffff (52 bytes).
-        byte[] expected = Convert.FromHexString(
+        // NULL guids, dwReplEpoch/dwFlagsExt=0, dwExtCaps=0xffffffff (52 bytes). impacket hardcodes Pid=0;
+        // DotNetPacket deliberately sends its real process id there (docs/WIRE_DIFF.md) — no real process
+        // has PID 0, so a rule keying on "DRS_EXTENSIONS_INT with Pid=0" is an impacket/tool tell.
+        byte[] impacket = Convert.FromHexString(
             "0080c0050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff");
-        Assert.Equal(52, Drsuapi.BuildExtensionsBlob().Length);
-        Assert.Equal(expected, Drsuapi.BuildExtensionsBlob());
+        byte[] blob = Drsuapi.BuildExtensionsBlob();
+        Assert.Equal(52, blob.Length);
+
+        // Pid lives at offset 20 (after dwFlags(4) + SiteObjGuid(16)). It must be our real, non-zero PID…
+        uint pid = BitConverter.ToUInt32(blob, 20);
+        Assert.NotEqual(0u, pid);
+        Assert.Equal((uint)Environment.ProcessId, pid);
+
+        // …and every other byte must still match impacket's blob exactly (faithful protocol fields).
+        byte[] normalized = (byte[])blob.Clone();
+        Array.Clear(normalized, 20, 4); // zero the Pid field back to impacket's value
+        Assert.Equal(impacket, normalized);
+    }
+
+    [Fact]
+    public void BuildBindStub_DivergesFromImpacketNtdsapiClientGuid()
+    {
+        // Deliberate signature divergence (docs/WIRE_DIFF.md): the puuidClientDsa must be our per-run
+        // DSA GUID, NOT impacket/mimikatz/ntdsapi's fixed e24d201a-4fd6-11d1-a3da-0000f875ae0d constant.
+        byte[] stub = Drsuapi.BuildBindStub();
+        Assert.True(SearchIndex(stub, Drsuapi.ClientDsaGuid.ToByteArray()) >= 0,
+            "bind stub must carry our per-run client DSA GUID");
+        Assert.True(SearchIndex(stub, Drsuapi.NtdsApiClientGuid.ToByteArray()) < 0,
+            "bind stub must NOT carry impacket's fixed NTDSAPI client GUID (that is the tell we diverge from)");
+        Assert.NotEqual(Drsuapi.NtdsApiClientGuid, Drsuapi.ClientDsaGuid);
     }
 
     [Fact]

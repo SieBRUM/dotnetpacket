@@ -424,6 +424,31 @@ two impacket bugs that are latent because real DCs don't require the mechListMIC
 checksums `data || header` with no pad), and the MIC must be over the MS-KRB5 OID (`1.2.840.48018.1.2.2`)
 as offered, not the canonical KRB5 OID. DotNetPacket emits the RFC-correct, Samba-accepted form.
 
+### DRSBind signature divergence — client DSA GUID + Pid (`dcsync*`) — 2026-11-19 (deliberate)
+
+A signature-divergence pass over the DCSync family (`dcsync`, `dcsync-all`, `dcsync-k`, `dcsync-all-k`),
+which was shipped faithful-to-impacket and had not yet been through the audit below. Two discretionary
+identifiers in the `IDL_DRSBind` request were tool fingerprints, not protocol structure, so they now
+diverge — and in both cases the divergence makes us look like a **real replicating DC**, not like the
+tool. Everything load-bearing (the DRS_HANDLE flow, the EXOP_REPL_OBJ request, the two decryption layers)
+is unchanged; validated live — Administrator still decrypts to `ac8d0d3c9858659864b8493a51050efd`.
+
+| Field (DRSBind) | impacket / mimikatz / ntdsapi | DotNetPacket | Why diverging is *more* realistic |
+| --- | --- | --- | --- |
+| `puuidClientDsa` | fixed **`e24d201a-4fd6-11d1-a3da-0000f875ae0d`** (the NTDSAPI client GUID, hardcoded in impacket's `secretsdump`, mimikatz `lsadump::dcsync`, and `ntdsapi.dll`) | a **fresh per-run GUID** | A real DC-to-DC replication client identifies with its own unique DSA objectGUID, never a shared constant. A rule keying on the literal `e24d201a…` flags impacket/mimikatz/ntdsapi tools (and false-positives on legit ntdsapi admin tooling), but **misses** this port and misses genuine DC replication. |
+| `DRS_EXTENSIONS_INT.Pid` | `0` (impacket hardcodes it) | the client's **real process id** | No real process has PID 0; a `Pid=0` in the bind extensions is a tool tell. A real client puts its PID there. |
+
+**Why this is divergence, not evasion.** Each is a single protocol-valid field whose value the client is
+free to choose; nothing is obfuscated, encoded, or varied per-call to dodge a sensor. The **behavioral**
+DCSync detection is deliberately untouched and still fires identically: a `DsGetNCChanges` with
+`ulExtendedOp = EXOP_REPL_OBJ` from a **source IP that is not a domain controller**. The point of the
+pass is exactly the project's thesis — a brittle rule matching the `e24d201a…` GUID (or `Pid=0`) misses a
+reimplementation, while the who-is-replicating behavioral rule survives it. The old constant is retained
+in source (`Drsuapi.NtdsApiClientGuid`) for reference and is asserted **absent** from the bind stub by a
+test; the per-run GUID (`Drsuapi.ClientDsaGuid`) is asserted present. Note the DRSBind rides the
+NTLMSSP/GSS **sealed** pipe, so these fields are not in cleartext on the wire — the divergence matters for
+decrypted-RPC / directory-service logging and for any unsealed capture, not for a payload sniff.
+
 ### addcomputer SAMR machine-account creation (`rpc-addcomputer`) — 2026-11-06
 
 The first **write**. The SAMR stub rides the sealed SAMR-over-SMB pipe, so the request is encrypted
@@ -731,6 +756,8 @@ and *runtime fingerprint* either already diverges or was made to. Summary:
 | SMB2 `ClientGuid` | random per run | random per run (16 bytes) | non-fixed (no shared IOC) |
 | NTLM `Workstation` | tool-set or empty | the real .NET host NetBIOS name (what Windows sends) | realistic (observable by design) |
 | svcctl demo service name | n/a (impacket psexec drops RemComSvc) | `DotNetPacketLab` — our *own* benign, branded, self-deleting marker | intentionally non-impacket |
+| **DRSBind `puuidClientDsa`** | fixed **`e24d201a-…-0000f875ae0d`** (NTDSAPI GUID; impacket + mimikatz + ntdsapi) | **per-run GUID** (like a real DC's unique DSA objectGUID) | diverged (2026-11-19) |
+| **DRSBind `DRS_EXTENSIONS_INT.Pid`** | `0` (impacket hardcodes) | real process id (no real process is PID 0) | diverged (2026-11-19) |
 | NDR referent ids / pad fill | random ids, `0xAB`/`0xBF` pad | MIDL-style `0x00020000+`, zero pad | diverged (anti-fingerprint pass) |
 | hashcat/john formats (`$krb5*$`, NetNTLMv2) | format is the *consumer contract* | identical (must match hashcat) | faithful by necessity |
 | GPP AES key, MS-DTYP SD/ACE/SID bytes, NDR stubs, Kerberos ASN.1 | protocol-mandated bytes | identical | faithful by necessity |
