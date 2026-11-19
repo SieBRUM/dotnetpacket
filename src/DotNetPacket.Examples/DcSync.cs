@@ -24,20 +24,23 @@ internal static class DcSync
 
     public static int Run(string[] args)
     {
-        if (args.Length < 6)
+        Creds c = Creds.ResolveOrExit(args, 1,
+            "usage: dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   (or [domain-fqdn]/user[:password]@host, with -hashes)");
+        string host = c.Host;
+        string user = c.User;
+        string password = c.PasswordOrEmpty;
+        int i = c.NextIndex;
+        string domainFqdn = c.IsTarget ? (c.Domain ?? string.Empty) : (i < args.Length ? args[i++] : string.Empty);
+        if (string.IsNullOrEmpty(domainFqdn) || i >= args.Length)
         {
             Console.Error.WriteLine(
-                "usage: dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]");
+                "usage: dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   (or [domain-fqdn]/user[:password]@host, with -hashes)");
             return 2;
         }
 
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
-        string targetUser = args[5];
-        string netbios = args.Length >= 7 ? args[6] : domainFqdn.Split('.')[0].ToUpperInvariant();
-        int epmPort = args.Length >= 8 ? int.Parse(args[7]) : 135;
+        string targetUser = args[i++];
+        string netbios = i < args.Length ? args[i++] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = i < args.Length ? int.Parse(args[i]) : 135;
 
         int port = ResolveEndpoint(host, epmPort, DcerpcInterface.Drsuapi, "drsuapi");
         if (port < 0)

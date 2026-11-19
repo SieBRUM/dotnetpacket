@@ -1263,3 +1263,18 @@ captures here (what differs, why, and whether it is detection-relevant).
   server fails). 260 tests pass. Detection value: a PAC whose signatures do not verify under the real
   keys is a hand-forged/edited ticket (a mimikatz-style golden/silver ticket pre-KB5008380), the core
   behavioural tell independent of runtime.
+
+- **2026-11-19 — README re-toned to a red-team tool; impacket-style target string + optional password.**
+  The README now reads like an offensive-tooling README (impacket/Snaffler style) describing what the
+  tool does, rather than leading with SOC/detection-engineering framing (that rationale stays in
+  CLAUDE.md, which is unchanged). On the CLI, added impacket's credential model: a command's host slot
+  accepts a target string `[[domain/]username[:password]@]host`, and when a ticket/hash is supplied
+  (`-hashes` / `-aesKey` / `-k` / a ccache / `-no-pass`, surfaced as `GlobalOptions.PasswordOptional`)
+  **no password is required** — fixing the wart where a placeholder password was mandatory even with
+  `-k`/`-hashes`. Implemented as a shared `Creds.Resolve` helper that is *additive*: the legacy
+  `<host> <user> <password> [domain]` positional path is byte-for-byte unchanged (same indices), so no
+  existing invocation regresses; the target form is the new path. Migrated the core auth commands across
+  every family — `smb2-login`, `rpc-samrdump`, `get-adusers`, `dcsync` — and validated live: legacy and
+  target forms both authenticate, and `dcsync 'lab.local/Administrator@127.0.0.1' Administrator LAB
+  -hashes :ac8d0d…` recovers the NT hash with **no password argument**. Rollout to the remaining commands
+  continues. 260 tests pass (CLI parsing is validated live, like the other commands).

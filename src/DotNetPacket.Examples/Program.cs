@@ -92,22 +92,17 @@ switch (args[0])
     case "smb2-login":
     {
         // Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP against a lab host.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: smb2-login <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds sc = Creds.ResolveOrExit(args, 1,
+            "usage: smb2-login <host> <user> <password> [domain] [port]   (or [domain/]user[:password]@host, with -hashes/-k)");
+        string host = sc.Host;
+        int si = sc.NextIndex;
+        string domain = sc.ResolveDomain(args, ref si);
+        int port = args.Length > si ? int.Parse(args[si]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
         Smb2NegotiateResult negotiate = client.Negotiate();
-        Smb2LoginResult login = client.Login(domain, user, password);
+        Smb2LoginResult login = client.Login(domain, sc.User, sc.PasswordOrEmpty);
 
         Console.WriteLine($"Connected to {host}:{port}");
         Console.WriteLine($"  Dialect:   0x{(ushort)negotiate.Response.DialectRevision:x4} ({negotiate.Response.DialectRevision})");
@@ -1682,29 +1677,30 @@ switch (args[0])
         // GetADUsers.py: LDAP-search a DC for user accounts and print
         // Name / Email / PasswordLastSet / LastLogon. Default filter mirrors impacket
         // (enabled users with a mailbox); pass "all" for every user object.
-        if (args.Length < 5)
+        const string adUsage = "usage: get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   (or [domain-fqdn]/user[:password]@host, with -k)";
+        Creds au = Creds.ResolveOrExit(args, 1, adUsage);
+        string host = au.Host;
+        int aui = au.NextIndex;
+        string domainFqdn = au.IsTarget ? (au.Domain ?? string.Empty) : (aui < args.Length ? args[aui++] : string.Empty);
+        if (string.IsNullOrEmpty(domainFqdn))
         {
-            Console.Error.WriteLine("usage: get-adusers <host> <user> <password> <domain-fqdn> [all] [port]");
+            Console.Error.WriteLine(adUsage);
             Console.Error.WriteLine("  e.g. get-adusers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local all");
             return 2;
         }
 
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
         bool all = false;
         int port = 389;
-        foreach (string a in args.Skip(5))
+        foreach (string a in args.Skip(aui))
         {
             if (string.Equals(a, "all", StringComparison.OrdinalIgnoreCase)) all = true;
             else if (int.TryParse(a, out int p)) port = p;
         }
 
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
-        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        string bindName = au.User.Contains('@') ? au.User : $"{au.User}@{domainFqdn}";
 
-        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
+        using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, au.PasswordOrEmpty, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
         {
             Console.Error.WriteLine($"Bind failed (result {bind.ResultCode}): {bind.DiagnosticMessage}");
@@ -4176,24 +4172,19 @@ switch (args[0])
         // connect, open the account domain, then print the domain's general info, password/lockout
         // policy, every user (display info) and every group. Chains the already-validated SAMR
         // calls into the single labelled sequence a SOC wants for behavioral detection.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-samrdump <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds sd = Creds.ResolveOrExit(args, 1,
+            "usage: rpc-samrdump <host> <user> <password> [domain] [port]   (or [domain/]user[:password]@host, with -hashes/-k)");
+        string host = sd.Host;
+        int sdi = sd.NextIndex;
+        string domain = sd.ResolveDomain(args, ref sdi);
+        int port = args.Length > sdi ? int.Parse(args[sdi]) : 445;
 
         static string Days(double? d) => d is null ? "none" : $"{d.Value:0.##} days";
 
         using var client = new Smb2Client();
         client.Connect(host, port);
         client.Negotiate();
-        Smb2LoginResult login = client.Login(domain, user, password);
+        Smb2LoginResult login = client.Login(domain, sd.User, sd.PasswordOrEmpty);
         if (!login.Authenticated)
         {
             Console.Error.WriteLine($"Login failed: {NtStatus.Describe(login.Round2Status)}");

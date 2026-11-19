@@ -22,6 +22,20 @@ internal static class GlobalOptions
     /// <summary>When set (<c>-save-ccache &lt;file&gt;</c>), kerb-tgt / get-st write the obtained ticket here.</summary>
     public static string? SaveCcachePath { get; set; }
 
+    /// <summary><c>-no-pass</c> was given.</summary>
+    public static bool NoPass { get; set; }
+
+    /// <summary>
+    /// True when authentication does not need a password because a ticket or a hash was supplied
+    /// (<c>-hashes</c> / <c>-aesKey</c> / a loaded ccache / <c>-no-pass</c>) — the impacket behaviour
+    /// where the password is optional in those cases.
+    /// </summary>
+    public static bool PasswordOptional =>
+        NoPass
+        || NtlmClient.NtHashOverride is not null
+        || Smb2Client.KerberosAesKey is not null
+        || KerberosClient.LoadedTgt is not null;
+
     public static string[] Apply(string[] args)
     {
         var rest = new List<string>(args.Length);
@@ -38,7 +52,8 @@ internal static class GlobalOptions
                     Console.Error.WriteLine($"[*] Routing all connections through proxy {ProxyConnector.Default}");
                     break;
                 case "-no-pass":
-                    // No prompt in this CLI; meaningful together with -hashes (password slot ignored).
+                    // No prompt in this CLI; marks the password optional (use with -hashes / -k / ccache).
+                    NoPass = true;
                     break;
                 case "-k":
                     Smb2Client.UseKerberos = true;
