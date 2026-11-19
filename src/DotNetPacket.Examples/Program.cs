@@ -2528,6 +2528,9 @@ switch (args[0])
         return 0;
     }
 
+    case "getpac":
+        return GetPac.Run(args);
+
     case "dcsync":
         return DcSync.Run(args);
 
@@ -5319,6 +5322,7 @@ static void PrintUsage()
     Console.WriteLine("  dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)");
     Console.WriteLine("  dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)");
     Console.WriteLine("  dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)");
+    Console.WriteLine("  getpac <dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [port]   # getPac: S4U2self + decrypt the ticket + parse its PAC (MS-PAC) (lab)");
     Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
     Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
     Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");

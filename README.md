@@ -262,6 +262,7 @@ Why it fits what AD tooling needs (per Proxynator's own [AD guide](https://githu
 | `dcsync-all` | `<dc-host> <user> <pass> <domain-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py` | enumerate every account (SAMR) and DCSync each by SID — the whole-domain dump |
 | `dcsync-k` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py -k` | DCSync authenticated with Kerberos (DCE-style GSS-NEGOTIATE sealed DRSUAPI bind) instead of NTLM |
 | `dcsync-all-k` | `<dc-host> <user> <pass> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]` | `secretsdump.py -k` | whole-domain DCSync over Kerberos — one `host/<dc-fqdn>` ticket seals both the SAMR enum and the DRSUAPI replication |
+| `getpac` 🧪 | `<dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [port]` | `getPac.py` | S4U2self for an impersonated user, decrypt the service ticket, and parse its PAC ([MS-PAC]) — RID, groups, ExtraSids, checksums |
 
 DCSync's detection tell is behavioral, not textual: a `DsGetNCChanges` replication request from a
 host that **isn't a domain controller**. The command drives the full sealed sequence

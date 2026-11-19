@@ -1231,3 +1231,21 @@ captures here (what differs, why, and whether it is detection-relevant).
   discretionary values (the `0xFFFFFFFF` length sentinels, samr `MAXIMUM_ALLOWED`, reg buffer first-guess
   sizes) and **deliberately left them ≈ impacket** — the honest realistic value is unknown and diverging
   blindly would risk a fresh DotNetPacket-only fingerprint (see docs/WIRE_DIFF.md). 256 tests pass.
+
+- **2026-11-19 — MS-PAC parser + `getpac` (S4U2self → decrypt ticket → parse the PAC).** New
+  `Pac.cs` (Krb5) decodes a Privilege Attribute Certificate ([MS-PAC]): the PACTYPE buffer table plus
+  KERB_VALIDATION_INFO (type 1, the logon identity — hand-rolled NDR type-serialization-v1 on
+  `ByteReader`, keeping Krb5 free of the DCERPC NDR stack it would otherwise cycle with), PAC_CLIENT_INFO
+  (10), the SERVER/KDC PAC_SIGNATURE_DATA checksums (6/7), and UPN_DNS_INFO (12). New `KerberosTicket.cs`
+  decrypts a ticket's enc-part (key usage 2) and lifts the PAC out of the authorization-data
+  (AD-IF-RELEVANT → AD-WIN2K-PAC, ad-type 128). The `getpac` example is the classic getPac.py flow: a
+  service account (whose key we hold) does S4U2self for an impersonated user, and the returned ticket —
+  encrypted under the service's own key — is decrypted to read that user's PAC. **Validated live against
+  the lab**: `getpac` (svcroast → impersonate Administrator) recovers Administrator's PAC, and **every
+  parsed field matches impacket's `krb5.pac` VALIDATION_INFO byte-for-byte** (scratchpad/pac_oracle.py):
+  RID 500, primary group 513, groups {513,512,518,519,520} (Domain Users/Admins, Schema/Enterprise
+  Admins, GPO Creator Owners), domain SID S-1-5-21-3303064197-558132970-3683154743, ExtraSids
+  {S-1-18-2, S-1-5-21-0-0-0-497}, server checksum HMAC-MD5 (type -138, RC4 ticket) + KDC checksum
+  HMAC-SHA1-96 (type 16). Pinned by two known-answer tests against the lab-captured PAC. 258 tests pass.
+  The PAC is the identity a ticket asserts, so this gives the SOC a way to pull a real PAC off the wire
+  and inspect it for golden/silver-ticket and SID-history markers.

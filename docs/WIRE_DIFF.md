@@ -316,6 +316,37 @@ so the scenario was set up with **classic** constrained delegation (`msDS-Allowe
 `TRUSTED_TO_AUTH_FOR_DELEGATION` UAC flag). The request still carries the PA-PAC-OPTIONS RBCD flag,
 as impacket's getST sends it unconditionally.
 
+### getPac — S4U2self + PAC parse (`getpac`) — 2026-11-19
+
+Recovers and decodes the PAC a ticket carries. On the wire the request half is an ordinary S4U2self
+TGS-REQ (the same PA-FOR-USER (129) pattern documented under `get-st`): a service account requests a
+ticket to itself on behalf of an impersonated user, and because that ticket is encrypted under the
+service's own long-term key, the tool decrypts it (key usage 2) and reads the impersonated user's PAC.
+The captured flow (`getpac-s4u2self.pcap`) is AS-REQ/AS-REP (service TGT) → TGS-REQ (S4U2self,
+PA-FOR-USER) → TGS-REP; nothing new on the wire beyond the S4U2self marker already covered.
+
+**No client fingerprint to diverge — this is a *decode* path, and the research output is the PAC content
+itself.** The MS-PAC parser (`Pac.cs`) is verified **byte-for-byte against impacket's `krb5.pac`
+VALIDATION_INFO** on a real lab PAC (Administrator via `svcroast`): identical buffer table, EffectiveName,
+RID (500), primary group (513), group RIDs {513,512,518,519,520}, LogonDomainId
+(`S-1-5-21-3303064197-558132970-3683154743`), ExtraSids ({`S-1-18-2`, `S-1-5-21-0-0-0-497`}), and the two
+PAC checksums (SERVER = HMAC-MD5 type −138 on an RC4 ticket; KDC = HMAC-SHA1-96 type 16 under krbtgt's AES
+key). Because the parse is identical to impacket's, there is no runtime tell here; the value is the
+**content a detection reads**:
+
+- **The PAC's group RIDs and ExtraSids are the golden/silver-ticket and SID-history tells.** A ticket whose
+  PAC carries the privileged RIDs (512 Domain Admins, 519 Enterprise Admins, 518 Schema Admins, 516 Domain
+  Controllers) or an ExtraSid naming a privileged group — especially when it does not match what the
+  account is actually a member of — is the classic forged-PAC signal. `getpac` lets the SOC pull a real PAC
+  and read exactly these fields.
+- **The two checksums are the forgery check.** A genuine PAC's SERVER_CHECKSUM verifies under the service
+  key and the KDC_CHECKSUM under krbtgt; a hand-forged PAC (mimikatz golden ticket pre-KB5008380) gets
+  these wrong. The parser surfaces both checksum types and bytes so they can be validated; actually
+  recomputing them (PAC validation) is a follow-up, noted in PORTING_STATUS.
+- **Etype mix is itself informative.** On this lab the `svcroast` service ticket is RC4 (so SERVER_CHECKSUM
+  is HMAC-MD5) while the KDC signature is AES — an RC4 service ticket on a modern domain is a weak-crypto
+  signal in its own right, independent of the PAC contents.
+
 ### ccache (`KRB5CCNAME`) — off the wire, 2026-11-17
 
 No wire fingerprint: the MIT ccache is a local file, not a protocol. It earns a line here only because
