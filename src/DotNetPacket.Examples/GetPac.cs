@@ -21,9 +21,11 @@ internal static class GetPac
         if (args.Length < 6)
         {
             Console.Error.WriteLine(
-                "usage: getpac <dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [port]");
+                "usage: getpac <dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [krbtgt-key-hex] [port]");
             Console.Error.WriteLine(
                 "       service-key-hex: the service account's RC4/NT hash (32 hex) or AES-256 key (64 hex).");
+            Console.Error.WriteLine(
+                "       krbtgt-key-hex (optional): the krbtgt key to also verify the KDC/PRIVSVR signature.");
             return 2;
         }
 
@@ -32,7 +34,8 @@ internal static class GetPac
         string realm = args[3].ToUpperInvariant();
         string impersonate = args[4];
         byte[] key = Convert.FromHexString(args[5]);
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 88;
+        byte[]? krbtgtKey = args.Length >= 7 ? Convert.FromHexString(args[6]) : null;
+        int port = args.Length >= 8 ? int.Parse(args[7]) : 88;
 
         int etype = key.Length switch
         {
@@ -64,6 +67,15 @@ internal static class GetPac
         // 3) Parse and print the PAC.
         PacInfo pac = Pac.Parse(pacBlob);
         PrintPac(pac);
+
+        // 4) Verify the PAC signatures (forged-PAC detection): the server checksum under the service
+        //    key, and — if a krbtgt key was supplied — the KDC signature under it.
+        Console.WriteLine();
+        PacVerifyResult v = Pac.Verify(pacBlob, key, krbtgtKey);
+        Console.WriteLine($"SERVER signature (type {v.ServerType}, service key): {(v.ServerOk ? "VALID" : "INVALID")}");
+        Console.WriteLine(v.KdcOk is { } k
+            ? $"KDC    signature (type {v.KdcType}, krbtgt key) : {(k ? "VALID" : "INVALID")}"
+            : $"KDC    signature (type {v.KdcType}) : not checked (no krbtgt key supplied)");
         return 0;
     }
 

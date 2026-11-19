@@ -37,6 +37,15 @@ public sealed record PacSignature(int Type, byte[] Signature);
 /// <summary>UPN_DNS_INFO (MS-PAC 2.10): the client UPN and the DNS domain name.</summary>
 public sealed record PacUpnDnsInfo(string Upn, string DnsDomainName);
 
+/// <summary>
+/// Result of verifying a PAC's two signatures (MS-PAC 2.8 / [MS-KILE] 3.4.5.3). <see cref="ServerOk"/>
+/// is the SERVER_CHECKSUM over the whole PAC under the service key; <see cref="KdcOk"/> is the
+/// KDC/PRIVSVR checksum over the server signature under the krbtgt key (null when no krbtgt key was
+/// supplied). A genuine KDC-issued PAC passes both; a hand-forged one (e.g. a golden ticket built
+/// without the real keys) fails them — the core forged-PAC detection.
+/// </summary>
+public sealed record PacVerifyResult(bool ServerOk, bool? KdcOk, int ServerType, int KdcType);
+
 /// <summary>A parsed PAC: the buffer table plus the decoded buffers we understand.</summary>
 public sealed record PacInfo(
     uint Version,
@@ -63,6 +72,72 @@ public static class Pac
     public const uint PrivSvrChecksum = 7;
     public const uint ClientInfo = 10;
     public const uint UpnDnsInfo = 12;
+
+    private const int KerbNonKerbCksumSalt = 17; // key usage for the PAC signatures ([MS-KILE] 3.4.5.3)
+
+    // PAC checksum (SignatureType) values -> the etype whose keyed checksum computes them.
+    private const int ChecksumHmacMd5 = -138;       // KERB_CHECKSUM_HMAC_MD5 (RC4 keys)
+    private const int ChecksumHmacSha1Aes128 = 15;  // HMAC_SHA1_96_AES128
+    private const int ChecksumHmacSha1Aes256 = 16;  // HMAC_SHA1_96_AES256
+
+    /// <summary>
+    /// Verifies the PAC's SERVER_CHECKSUM (under <paramref name="serverKey"/>, the key the ticket is
+    /// encrypted with) and, when <paramref name="krbtgtKey"/> is given, the KDC/PRIVSVR checksum (under
+    /// the krbtgt key). Procedure per [MS-KILE] 3.4.5.3 / impacket <c>sign_pac</c>: zero both signature
+    /// fields, HMAC the whole PAC for the server signature, then HMAC that server signature for the KDC
+    /// signature — both at key usage 17. The key etype must match the stored SignatureType (RC4 key for
+    /// HMAC-MD5, AES key for HMAC-SHA1-96).
+    /// </summary>
+    public static PacVerifyResult Verify(byte[] pac, byte[] serverKey, byte[]? krbtgtKey)
+    {
+        var r = new ByteReader(pac, ByteOrder.Little);
+        uint cBuffers = r.ReadUInt32();
+        r.ReadUInt32(); // version
+        (int Off, int Size) server = default, kdc = default;
+        for (uint i = 0; i < cBuffers && r.Remaining >= 16; i++)
+        {
+            uint type = r.ReadUInt32();
+            int size = (int)r.ReadUInt32();
+            int off = (int)r.ReadUInt64();
+            if (type == ServerChecksum) server = (off, size);
+            else if (type == PrivSvrChecksum) kdc = (off, size);
+        }
+
+        if (server.Size < 4 || kdc.Size < 4)
+        {
+            throw new InvalidOperationException("PAC is missing a server or KDC checksum buffer.");
+        }
+
+        int serverType = BitConverter.ToInt32(pac, server.Off);
+        int kdcType = BitConverter.ToInt32(pac, kdc.Off);
+        byte[] storedServerSig = pac[(server.Off + 4)..(server.Off + server.Size)];
+        byte[] storedKdcSig = pac[(kdc.Off + 4)..(kdc.Off + kdc.Size)];
+
+        // Both signature fields are zeroed before the server signature is computed over the whole PAC.
+        byte[] zeroed = (byte[])pac.Clone();
+        Array.Clear(zeroed, server.Off + 4, server.Size - 4);
+        Array.Clear(zeroed, kdc.Off + 4, kdc.Size - 4);
+
+        byte[] computedServer = Krb5Cipher.Checksum(EtypeForChecksum(serverType), serverKey, KerbNonKerbCksumSalt, zeroed);
+        bool serverOk = computedServer.AsSpan().SequenceEqual(storedServerSig);
+
+        bool? kdcOk = null;
+        if (krbtgtKey is not null)
+        {
+            byte[] computedKdc = Krb5Cipher.Checksum(EtypeForChecksum(kdcType), krbtgtKey, KerbNonKerbCksumSalt, storedServerSig);
+            kdcOk = computedKdc.AsSpan().SequenceEqual(storedKdcSig);
+        }
+
+        return new PacVerifyResult(serverOk, kdcOk, serverType, kdcType);
+    }
+
+    private static int EtypeForChecksum(int signatureType) => signatureType switch
+    {
+        ChecksumHmacMd5 => Krb5Constants.Rc4Hmac,
+        ChecksumHmacSha1Aes128 => Krb5Constants.Aes128CtsHmacSha1,
+        ChecksumHmacSha1Aes256 => Krb5Constants.Aes256CtsHmacSha1,
+        _ => throw new NotSupportedException($"Unsupported PAC checksum type {signatureType}."),
+    };
 
     /// <summary>Parses a PAC blob (PACTYPE header + buffer table + the buffers we decode).</summary>
     public static PacInfo Parse(byte[] pac)

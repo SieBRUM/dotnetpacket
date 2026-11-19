@@ -339,10 +339,14 @@ key). Because the parse is identical to impacket's, there is no runtime tell her
   Controllers) or an ExtraSid naming a privileged group — especially when it does not match what the
   account is actually a member of — is the classic forged-PAC signal. `getpac` lets the SOC pull a real PAC
   and read exactly these fields.
-- **The two checksums are the forgery check.** A genuine PAC's SERVER_CHECKSUM verifies under the service
-  key and the KDC_CHECKSUM under krbtgt; a hand-forged PAC (mimikatz golden ticket pre-KB5008380) gets
-  these wrong. The parser surfaces both checksum types and bytes so they can be validated; actually
-  recomputing them (PAC validation) is a follow-up, noted in PORTING_STATUS.
+- **The two checksums are the forgery check — and `getpac` now verifies them.** `Pac.Verify` recomputes
+  the SERVER_CHECKSUM over the whole PAC under the service key and the KDC_CHECKSUM over that server
+  signature under the krbtgt key ([MS-KILE] 3.4.5.3, key usage 17); `getpac` prints VALID/INVALID for
+  each. A genuine KDC-issued PAC passes both (confirmed live: the lab Administrator PAC verifies under
+  svcroast's NT hash + krbtgt's AES-256 key, and matches an impacket oracle byte-for-byte); a hand-forged
+  PAC (mimikatz golden/silver ticket built without the real keys, pre-KB5008380) fails them. This is the
+  runtime-independent forged-PAC detection — a ticket whose PAC signatures don't verify under the real
+  keys was not minted by the KDC.
 - **Etype mix is itself informative.** On this lab the `svcroast` service ticket is RC4 (so SERVER_CHECKSUM
   is HMAC-MD5) while the KDC signature is AES — an RC4 service ticket on a modern domain is a weak-crypto
   signal in its own right, independent of the PAC contents.

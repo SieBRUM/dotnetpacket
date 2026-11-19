@@ -1249,3 +1249,17 @@ captures here (what differs, why, and whether it is detection-relevant).
   HMAC-SHA1-96 (type 16). Pinned by two known-answer tests against the lab-captured PAC. 258 tests pass.
   The PAC is the identity a ticket asserts, so this gives the SOC a way to pull a real PAC off the wire
   and inspect it for golden/silver-ticket and SID-history markers.
+
+- **2026-11-19 — PAC signature validation (forged-PAC / golden-ticket detection).** `Pac.Verify`
+  recomputes the PAC's two signatures per [MS-KILE] 3.4.5.3 (impacket `sign_pac`): zero both signature
+  fields, HMAC the whole PAC under the **service key** for the SERVER_CHECKSUM, then HMAC that server
+  signature under the **krbtgt key** for the KDC/PRIVSVR checksum — both at key usage 17
+  (KERB_NON_KERB_CKSUM_SALT), with the key etype selected from each stored SignatureType (RC4 key for
+  HMAC-MD5 −138, AES key for HMAC-SHA1-96 16/15). `getpac` now prints VALID/INVALID for the server
+  signature (always, using the decrypt key) and the KDC signature (when a `krbtgt-key-hex` arg is given).
+  **Validated live + against an impacket oracle** (scratchpad/pac_verify_oracle.py): the lab Administrator
+  PAC verifies VALID under svcroast's NT hash (server) and krbtgt's AES-256 key (KDC); a one-byte tamper
+  in LOGON_INFO makes the server checksum INVALID. Pinned by two tests (genuine → both valid; tampered →
+  server fails). 260 tests pass. Detection value: a PAC whose signatures do not verify under the real
+  keys is a hand-forged/edited ticket (a mimikatz-style golden/silver ticket pre-KB5008380), the core
+  behavioural tell independent of runtime.

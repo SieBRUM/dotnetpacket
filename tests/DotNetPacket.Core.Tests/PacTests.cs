@@ -41,6 +41,33 @@ public class PacTests
         Assert.Equal(new[] { "S-1-18-2", "S-1-5-21-0-0-0-497" }, li.ExtraSids.ToArray());
     }
 
+    // svcroast's RC4/NT hash (server-checksum key) and krbtgt's AES-256 key (KDC-checksum key), both
+    // recovered via DCSync earlier in the project — lab/sample values for a throwaway lab.
+    private const string SvcroastNtHash = "7cd13d90d3cb835ab9c08ac18edeea2b";
+    private const string KrbtgtAes256 = "3aa617819dbd81c9167da79602643741e68311546d7bb584ba7e5f6da5b8e8d7";
+
+    [Fact]
+    public void Verify_GenuineSignatures_BothValid()
+    {
+        byte[] pac = Convert.FromHexString(PacHex);
+        PacVerifyResult v = Pac.Verify(pac, Convert.FromHexString(SvcroastNtHash), Convert.FromHexString(KrbtgtAes256));
+        Assert.Equal(-138, v.ServerType); // KERB_CHECKSUM_HMAC_MD5
+        Assert.Equal(16, v.KdcType);      // HMAC_SHA1_96_AES256
+        Assert.True(v.ServerOk);
+        Assert.True(v.KdcOk);
+    }
+
+    [Fact]
+    public void Verify_TamperedLogonInfo_ServerChecksumFails()
+    {
+        // Flip a byte inside the LOGON_INFO buffer (offset 136): a forged/edited PAC must fail the
+        // server checksum — the core forged-PAC (golden-ticket) detection.
+        byte[] pac = Convert.FromHexString(PacHex);
+        pac[200] ^= 0xFF;
+        PacVerifyResult v = Pac.Verify(pac, Convert.FromHexString(SvcroastNtHash), Convert.FromHexString(KrbtgtAes256));
+        Assert.False(v.ServerOk);
+    }
+
     [Fact]
     public void Parse_ClientInfoUpnAndChecksums()
     {
