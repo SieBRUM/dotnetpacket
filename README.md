@@ -81,10 +81,9 @@ Needs the .NET 8 SDK and NuGet access on first build. Every command below is
 
 ### Credentials & global options (impacket-style)
 
-Credentials can be given as positional `<user> <pass>` args **or** as an impacket-style target string
-in the host slot — `[[domain/]username[:password]@]host` — in which case the separate user/pass
-positionals are dropped. With the target form, when you authenticate with a ticket or a hash **no
-password is required** (no placeholder):
+Credentials are an impacket-style target string in the first positional — `[[domain/]username[:password]@]host`.
+There are no separate `<user> <pass>` args. When you authenticate with a ticket or a hash the password is
+**optional** — just leave off the `:password` (no placeholder):
 
 ```bash
 # password, in the target
@@ -95,11 +94,9 @@ dotnetpacket dcsync 'lab.local/alice@dc01.lab.local' Administrator LAB -hashes :
 KRB5CCNAME=alice.ccache dotnetpacket get-adusers 'lab.local/alice@dc01.lab.local' -k
 ```
 
-> The target-string form (and password-free auth) currently covers the core auth commands
-> — `smb2-login`, `rpc-samrdump`, `get-adusers`, `dcsync` — and is rolling out to the rest. The legacy
-> `<host> <user> <pass> [domain]` positional form still works on **every** command, and `-hashes` /
-> `-k` / `-aesKey` apply to all of them (with a placeholder in the password slot until a command gains
-> the target form).
+> In the tables below, `<target>` means `[[domain/]username[:password]@]host`. Commands that need the
+> DNS domain (LDAP / Kerberos / DCSync) take it from the `domain/` part of the target, so use the FQDN
+> there: `lab.local/alice:pass@dc01`. Quote the target in your shell if the password has special chars.
 
 These flags work with **any** command and can appear anywhere on the line, like impacket:
 
@@ -136,80 +133,80 @@ resolves on the far side of the pivot.
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
 | `smb2-negotiate` | `<host> [port]` | — | SMB2 NEGOTIATE, dump both directions |
-| `smb2-login` | `<host> <user> <pass> [domain] [port]` | — | NTLMv2 SESSION_SETUP |
-| `smb2-connect` | `<host> <share> <user> <pass> [domain] [port]` | — | signed TREE_CONNECT |
-| `smb2-cat` | `<host> <share> <path> <user> <pass> [domain] [port]` | `smbclient` | read a file (CREATE/READ/CLOSE) |
-| `smb2-ls` | `<host> <share> <user> <pass> [path] [domain] [port]` | `smbclient` | directory listing |
-| `smb2-info` | `<host> <share> <user> <pass> [domain] [port]` | — | volume / filesystem info |
-| `smb-attrib` / `smb-attrib-set` | `<host> <share> <path> <user> <pass> [attrs] [domain]` | `attrib.py` | read / set DOS attributes |
+| `smb2-login` | `<target> [port]` | — | NTLMv2 SESSION_SETUP |
+| `smb2-connect` | `<target> <share> [port]` | — | signed TREE_CONNECT |
+| `smb2-cat` | `<target> <share> <path> [port]` | `smbclient` | read a file (CREATE/READ/CLOSE) |
+| `smb2-ls` | `<target> <share> [path] [port]` | `smbclient` | directory listing |
+| `smb2-info` | `<target> <share> [port]` | — | volume / filesystem info |
+| `smb-attrib` / `smb-attrib-set` | `<target> <share> <path> [attrs]` | `attrib.py` | read / set DOS attributes |
 | `smb-ntlminfo` | `<host> [port]` | `DumpNTLMInfo.py` | host/OS/DNS names from the NTLM handshake — **no creds** |
-| `gpp-passwords` | `<host> <user> <pass> [domain] [share] [port]` | `Get-GPPPassword.py` | crawl SYSVOL, decrypt GPP `cpassword` |
+| `gpp-passwords` | `<target> [share] [port]` | `Get-GPPPassword.py` | crawl SYSVOL, decrypt GPP `cpassword` |
 
 ### DCERPC recon — srvsvc · wkssvc · lsarpc · lsat · samr · winreg
 
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
-| `dcerpc-bind` | `<host> <user> <pass> [iface] [domain]` | — | bind a named-pipe interface over IPC$ |
-| `rpc-shares` / `rpc-shares-sealed` | `<host> <user> <pass> [seal\|sign] [domain]` | `srvsvc` | share enum (plain / signed+sealed) |
-| `rpc-hostinfo` / `rpc-srvinfo` | `<host> <user> <pass> [domain]` | `srvsvc`/`wkssvc` | host, OS, and server-tunable recon |
-| `rpc-services` / `rpc-svcconfig` / `rpc-svcstatus` | `<host> <user> <pass> [service] [domain]` | `services.py` | service enum / config / live status |
-| `rpc-lsa` / `rpc-privs` / `rpc-accountrights` | `<host> <user> <pass> [sid] [domain]` | `lsarpc` | policy, SID, privilege & rights enum |
-| `rpc-lookupsid` / `rpc-lookupsid2` / `rpc-lookupnames[2]` | `<host> <user> <pass> [names] [domain]` | `lookupsid.py` | SID ↔ name resolution |
-| `lookupsid` | `<host> <user> <pass> [maxRid=1100] [domain] [port]` | `lookupsid.py` | **RID cycling** — enumerate accounts with no directory read |
-| `rpc-enumusers` / `rpc-enumgroups` / `rpc-samrdump` | `<host> <user> <pass> [domain]` | `samrdump.py` | SAMR user/group dump + policy |
-| `rpc-userinfo` / `rpc-dispinfo` / `rpc-dispgroups` / `rpc-domaininfo` / `rpc-aliasmem` | `<host> <user> <pass> [target] [domain]` | `samrdump.py` | per-user / display / domain / alias detail |
-| `rpc-passpol` | `<host> <user> <pass> [domain]` | `samrdump.py` | domain password policy |
-| `rpc-reg` / `rpc-regquery` / `rpc-regenum` / `rpc-regkeys` | `<host> <user> <pass> [subkey] [value] [domain]` | `reg.py` | remote-registry read/enum |
-| `rpc-dump` / `rpc-dump-tcp` | `<host> [user] [pass] [domain]` | `rpcdump.py` | registered-interface enumeration |
+| `dcerpc-bind` | `<target> [iface]` | — | bind a named-pipe interface over IPC$ |
+| `rpc-shares` / `rpc-shares-sealed` | `<target> [seal\|sign]` | `srvsvc` | share enum (plain / signed+sealed) |
+| `rpc-hostinfo` / `rpc-srvinfo` | `<target>` | `srvsvc`/`wkssvc` | host, OS, and server-tunable recon |
+| `rpc-services` / `rpc-svcconfig` / `rpc-svcstatus` | `<target> [service]` | `services.py` | service enum / config / live status |
+| `rpc-lsa` / `rpc-privs` / `rpc-accountrights` | `<target> [sid]` | `lsarpc` | policy, SID, privilege & rights enum |
+| `rpc-lookupsid` / `rpc-lookupsid2` / `rpc-lookupnames[2]` | `<target> [names]` | `lookupsid.py` | SID ↔ name resolution |
+| `lookupsid` | `<target> [maxRid=1100] [port]` | `lookupsid.py` | **RID cycling** — enumerate accounts with no directory read |
+| `rpc-enumusers` / `rpc-enumgroups` / `rpc-samrdump` | `<target>` | `samrdump.py` | SAMR user/group dump + policy |
+| `rpc-userinfo` / `rpc-dispinfo` / `rpc-dispgroups` / `rpc-domaininfo` / `rpc-aliasmem` | `<target> [target]` | `samrdump.py` | per-user / display / domain / alias detail |
+| `rpc-passpol` | `<target>` | `samrdump.py` | domain password policy |
+| `rpc-reg` / `rpc-regquery` / `rpc-regenum` / `rpc-regkeys` | `<target> [subkey] [value]` | `reg.py` | remote-registry read/enum |
+| `rpc-dump` / `rpc-dump-tcp` | `<target>   (auth required)` | `rpcdump.py` | registered-interface enumeration |
 | `rpc-getarch` / `rpc-epm-map` / `rpc-samr-tcp` | `<host> [iface\|user…]` | `getArch.py`/epm | arch probe · ept_map · sealed SAMR over TCP |
 
 ### AD / LDAP
 
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
-| `get-adcomputers` | `<host> <user> <pass> <domain-fqdn> [port]` | `GetADComputers.py` | LDAP search for computer objects |
-| `get-adusers` | `<host> <user> <pass> <domain-fqdn> [all] [port]` | `GetADUsers.py` | LDAP search for user accounts |
-| `get-laps` | `<host> <user> <pass> <domain-fqdn> [computer] [port]` | `GetLAPSPassword.py` | read LAPS passwords from LDAP |
-| `find-delegation` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `findDelegation.py` | unconstrained / constrained / protocol-transition / **RBCD** |
+| `get-adcomputers` | `<target> [port]` | `GetADComputers.py` | LDAP search for computer objects |
+| `get-adusers` | `<target> [all] [port]` | `GetADUsers.py` | LDAP search for user accounts |
+| `get-laps` | `<target> [computer] [port]` | `GetLAPSPassword.py` | read LAPS passwords from LDAP |
+| `find-delegation` | `<target> [target-user] [port]` | `findDelegation.py` | unconstrained / constrained / protocol-transition / **RBCD** |
 | `ldap-signing` | `<host> <domain> [port]` | `CheckLDAPStatus` | does the DC require LDAP signing? |
 
 ### Kerberos
 
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
-| `get-npusers` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `GetNPUsers.py` | AS-REP roast (accounts without pre-auth) |
-| `kerb-tgt` | `<host> <user> <pass> <domain-fqdn> [port]` | `getTGT.py` | request a TGT (probes the KDC; AES-256 PA-ENC-TIMESTAMP by default, RC4 fallback) |
-| `get-userspns` | `<host> <user> <pass> <domain-fqdn> [target-user] [port]` | `GetUserSPNs.py` | Kerberoast SPN accounts |
+| `get-npusers` | `<target> [target-user] [port]` | `GetNPUsers.py` | AS-REP roast (accounts without pre-auth) |
+| `kerb-tgt` | `<target> [port]` | `getTGT.py` | request a TGT (probes the KDC; AES-256 PA-ENC-TIMESTAMP by default, RC4 fallback) |
+| `get-userspns` | `<target> [target-user] [port]` | `GetUserSPNs.py` | Kerberoast SPN accounts |
 | `get-st` | `<dc-host> <service-user> <pass> <domain-fqdn> <impersonate> <target-spn> [port]` | `getST.py` | S4U2self + S4U2proxy — a constrained-delegation ticket impersonating a user |
 | `getpac` | `<dc-host> <service-user> <domain-fqdn> <impersonate> <service-key-hex> [krbtgt-key-hex] [port]` | `getPac.py` | S4U2self, decrypt the ticket, parse the **PAC** (RID, groups, ExtraSids) and verify its SERVER/KDC signatures |
-| `rpc-changepw` | `<host> <user> <oldpass> <newpass> [domain] [port]` | `changepasswd.py` | change a password (SAMR) |
+| `rpc-changepw` | `<target> <newpass> [port]` | `changepasswd.py` | change a password (SAMR) |
 
 ### Credential dumping — DCSync
 
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
-| `dcsync` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> [netbios] [epm-port]` | `secretsdump.py` | replicate one account via DRSUAPI (`DsGetNCChanges` / `EXOP_REPL_OBJ`): NT hash + Kerberos keys (aes256/aes128/des) + cleartext |
-| `dcsync-all` | `<dc-host> <user> <pass> <domain-fqdn> [netbios] [epm-port]` | `secretsdump.py` | enumerate every account (SAMR) and DCSync each by SID — the whole-domain dump |
-| `dcsync-k` | `<dc-host> <user> <pass> <domain-fqdn> <target-user> <dc-fqdn> [netbios] [epm-port]` | `secretsdump.py -k` | DCSync authenticated with Kerberos (DCE-style GSS sealed DRSUAPI bind) |
-| `dcsync-all-k` | `<dc-host> <user> <pass> <domain-fqdn> <dc-fqdn> [netbios] [epm-port]` | `secretsdump.py -k` | whole-domain DCSync over Kerberos — one `host/<dc-fqdn>` ticket seals the SAMR enum and the DRSUAPI replication |
+| `dcsync` | `<target> <target-user> [netbios] [epm-port]` | `secretsdump.py` | replicate one account via DRSUAPI (`DsGetNCChanges` / `EXOP_REPL_OBJ`): NT hash + Kerberos keys (aes256/aes128/des) + cleartext |
+| `dcsync-all` | `<target> [netbios] [epm-port]` | `secretsdump.py` | enumerate every account (SAMR) and DCSync each by SID — the whole-domain dump |
+| `dcsync-k` | `<target> <target-user> <dc-fqdn> [netbios] [epm-port]` | `secretsdump.py -k` | DCSync authenticated with Kerberos (DCE-style GSS sealed DRSUAPI bind) |
+| `dcsync-all-k` | `<target> <dc-fqdn> [netbios] [epm-port]` | `secretsdump.py -k` | whole-domain DCSync over Kerberos — one `host/<dc-fqdn>` ticket seals the SAMR enum and the DRSUAPI replication |
 
 ### ACL / delegation / account edits
 
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
-| `dacledit` | `<read\|write\|remove\|backup\|restore> <host> <user> <pass> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]` | `dacledit.py` | read / edit an object's DACL (e.g. grant **DCSync**) |
-| `owneredit` | `<read\|write> <host> <user> <pass> <domain-fqdn> <target> [new-owner]` | `owneredit.py` | read / set an object's owner |
-| `rbcd` | `<read\|write\|remove\|flush> <host> <user> <pass> <domain-fqdn> <delegate-to> [delegate-from]` | `rbcd.py` | resource-based constrained delegation |
-| `badsuccessor` | `<search\|add\|delete\|modify> <host> <user> <pass> <domain-fqdn> [dmsa] [ou] [target]` | `badsuccessor.py` | dMSA "BadSuccessor" (Server 2025) |
-| `rpc-addcomputer` | `<host> <user> <pass> <computer-name> [domain] [port]` | `addcomputer.py` | create + delete a machine account |
+| `dacledit` | `<read\|write\|remove\|backup\|restore> <target> <target> [principal] [rights] [ace-type] [file]` | `dacledit.py` | read / edit an object's DACL (e.g. grant **DCSync**) |
+| `owneredit` | `<read\|write> <target> <target> [new-owner]` | `owneredit.py` | read / set an object's owner |
+| `rbcd` | `<read\|write\|remove\|flush> <target> <delegate-to> [delegate-from]` | `rbcd.py` | resource-based constrained delegation |
+| `badsuccessor` | `<search\|add\|delete\|modify> <target> [dmsa] [ou] [target]` | `badsuccessor.py` | dMSA "BadSuccessor" (Server 2025) |
+| `rpc-addcomputer` | `<target> <computer-name> [port]` | `addcomputer.py` | create + delete a machine account |
 
 ### Execution
 
 | Command | Parameters | impacket | Does |
 | --- | --- | --- | --- |
-| `smbexec` | `<host> <user> <pass> <command> [share=C$] [domain] [port]` | `smbexec.py` | command exec via a one-shot svcctl service |
-| `atexec` | `<host> <user> <pass> <command> [domain] [port]` | `atexec.py` | command exec via the Task Scheduler |
-| `rpc-svcctl` | `<host> <user> <pass> [domain] [port]` | `psexec`-ish | service create/start/delete |
+| `smbexec` | `<target> <command> [share=C$] [port]` | `smbexec.py` | command exec via a one-shot svcctl service |
+| `atexec` | `<target> <command> [port]` | `atexec.py` | command exec via the Task Scheduler |
+| `rpc-svcctl` | `<target> [port]` | `psexec`-ish | service create/start/delete |
 
 ### NTLM relay
 

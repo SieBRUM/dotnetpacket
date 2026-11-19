@@ -24,17 +24,16 @@ internal static class DcSync
 
     public static int Run(string[] args)
     {
-        Creds c = Creds.ResolveOrExit(args, 1,
-            "usage: dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   (or [domain-fqdn]/user[:password]@host, with -hashes)");
+        const string usage = "usage: dcsync <domain-fqdn/user[:password]@dc-host> <target-user> [netbios-domain] [epm-port]";
+        Creds c = Creds.ResolveOrExit(args, 1, usage);
         string host = c.Host;
         string user = c.User;
         string password = c.PasswordOrEmpty;
+        string domainFqdn = c.DomainOrEmpty;
         int i = c.NextIndex;
-        string domainFqdn = c.IsTarget ? (c.Domain ?? string.Empty) : (i < args.Length ? args[i++] : string.Empty);
         if (string.IsNullOrEmpty(domainFqdn) || i >= args.Length)
         {
-            Console.Error.WriteLine(
-                "usage: dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   (or [domain-fqdn]/user[:password]@host, with -hashes)");
+            Console.Error.WriteLine(usage);
             return 2;
         }
 
@@ -72,19 +71,13 @@ internal static class DcSync
     /// </summary>
     public static int RunAll(string[] args)
     {
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine(
-                "usage: dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
-        string netbios = args.Length >= 6 ? args[5] : domainFqdn.Split('.')[0].ToUpperInvariant();
-        int epmPort = args.Length >= 7 ? int.Parse(args[6]) : 135;
+        const string usage = "usage: dcsync-all <domain-fqdn/user[:password]@dc-host> [netbios-domain] [epm-port]";
+        Creds c = Creds.ResolveOrExit(args, 1, usage);
+        string host = c.Host, user = c.User, password = c.PasswordOrEmpty, domainFqdn = c.DomainOrEmpty;
+        int i = c.NextIndex;
+        if (string.IsNullOrEmpty(domainFqdn)) { Console.Error.WriteLine(usage); return 2; }
+        string netbios = args.Length > i ? args[i++] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = args.Length > i ? int.Parse(args[i]) : 135;
 
         // 1) Enumerate the domain's users (RID + name) and the domain SID over sealed SAMR (NTLM).
         int samrPort = ResolveEndpoint(host, epmPort, DcerpcInterface.Samr, "samr");
@@ -134,21 +127,15 @@ internal static class DcSync
     /// </summary>
     public static int RunKerberos(string[] args)
     {
-        if (args.Length < 7)
-        {
-            Console.Error.WriteLine(
-                "usage: dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
-        string targetUser = args[5];
-        string dcFqdn = args[6];
-        string netbios = args.Length >= 8 ? args[7] : domainFqdn.Split('.')[0].ToUpperInvariant();
-        int epmPort = args.Length >= 9 ? int.Parse(args[8]) : 135;
+        const string usage = "usage: dcsync-k <domain-fqdn/user[:password]@dc-host> <target-user> <dc-fqdn> [netbios-domain] [epm-port]";
+        Creds c = Creds.ResolveOrExit(args, 1, usage);
+        string host = c.Host, user = c.User, password = c.PasswordOrEmpty, domainFqdn = c.DomainOrEmpty;
+        int i = c.NextIndex;
+        if (string.IsNullOrEmpty(domainFqdn) || i + 1 >= args.Length) { Console.Error.WriteLine(usage); return 2; }
+        string targetUser = args[i++];
+        string dcFqdn = args[i++];
+        string netbios = args.Length > i ? args[i++] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = args.Length > i ? int.Parse(args[i]) : 135;
 
         ServiceTicket ticket = ServiceTicketForDc(host, domainFqdn, user, password, dcFqdn);
         Console.WriteLine($"Service ticket for host/{dcFqdn} (etype {ticket.SessionKeyEtype}).");
@@ -180,20 +167,14 @@ internal static class DcSync
     /// </summary>
     public static int RunAllKerberos(string[] args)
     {
-        if (args.Length < 6)
-        {
-            Console.Error.WriteLine(
-                "usage: dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
-        string dcFqdn = args[5];
-        string netbios = args.Length >= 7 ? args[6] : domainFqdn.Split('.')[0].ToUpperInvariant();
-        int epmPort = args.Length >= 8 ? int.Parse(args[7]) : 135;
+        const string usage = "usage: dcsync-all-k <domain-fqdn/user[:password]@dc-host> <dc-fqdn> [netbios-domain] [epm-port]";
+        Creds c = Creds.ResolveOrExit(args, 1, usage);
+        string host = c.Host, user = c.User, password = c.PasswordOrEmpty, domainFqdn = c.DomainOrEmpty;
+        int i = c.NextIndex;
+        if (string.IsNullOrEmpty(domainFqdn) || i >= args.Length) { Console.Error.WriteLine(usage); return 2; }
+        string dcFqdn = args[i++];
+        string netbios = args.Length > i ? args[i++] : domainFqdn.Split('.')[0].ToUpperInvariant();
+        int epmPort = args.Length > i ? int.Parse(args[i]) : 135;
 
         ServiceTicket ticket = ServiceTicketForDc(host, domainFqdn, user, password, dcFqdn);
         Console.WriteLine($"Service ticket for host/{dcFqdn} (etype {ticket.SessionKeyEtype}).");

@@ -215,75 +215,75 @@ dotnet restore
 dotnet build -c Release
 dotnet test
 dotnet run --project src/DotNetPacket.Examples -- smb2-negotiate <lab-host>
-dotnet run --project src/DotNetPacket.Examples -- smb2-login <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- smb2-connect <lab-host> <share> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- smb2-cat <lab-host> <share> <path> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- smb2-ls <lab-host> <share> <user> <password> [path] [domain]
-dotnet run --project src/DotNetPacket.Examples -- smb2-info <lab-host> <share> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- smb-attrib <lab-host> <share> <path> <user> <password> [domain]   # attrib: query DOS attributes
-dotnet run --project src/DotNetPacket.Examples -- smb-attrib-set <lab-host> <share> <path> <user> <password> <attrs> [domain]   # attrib: set DOS attributes
-dotnet run --project src/DotNetPacket.Examples -- dcerpc-bind <lab-host> <user> <password> [interface] [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-shares <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-shares-sealed <lab-host> <user> <password> [seal|sign] [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-services <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-svcconfig <lab-host> <user> <password> <service> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-svcstatus <lab-host> <user> <password> <service> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- smbexec <lab-host> <user> <password> <command> [share=C$] [domain] [port]   # smbexec: command exec via a one-shot svcctl service (lab-only exec)
-dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-srvinfo <lab-host> <user> <password> [domain]   # srvsvc NetrServerGetInfo level 102 (server tunables)
-dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-privs <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-accountrights <lab-host> <user> <password> <sid> [domain]   # LsarEnumerateAccountRights (rights granted to a SID)
-dotnet run --project src/DotNetPacket.Examples -- rpc-privlookup <lab-host> <user> <password> <privilege-name|luid> [domain]   # LsarLookupPrivilegeValue/Name (name<->LUID)
-dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- lookupsid <lab-host> <user> <password> [maxRid=1100] [domain] [port]   # lookupsid: RID cycling via LsarLookupSids (account enumeration)
-dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid2 <lab-host> <user> <password> [domain]   # LsarLookupSids2 (modern Windows)
-dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-dispinfo <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation (samrdump display path)
-dotnet run --project src/DotNetPacket.Examples -- rpc-dispgroups <lab-host> <user> <password> [domain]   # SamrQueryDisplayInformation level 3 (group display)
-dotnet run --project src/DotNetPacket.Examples -- rpc-domaininfo <lab-host> <user> <password> [domain]   # SamrQueryInformationDomain level 2 (role + user/group/alias counts)
-dotnet run --project src/DotNetPacket.Examples -- rpc-samrdump <lab-host> <user> <password> [domain]   # full samrdump.py-style dump (domain info + policy + users + groups)
-dotnet run --project src/DotNetPacket.Examples -- rpc-aliasmem <lab-host> <user> <password> [alias-name|rid] [domain]   # SamrOpenAlias + SamrGetMembersInAlias (alias members)
-dotnet run --project src/DotNetPacket.Examples -- rpc-userinfo <lab-host> <user> <password> <target-user> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-lookuprid <lab-host> <user> <password> <names-csv> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-lookupid <lab-host> <user> <password> <rids-csv> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-enumgroups <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-passpol <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-lookupnames <lab-host> <user> <password> [names]
-dotnet run --project src/DotNetPacket.Examples -- rpc-lookupnames2 <lab-host> <user> <password> [names]   # LsarLookupNames2 (modern Windows)
-dotnet run --project src/DotNetPacket.Examples -- rpc-reg <lab-host> <user> <password> [subkey] [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-regquery <lab-host> <user> <password> <subkey> <value> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-regenum <lab-host> <user> <password> [subkey] [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-regkeys <lab-host> <user> <password> [subkey] [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-dump <lab-host> <user> <password> [domain]
-dotnet run --project src/DotNetPacket.Examples -- rpc-addcomputer <lab-host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)
-dotnet run --project src/DotNetPacket.Examples -- atexec <lab-host> <user> <password> <command> [domain] [port]   # atexec: Task Scheduler command exec (MS-TSCH, Windows-only)
-dotnet run --project src/DotNetPacket.Examples -- rpc-changepw <lab-host> <user> <oldpassword> <newpassword> [domain] [port]   # changepasswd (SAMR): change your own password
+dotnet run --project src/DotNetPacket.Examples -- smb2-login <target>
+dotnet run --project src/DotNetPacket.Examples -- smb2-connect <target> <share>
+dotnet run --project src/DotNetPacket.Examples -- smb2-cat <target> <share> <path>
+dotnet run --project src/DotNetPacket.Examples -- smb2-ls <target> <share> [path]
+dotnet run --project src/DotNetPacket.Examples -- smb2-info <target> <share>
+dotnet run --project src/DotNetPacket.Examples -- smb-attrib <target> <share> <path>   # attrib: query DOS attributes
+dotnet run --project src/DotNetPacket.Examples -- smb-attrib-set <target> <share> <path> <attrs>   # attrib: set DOS attributes
+dotnet run --project src/DotNetPacket.Examples -- dcerpc-bind <target> [interface]
+dotnet run --project src/DotNetPacket.Examples -- rpc-shares <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-shares-sealed <target> [seal|sign]
+dotnet run --project src/DotNetPacket.Examples -- rpc-services <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-svcconfig <target> <service>
+dotnet run --project src/DotNetPacket.Examples -- rpc-svcstatus <target> <service>
+dotnet run --project src/DotNetPacket.Examples -- rpc-svcctl <target>
+dotnet run --project src/DotNetPacket.Examples -- smbexec <target> <command> [share=C$] [port]   # smbexec: command exec via a one-shot svcctl service (lab-only exec)
+dotnet run --project src/DotNetPacket.Examples -- rpc-hostinfo <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-srvinfo <target>   # srvsvc NetrServerGetInfo level 102 (server tunables)
+dotnet run --project src/DotNetPacket.Examples -- rpc-lsa <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-privs <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-accountrights <target> <sid>   # LsarEnumerateAccountRights (rights granted to a SID)
+dotnet run --project src/DotNetPacket.Examples -- rpc-privlookup <target> <privilege-name|luid>   # LsarLookupPrivilegeValue/Name (name<->LUID)
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid <target>
+dotnet run --project src/DotNetPacket.Examples -- lookupsid <target> [maxRid=1100] [port]   # lookupsid: RID cycling via LsarLookupSids (account enumeration)
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupsid2 <target>   # LsarLookupSids2 (modern Windows)
+dotnet run --project src/DotNetPacket.Examples -- rpc-enumusers <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-dispinfo <target>   # SamrQueryDisplayInformation (samrdump display path)
+dotnet run --project src/DotNetPacket.Examples -- rpc-dispgroups <target>   # SamrQueryDisplayInformation level 3 (group display)
+dotnet run --project src/DotNetPacket.Examples -- rpc-domaininfo <target>   # SamrQueryInformationDomain level 2 (role + user/group/alias counts)
+dotnet run --project src/DotNetPacket.Examples -- rpc-samrdump <target>   # full samrdump.py-style dump (domain info + policy + users + groups)
+dotnet run --project src/DotNetPacket.Examples -- rpc-aliasmem <target> [alias-name|rid]   # SamrOpenAlias + SamrGetMembersInAlias (alias members)
+dotnet run --project src/DotNetPacket.Examples -- rpc-userinfo <target> <target-user>
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookuprid <target> <names-csv>
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupid <target> <rids-csv>
+dotnet run --project src/DotNetPacket.Examples -- rpc-enumgroups <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-passpol <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupnames <target> [names]
+dotnet run --project src/DotNetPacket.Examples -- rpc-lookupnames2 <target> [names]   # LsarLookupNames2 (modern Windows)
+dotnet run --project src/DotNetPacket.Examples -- rpc-reg <target> [subkey]
+dotnet run --project src/DotNetPacket.Examples -- rpc-regquery <target> <subkey> <value>
+dotnet run --project src/DotNetPacket.Examples -- rpc-regenum <target> [subkey]
+dotnet run --project src/DotNetPacket.Examples -- rpc-regkeys <target> [subkey]
+dotnet run --project src/DotNetPacket.Examples -- rpc-dump <target>
+dotnet run --project src/DotNetPacket.Examples -- rpc-addcomputer <target> <computer-name> [port]   # addcomputer (SAMR): create+delete a machine account (lab)
+dotnet run --project src/DotNetPacket.Examples -- atexec <target> <command> [port]   # atexec: Task Scheduler command exec (MS-TSCH, Windows-only)
+dotnet run --project src/DotNetPacket.Examples -- rpc-changepw <target> <newpassword> [port]   # changepasswd (SAMR): change your own password
 dotnet run --project src/DotNetPacket.Examples -- smb-ntlminfo <lab-host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)
-dotnet run --project src/DotNetPacket.Examples -- badsuccessor <search|add|delete|modify> <lab-host> <user> <password> <domain-fqdn> [dmsa] [target-ou] [target]   # BadSuccessor dMSA (lab)
-dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <lab-host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects
-dotnet run --project src/DotNetPacket.Examples -- get-adusers <lab-host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts
-dotnet run --project src/DotNetPacket.Examples -- get-laps <lab-host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
-dotnet run --project src/DotNetPacket.Examples -- get-npusers <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth
-dotnet run --project src/DotNetPacket.Examples -- find-delegation <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # findDelegation: unconstrained/constrained/protocol-transition/RBCD
-dotnet run --project src/DotNetPacket.Examples -- kerb-tgt <lab-host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 PA-ENC-TIMESTAMP pre-auth)
-dotnet run --project src/DotNetPacket.Examples -- get-userspns <lab-host> <user> <password> <domain-fqdn> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts
-dotnet run --project src/DotNetPacket.Examples -- get-st <dc-host> <service-user> <password> <domain-fqdn> <impersonate> <target-spn> [port]   # getST (S4U): S4U2self + S4U2proxy constrained-delegation ticket (lab)
+dotnet run --project src/DotNetPacket.Examples -- badsuccessor <search|add|delete|modify> <target> [dmsa] [target-ou] [target]   # BadSuccessor dMSA (lab)
+dotnet run --project src/DotNetPacket.Examples -- get-adcomputers <target> [port]   # GetADComputers: LDAP search for computer objects
+dotnet run --project src/DotNetPacket.Examples -- get-adusers <target> [all] [port]   # GetADUsers: LDAP search for user accounts
+dotnet run --project src/DotNetPacket.Examples -- get-laps <target> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords
+dotnet run --project src/DotNetPacket.Examples -- get-npusers <target> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth
+dotnet run --project src/DotNetPacket.Examples -- find-delegation <target> [target-user] [port]   # findDelegation: unconstrained/constrained/protocol-transition/RBCD
+dotnet run --project src/DotNetPacket.Examples -- kerb-tgt <target> [port]   # getTGT: request a Kerberos TGT (RC4 PA-ENC-TIMESTAMP pre-auth)
+dotnet run --project src/DotNetPacket.Examples -- get-userspns <target> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts
+dotnet run --project src/DotNetPacket.Examples -- get-st <target> <impersonate> <target-spn> [port]   # getST (S4U): S4U2self + S4U2proxy constrained-delegation ticket (lab)
 dotnet run --project src/DotNetPacket.Examples -- ldap-signing <lab-host> <domain> [port]   # CheckLDAPStatus: does the DC require LDAP signing
 dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp <lab-host> [port]   # DCERPC over TCP (ncacn_ip_tcp)
 dotnet run --project src/DotNetPacket.Examples -- rpc-getarch <lab-host> [port]    # architecture via NDR64 two-context bind
 dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map <lab-host> [interface] [port]  # endpoint mapper ept_map
-dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <lab-host> <user> <password> [domain]  # ept_map -> sealed samr over TCP
-dotnet run --project src/DotNetPacket.Examples -- dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)
-dotnet run --project src/DotNetPacket.Examples -- dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)
-dotnet run --project src/DotNetPacket.Examples -- dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)
-dotnet run --project src/DotNetPacket.Examples -- dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)
+dotnet run --project src/DotNetPacket.Examples -- rpc-samr-tcp <target>  # ept_map -> sealed samr over TCP
+dotnet run --project src/DotNetPacket.Examples -- dcsync <target> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)
+dotnet run --project src/DotNetPacket.Examples -- dcsync-all <target> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)
+dotnet run --project src/DotNetPacket.Examples -- dcsync-k <target> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)
+dotnet run --project src/DotNetPacket.Examples -- dcsync-all-k <target> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)
 dotnet run --project src/DotNetPacket.Examples -- getpac <dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [krbtgt-key-hex] [port]   # getPac: S4U2self + decrypt + parse the PAC ([MS-PAC]) + verify its signatures (lab)
 dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
-dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <lab-host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
-dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <lab-host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)
-dotnet run --project src/DotNetPacket.Examples -- rbcd <read|write|remove|flush> <lab-host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)
+dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <target> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
+dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <target> <target> [new-owner]   # owneredit: read/set an object's owner (lab)
+dotnet run --project src/DotNetPacket.Examples -- rbcd <read|write|remove|flush> <target> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)
 dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay core (lab, owner-authorised)
 dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx-http <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: HTTP->SMB NTLM relay (lab, owner-authorised)
 dotnet run --project src/DotNetPacket.Examples -- ntlmrelayx-ldap <dc-host> <listen-port> <victim-user> <victim-pass> <domain-fqdn>   # ntlmrelayx: SMB->LDAP relay / ldapattack (lab, owner-authorised)

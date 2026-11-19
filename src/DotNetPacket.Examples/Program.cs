@@ -92,12 +92,10 @@ switch (args[0])
     case "smb2-login":
     {
         // Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP against a lab host.
-        Creds sc = Creds.ResolveOrExit(args, 1,
-            "usage: smb2-login <host> <user> <password> [domain] [port]   (or [domain/]user[:password]@host, with -hashes/-k)");
+        Creds sc = Creds.ResolveOrExit(args, 1, "usage: smb2-login <[domain/]user[:password]@host> [port]");
         string host = sc.Host;
-        int si = sc.NextIndex;
-        string domain = sc.ResolveDomain(args, ref si);
-        int port = args.Length > si ? int.Parse(args[si]) : 445;
+        string domain = sc.DomainOrEmpty;
+        int port = args.Length > sc.NextIndex ? int.Parse(args[sc.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -125,18 +123,18 @@ switch (args[0])
     case "smb2-connect":
     {
         // Live NEGOTIATE + NTLMv2 SESSION_SETUP + signed TREE_CONNECT to a share.
-        if (args.Length < 5)
+        const string ccUsage = "usage: smb2-connect <[domain/]user[:password]@host> <share> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, ccUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length)
         {
-            Console.Error.WriteLine("usage: smb2-connect <host> <share> <user> <password> [domain] [port]");
+            Console.Error.WriteLine(ccUsage);
             return 2;
         }
 
-        string host = args[1];
-        string share = args[2];
-        string user = args[3];
-        string password = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        string share = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -172,19 +170,19 @@ switch (args[0])
     case "smb2-cat":
     {
         // Full file read: NEGOTIATE + SESSION_SETUP + TREE_CONNECT + CREATE + READ + CLOSE.
-        if (args.Length < 6)
+        const string catUsage = "usage: smb2-cat <[domain/]user[:password]@host> <share> <path> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, catUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci + 1 >= args.Length)
         {
-            Console.Error.WriteLine("usage: smb2-cat <host> <share> <path> <user> <password> [domain] [port]");
+            Console.Error.WriteLine(catUsage);
             return 2;
         }
 
-        string host = args[1];
-        string share = args[2];
-        string path = args[3];
-        string user = args[4];
-        string password = args[5];
-        string domain = args.Length >= 7 ? args[6] : string.Empty;
-        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+        string share = args[ci++];
+        string path = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -216,19 +214,11 @@ switch (args[0])
     case "dcerpc-bind":
     {
         // NEGOTIATE + SESSION_SETUP + TREE_CONNECT(IPC$) + open pipe + DCERPC BIND.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
-            Console.Error.WriteLine("  interface: srvsvc (default) | wkssvc | lsarpc | samr | svcctl");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string interfaceName = args.Length >= 5 ? args[4] : "srvsvc";
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: dcerpc-bind <[domain/]user[:password]@host> [interface] [port]\n  interface: srvsvc (default) | wkssvc | lsarpc | samr | svcctl");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string interfaceName = args.Length > ci ? args[ci++] : "srvsvc";
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         DcerpcInterface? iface = DcerpcInterface.ByName(interfaceName);
         if (iface is null)
@@ -272,17 +262,12 @@ switch (args[0])
     case "rpc-shares":
     {
         // Remote share enumeration via srvsvc NetrShareEnum (DCERPC over IPC$).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-shares <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -317,20 +302,18 @@ switch (args[0])
         // Same srvsvc NetrShareEnum, but over an NTLMSSP-authenticated bind with
         // per-PDU packet privacy (seal) or integrity (sign) — the sign/seal RPC a
         // modern Windows client speaks. Lets the SOC capture signed/sealed DCERPC.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        DcerpcAuthLevel level = args.Length >= 5 && args[4].Equals("sign", StringComparison.OrdinalIgnoreCase)
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-shares-sealed <[domain/]user[:password]@host> [seal|sign] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        DcerpcAuthLevel level = args.Length > ci && args[ci].Equals("sign", StringComparison.OrdinalIgnoreCase)
             ? DcerpcAuthLevel.PacketIntegrity
             : DcerpcAuthLevel.PacketPrivacy;
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        if (args.Length > ci && (args[ci].Equals("sign", StringComparison.OrdinalIgnoreCase) || args[ci].Equals("seal", StringComparison.OrdinalIgnoreCase)))
+        {
+            ci++;
+        }
+
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -371,17 +354,12 @@ switch (args[0])
     {
         // Enumerate the RPC interfaces registered on an endpoint via the mgmt
         // interface (rpc_mgmt_inq_if_ids) — the impacket rpcdump.py recon behavior.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-dump <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -414,18 +392,14 @@ switch (args[0])
         // Get-GPPPassword.py: recursively crawl an SMB share (default SYSVOL) for GPP XML
         // files, carve every cpassword, and decrypt it with Microsoft's published GPP key.
         // Finding a cpassword is a misconfiguration signal; the key is public (MS14-025, 2014).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        string share = args.Length >= 6 ? args[5] : "SYSVOL";
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int gi = _c.NextIndex;
+        string share = args.Length > gi ? args[gi++] : "SYSVOL";
+        int port = args.Length > gi ? int.Parse(args[gi]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -612,22 +586,21 @@ switch (args[0])
         // LAB-ONLY. The dMSA object class only exists on a Server-2025 schema, which Samba lacks,
         // so add/modify can't complete here (the LDAP write encoding is still exercised); the
         // search path works against any DC's OU ACLs.
-        if (args.Length < 6)
+        if (args.Length < 2)
         {
-            Console.Error.WriteLine("usage: badsuccessor <search|add|delete|modify> <host> <user> <password> <domain-fqdn> [options]");
-            Console.Error.WriteLine("  add    : badsuccessor add <host> <user> <pass> <domain-fqdn> <dmsa-name> <target-ou-dn> [target-account]");
-            Console.Error.WriteLine("  delete : badsuccessor delete <host> <user> <pass> <domain-fqdn> <dmsa-name> <target-ou-dn>");
-            Console.Error.WriteLine("  modify : badsuccessor modify <host> <user> <pass> <domain-fqdn> <dmsa-name> <target-ou-dn> <target-account>");
+            Console.Error.WriteLine("usage: badsuccessor <search|add|delete|modify> <domain-fqdn/user[:password]@host> [options]");
+            Console.Error.WriteLine("  add    : badsuccessor add <domain-fqdn/user:pass@host> <dmsa-name> <target-ou-dn> [target-account]");
+            Console.Error.WriteLine("  delete : badsuccessor delete <domain-fqdn/user:pass@host> <dmsa-name> <target-ou-dn>");
+            Console.Error.WriteLine("  modify : badsuccessor modify <domain-fqdn/user:pass@host> <dmsa-name> <target-ou-dn> <target-account>");
             return 2;
         }
 
         string action = args[1];
-        string host = args[2];
-        string user = args[3];
-        string password = args[4];
-        string domainFqdn = args[5];
+        Creds _c = Creds.ResolveOrExit(args, 2, "usage: badsuccessor <search|add|delete|modify> <domain-fqdn/user[:password]@host> [options]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        int a0 = _c.NextIndex;
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
-        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        string bindName = _c.User.Contains('@') ? _c.User : $"{_c.User}@{domainFqdn}";
         const string DmsaGuid = "0feb936f-47b3-49f2-9386-1dedc2c23765"; // msDS-DelegatedManagedServiceAccount
 
         using LdapConnection ldap = LdapAuth.ConnectAndBind(host, 389, bindName, password, domainFqdn, out LdapBindResponse bind);
@@ -732,8 +705,8 @@ switch (args[0])
             return 2;
         }
 
-        string dmsaName = args[6];
-        string targetOu = args[7];
+        string dmsaName = args[a0];
+        string targetOu = args[a0 + 1];
         string dmsaDn = $"CN={dmsaName},{targetOu}";
 
         if (action == "delete")
@@ -747,7 +720,7 @@ switch (args[0])
 
         if (action == "modify")
         {
-            string targetAccount = args.Length > 8 ? args[8] : "Administrator";
+            string targetAccount = args.Length > a0 + 2 ? args[a0 + 2] : "Administrator";
             string targetDn = ResolveDn(ldap, baseDn, targetAccount);
             if (string.IsNullOrEmpty(targetDn))
             {
@@ -764,7 +737,7 @@ switch (args[0])
         }
 
         // action == add
-        string addTarget = args.Length > 8 ? args[8] : "Administrator";
+        string addTarget = args.Length > a0 + 2 ? args[a0 + 2] : "Administrator";
         string dns = $"{dmsaName.ToLowerInvariant()}.{domainFqdn}";
         string principalSid = ResolveSid(user);
         string addTargetDn = ResolveDn(ldap, baseDn, addTarget);
@@ -816,26 +789,23 @@ switch (args[0])
         //   restore — push a previously backed-up SD from a file.
         // The distinctive wire artifacts are the LDAP_SERVER_SD_FLAGS control (0x04) on the search
         // and on the modify, and the re-serialized security descriptor. LAB-ONLY; see docs.
-        if (args.Length < 7)
+        const string daUsage = "usage: dacledit <read|write|remove|backup|restore> <domain-fqdn/user[:password]@host> <target> [principal] [rights] [ace-type] [file]\n  rights   : FullControl (default) | ResetPassword | WriteMembers | DCSync | 0x<mask>\n  ace-type : allowed (default) | denied\n  e.g. dacledit write lab.local/Administrator:'LabAdm1n!Pass'@127.0.0.1 target1 attacker DCSync";
+        if (args.Length < 2)
         {
-            Console.Error.WriteLine("usage: dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]");
-            Console.Error.WriteLine("  rights   : FullControl (default) | ResetPassword | WriteMembers | DCSync | 0x<mask>");
-            Console.Error.WriteLine("  ace-type : allowed (default) | denied");
-            Console.Error.WriteLine("  e.g. dacledit read  127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local Administrator");
-            Console.Error.WriteLine("       dacledit write 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local target1 attacker DCSync");
+            Console.Error.WriteLine(daUsage);
             return 2;
         }
 
         string action = args[1];
-        string host = args[2];
-        string user = args[3];
-        string password = args[4];
-        string domainFqdn = args[5];
-        string target = args[6];
-        string principal = args.Length > 7 ? args[7] : string.Empty;
-        string rights = args.Length > 8 ? args[8] : "FullControl";
-        string aceTypeArg = args.Length > 9 ? args[9] : "allowed";
-        string file = args.Length > 10 ? args[10] : string.Empty;
+        Creds _c = Creds.ResolveOrExit(args, 2, daUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        int a0 = _c.NextIndex;
+        if (a0 >= args.Length) { Console.Error.WriteLine(daUsage); return 2; }
+        string target = args[a0];
+        string principal = args.Length > a0 + 1 ? args[a0 + 1] : string.Empty;
+        string rights = args.Length > a0 + 2 ? args[a0 + 2] : "FullControl";
+        string aceTypeArg = args.Length > a0 + 3 ? args[a0 + 3] : "allowed";
+        string file = args.Length > a0 + 4 ? args[a0 + 4] : string.Empty;
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
         bool denied = aceTypeArg.Equals("denied", StringComparison.OrdinalIgnoreCase);
@@ -1110,23 +1080,22 @@ switch (args[0])
         //   write — replace OwnerSid with <new-owner>'s SID, then ModifyReplace nTSecurityDescriptor
         //           with the same OWNER-only control. Taking ownership is the precondition for then
         //           rewriting the DACL (cf. dacledit). LAB-ONLY; see docs.
-        if (args.Length < 7)
+        const string oeUsage = "usage: owneredit <read|write> <domain-fqdn/user[:password]@host> <target> [new-owner]\n  e.g. owneredit write lab.local/Administrator:'LabAdm1n!Pass'@127.0.0.1 target1 attacker";
+        if (args.Length < 2)
         {
-            Console.Error.WriteLine("usage: owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]");
-            Console.Error.WriteLine("  e.g. owneredit read  127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local Administrator");
-            Console.Error.WriteLine("       owneredit write 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local target1 attacker");
+            Console.Error.WriteLine(oeUsage);
             return 2;
         }
 
         string action = args[1];
-        string host = args[2];
-        string user = args[3];
-        string password = args[4];
-        string domainFqdn = args[5];
-        string target = args[6];
-        string newOwner = args.Length > 7 ? args[7] : string.Empty;
+        Creds _c = Creds.ResolveOrExit(args, 2, oeUsage);
+        string host = _c.Host, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        int a0 = _c.NextIndex;
+        if (a0 >= args.Length) { Console.Error.WriteLine(oeUsage); return 2; }
+        string target = args[a0];
+        string newOwner = args.Length > a0 + 1 ? args[a0 + 1] : string.Empty;
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
-        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        string bindName = _c.User.Contains('@') ? _c.User : $"{_c.User}@{domainFqdn}";
 
         using LdapConnection ldap = LdapAuth.ConnectAndBind(host, 389, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
@@ -1213,23 +1182,20 @@ switch (args[0])
         //   flush  — clear the attribute entirely.
         // Unlike dacledit/owneredit this is a plain attribute, so there is NO SD-flags control.
         // LAB-ONLY (the delegation primitive for a Kerberos RBCD attack); see docs.
-        if (args.Length < 7)
+        const string rbUsage = "usage: rbcd <read|write|remove|flush> <domain-fqdn/user[:password]@host> <delegate-to> [delegate-from]\n  delegate-to   : target account whose rbcd property is read/edited (a computer account ends in $)\n  delegate-from : the attacker-controlled account to grant (write/remove)\n  e.g. rbcd write lab.local/Administrator:'LabAdm1n!Pass'@127.0.0.1 'VICTIM$' 'ATTACKER$'";
+        if (args.Length < 2)
         {
-            Console.Error.WriteLine("usage: rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]");
-            Console.Error.WriteLine("  delegate-to   : the target account whose rbcd property is read/edited (a computer account ends in $)");
-            Console.Error.WriteLine("  delegate-from : the attacker-controlled account to grant (write/remove)");
-            Console.Error.WriteLine("  e.g. rbcd read  127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local 'VICTIM$'");
-            Console.Error.WriteLine("       rbcd write 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local 'VICTIM$' 'ATTACKER$'");
+            Console.Error.WriteLine(rbUsage);
             return 2;
         }
 
         string action = args[1];
-        string host = args[2];
-        string user = args[3];
-        string password = args[4];
-        string domainFqdn = args[5];
-        string delegateTo = args[6];
-        string delegateFrom = args.Length > 7 ? args[7] : string.Empty;
+        Creds _c = Creds.ResolveOrExit(args, 2, rbUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        int a0 = _c.NextIndex;
+        if (a0 >= args.Length) { Console.Error.WriteLine(rbUsage); return 2; }
+        string delegateTo = args[a0];
+        string delegateFrom = args.Length > a0 + 1 ? args[a0 + 1] : string.Empty;
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
         string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
         const string RbcdAttr = "msDS-AllowedToActOnBehalfOfOtherIdentity";
@@ -1628,21 +1594,14 @@ switch (args[0])
         // GetADComputers.py: LDAP-search a DC for all computer objects and print
         // sAMAccountName / dNSHostName / operatingSystem / operatingSystemVersion.
         // Binds simple (lab path; see docs) and searches (&(objectCategory=computer)(objectClass=computer)).
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: get-adcomputers <host> <user> <password> <domain-fqdn> [port]");
-            Console.Error.WriteLine("  e.g. get-adcomputers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 389;
+        const string gacUsage = "usage: get-adcomputers <domain-fqdn/user[:password]@host> [port]   (e.g. lab.local/Administrator:'LabAdm1n!Pass'@127.0.0.1)";
+        Creds _c = Creds.ResolveOrExit(args, 1, gacUsage);
+        string host = _c.Host, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        if (string.IsNullOrEmpty(domainFqdn)) { Console.Error.WriteLine(gacUsage); return 2; }
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 389;
 
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
-        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        string bindName = _c.User.Contains('@') ? _c.User : $"{_c.User}@{domainFqdn}";
 
         using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
@@ -1677,21 +1636,20 @@ switch (args[0])
         // GetADUsers.py: LDAP-search a DC for user accounts and print
         // Name / Email / PasswordLastSet / LastLogon. Default filter mirrors impacket
         // (enabled users with a mailbox); pass "all" for every user object.
-        const string adUsage = "usage: get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   (or [domain-fqdn]/user[:password]@host, with -k)";
+        const string adUsage = "usage: get-adusers <domain-fqdn/user[:password]@host> [all] [port]   (domain must be the DNS FQDN, e.g. lab.local)";
         Creds au = Creds.ResolveOrExit(args, 1, adUsage);
         string host = au.Host;
-        int aui = au.NextIndex;
-        string domainFqdn = au.IsTarget ? (au.Domain ?? string.Empty) : (aui < args.Length ? args[aui++] : string.Empty);
+        string domainFqdn = au.DomainOrEmpty;
         if (string.IsNullOrEmpty(domainFqdn))
         {
             Console.Error.WriteLine(adUsage);
-            Console.Error.WriteLine("  e.g. get-adusers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local all");
+            Console.Error.WriteLine("  e.g. get-adusers lab.local/Administrator:'LabAdm1n!Pass'@127.0.0.1 all");
             return 2;
         }
 
         bool all = false;
         int port = 389;
-        foreach (string a in args.Skip(aui))
+        foreach (string a in args.Skip(au.NextIndex))
         {
             if (string.Equals(a, "all", StringComparison.OrdinalIgnoreCase)) all = true;
             else if (int.TryParse(a, out int p)) port = p;
@@ -1756,27 +1714,20 @@ switch (args[0])
         //   Constrained w/ Protocol Transition: userAccountControl & 0x1000000 (TRUSTED_TO_AUTH...)
         //   Constrained                       : msDS-AllowedToDelegateTo present
         //   Resource-Based Constrained        : msDS-AllowedToActOnBehalfOfOtherIdentity present
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: find-delegation <host> <user> <password> <domain-fqdn> [target-user] [port]");
-            Console.Error.WriteLine("  e.g. find-delegation 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
+        const string fdUsage = "usage: find-delegation <domain-fqdn/user[:password]@host> [target-user] [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, fdUsage);
+        string host = _c.Host, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        if (string.IsNullOrEmpty(domainFqdn)) { Console.Error.WriteLine(fdUsage); return 2; }
         string? targetUser = null;
         int port = 389;
-        foreach (string a in args.Skip(5))
+        foreach (string a in args.Skip(_c.NextIndex))
         {
             if (int.TryParse(a, out int p)) port = p;
             else targetUser = a;
         }
 
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
-        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        string bindName = _c.User.Contains('@') ? _c.User : $"{_c.User}@{domainFqdn}";
 
         using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
@@ -1893,27 +1844,20 @@ switch (args[0])
         // (ms-MCS-AdmPwd=*)(msLAPS-Password=*))). ms-Mcs-AdmPwd (LAPS v1) and msLAPS-Password
         // (Windows LAPS cleartext JSON) are read directly; msLAPS-EncryptedPassword (DPAPI-NG) is
         // observed but not decrypted (deferred). Reading LAPS is an ACL/privilege signal.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: get-laps <host> <user> <password> <domain-fqdn> [computer] [port]");
-            Console.Error.WriteLine("  e.g. get-laps 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
+        const string glUsage = "usage: get-laps <domain-fqdn/user[:password]@host> [computer] [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, glUsage);
+        string host = _c.Host, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        if (string.IsNullOrEmpty(domainFqdn)) { Console.Error.WriteLine(glUsage); return 2; }
         string? targetComputer = null;
         int port = 389;
-        foreach (string a in args.Skip(5))
+        foreach (string a in args.Skip(_c.NextIndex))
         {
             if (int.TryParse(a, out int p)) port = p;
             else targetComputer = a;
         }
 
         string baseDn = "dc=" + domainFqdn.Replace(".", ",dc=");
-        string bindName = user.Contains('@') ? user : $"{user}@{domainFqdn}";
+        string bindName = _c.User.Contains('@') ? _c.User : $"{_c.User}@{domainFqdn}";
 
         using LdapConnection ldap = LdapAuth.ConnectAndBind(host, port, bindName, password, domainFqdn, out LdapBindResponse bind);
         if (!bind.Success)
@@ -2008,19 +1952,13 @@ switch (args[0])
         // GetUserSPNs.py (Kerberoasting): LDAP-search for accounts with a servicePrincipalName,
         // then request a service ticket (TGS) for each SPN using our TGT. The service ticket's
         // enc-part is encrypted with the service account's key -> a crackable $krb5tgs$ hash.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: get-userspns <host> <user> <password> <domain-fqdn> [target-user] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domainFqdn = args[4];
+        const string guUsage = "usage: get-userspns <domain-fqdn/user[:password]@host> [target-user] [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, guUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        if (string.IsNullOrEmpty(domainFqdn)) { Console.Error.WriteLine(guUsage); return 2; }
         string? targetUser = null;
         int ldapPort = 389;
-        foreach (string a in args.Skip(5))
+        foreach (string a in args.Skip(_c.NextIndex))
         {
             if (int.TryParse(a, out int p)) ldapPort = p;
             else targetUser = a;
@@ -2112,17 +2050,11 @@ switch (args[0])
         // Proves the full Kerberos pre-auth + crypto chain: the AS-REP enc-part decrypts with the
         // client key and yields the TGT session key. This is the foundation the TGS examples
         // (GetUserSPNs, getST) build on.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: kerb-tgt <host> <user> <password> <domain-fqdn> [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string realm = args[4];
-        int kdcPort = args.Length >= 6 ? int.Parse(args[5]) : 88;
+        const string ktUsage = "usage: kerb-tgt <domain-fqdn/user[:password]@host> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, ktUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, realm = _c.DomainOrEmpty;
+        if (string.IsNullOrEmpty(realm)) { Console.Error.WriteLine(ktUsage); return 2; }
+        int kdcPort = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 88;
 
         try
         {
@@ -2161,20 +2093,14 @@ switch (args[0])
         // behalf of a user (S4U2self: PA-FOR-USER), then uses it as an additional-ticket to get a
         // ticket to <target-spn> as that user (S4U2proxy). This is the abuse of the delegation that
         // find-delegation enumerates; the point here is to put that S4U exchange on the wire.
-        if (args.Length < 7)
-        {
-            Console.Error.WriteLine("usage: get-st <dc-host> <service-user> <password> <domain-fqdn> <impersonate> <target-spn> [port]");
-            Console.Error.WriteLine("  e.g. get-st vm.lab.local websvc 'Pass123!' lab.local Administrator cifs/target.lab.local");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string realm = args[4];
-        string impersonate = args[5];
-        string targetSpn = args[6];
-        int kdcPort = args.Length >= 8 ? int.Parse(args[7]) : 88;
+        const string stUsage = "usage: get-st <domain-fqdn/service-user[:password]@dc-host> <impersonate> <target-spn> [port]\n  e.g. get-st lab.local/websvc:'Pass123!'@vm.lab.local Administrator cifs/target.lab.local";
+        Creds _c = Creds.ResolveOrExit(args, 1, stUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, realm = _c.DomainOrEmpty;
+        int si = _c.NextIndex;
+        if (string.IsNullOrEmpty(realm) || si + 1 >= args.Length) { Console.Error.WriteLine(stUsage); return 2; }
+        string impersonate = args[si++];
+        string targetSpn = args[si++];
+        int kdcPort = args.Length > si ? int.Parse(args[si]) : 88;
 
         try
         {
@@ -2210,21 +2136,13 @@ switch (args[0])
         // pre-authentication" (UF_DONT_REQUIRE_PREAUTH) and request an AS-REP for each — a DC
         // returns the TGT enc-part encrypted with the account's key, i.e. a crackable hash.
         // With a target user, roast just that one; otherwise LDAP-search for roastable accounts.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]");
-            Console.Error.WriteLine("  e.g. get-npusers 127.0.0.1 Administrator 'LabAdm1n!Pass' lab.local");
-            Console.Error.WriteLine("       get-npusers 127.0.0.1 '' '' lab.local roastme   # roast a single known user, no bind");
-            return 2;
-        }
-
-        string host = args[1];
-        string bindUser = args[2];
-        string bindPassword = args[3];
-        string domainFqdn = args[4];
+        const string npUsage = "usage: get-npusers <domain-fqdn/[user[:password]]@host> [target-user] [port]\n  e.g. get-npusers lab.local/Administrator:'LabAdm1n!Pass'@127.0.0.1\n       get-npusers lab.local/@127.0.0.1 roastme   # roast a single known user, no bind";
+        Creds _c = Creds.ResolveOrExit(args, 1, npUsage, allowEmptyUser: true);
+        string host = _c.Host, bindUser = _c.User, bindPassword = _c.PasswordOrEmpty, domainFqdn = _c.DomainOrEmpty;
+        if (string.IsNullOrEmpty(domainFqdn)) { Console.Error.WriteLine(npUsage); return 2; }
         string? targetUser = null;
         int ldapPort = 389;
-        foreach (string a in args.Skip(5))
+        foreach (string a in args.Skip(_c.NextIndex))
         {
             if (int.TryParse(a, out int p)) ldapPort = p;
             else targetUser = a;
@@ -2455,17 +2373,12 @@ switch (args[0])
         // with NTLMSSP packet privacy (sign+seal), then enumerate the SAM domains
         // and their users. No SMB anywhere — this is how a modern client reaches a
         // TCP-bound RPC service.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int epmPort = args.Length >= 6 ? int.Parse(args[5]) : 135;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int epmPort = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 135;
 
         // 1) Resolve samr's dynamic TCP port via the endpoint mapper.
         DcerpcPipe mapper = DcerpcPipe.OverTcp(host, epmPort);
@@ -2591,17 +2504,12 @@ switch (args[0])
         // List the installed services via svcctl REnumServicesStatusW (the impacket
         // services.py "list" recon). Read-only: opens the SCM with ENUMERATE access,
         // enumerates, and prints each service's name, state, and display name.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-services <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -2643,18 +2551,13 @@ switch (args[0])
     {
         // Read one service's configuration via svcctl RQueryServiceConfigW
         // (services.py per-service detail): binary path, start type, logon account.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-svcconfig <host> <user> <password> <service> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string serviceName = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string scUsage = "usage: rpc-svcconfig <[domain/]user[:password]@host> <service> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, scUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(scUsage); return 2; }
+        string serviceName = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -2708,18 +2611,13 @@ switch (args[0])
     {
         // Query one service's live SERVICE_STATUS via svcctl RQueryServiceStatus (opnum 6):
         // run state, accepted control codes, last exit codes.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-svcstatus <host> <user> <password> <service> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string serviceName = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string ssUsage = "usage: rpc-svcstatus <[domain/]user[:password]@host> <service> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, ssUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(ssUsage); return 2; }
+        string serviceName = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -2777,17 +2675,12 @@ switch (args[0])
         // Lab-only: generate the remote service-creation ("psexec") wire signature
         // via svcctl. Opens the SCM, attempts to create a BENIGN marker service,
         // and reports exactly what the server returns. Nothing destructive.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-svcctl <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -2856,19 +2749,14 @@ switch (args[0])
         // primitive — observable by design (prints the crafted service binary path, the
         // random service/batch/output names, and every SCM return code). Self-cleaning:
         // the service is deleted immediately and the output file removed after reading.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: smbexec <host> <user> <password> <command> [share=C$] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string command = args[4];
-        string share = args.Length >= 6 ? args[5] : "C$";
-        string domain = args.Length >= 7 ? args[6] : string.Empty;
-        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+        const string seUsage = "usage: smbexec <[domain/]user[:password]@host> <command> [share=C$] [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, seUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(seUsage); return 2; }
+        string command = args[ci++];
+        string share = args.Length > ci ? args[ci++] : "C$";
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         var rng = new Random();
         string serviceName = SmbExecCommand.ServiceName(rng);
@@ -2990,19 +2878,13 @@ switch (args[0])
         // detectable signature and is faithful to impacket; the RID window and batch size are impl
         // details (we sweep 0..maxRid in batches of 50; impacket sweeps 0..4000 in batches of
         // 1000 — a benign fingerprint divergence, not a payload).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: lookupsid <host> <user> <password> [maxRid=1100] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        // Positional: [maxRid] [domain] [port]
-        int maxRid = args.Length >= 5 && int.TryParse(args[4], out int mr) ? mr : 1100;
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 && int.TryParse(args[6], out int pp) ? pp : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: lookupsid <[domain/]user[:password]@host> [maxRid=1100] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        // Positional after the target: [maxRid] [port] (both ints).
+        int li = _c.NextIndex;
+        int maxRid = args.Length > li && int.TryParse(args[li], out int mr) ? mr : 1100;
+        if (args.Length > li) li++;
+        int port = args.Length > li && int.TryParse(args[li], out int pp) ? pp : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3068,17 +2950,12 @@ switch (args[0])
     case "rpc-hostinfo":
     {
         // Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-hostinfo <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3121,17 +2998,12 @@ switch (args[0])
     {
         // Server info via srvsvc NetrServerGetInfo level 102: the 101 fields plus the server's
         // announce/session tunables (user limit, auto-disconnect, hidden, announce, licenses, path).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-srvinfo <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3167,17 +3039,12 @@ switch (args[0])
     case "rpc-lsa":
     {
         // Domain recon via lsarpc: open the LSA policy and read the account domain + SID.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-lsa <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3239,17 +3106,12 @@ switch (args[0])
     {
         // Enumerate the privileges the LSA knows via lsarpc LsarEnumeratePrivileges
         // (the enum4linux privilege-enumeration recon).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-privs <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3291,19 +3153,13 @@ switch (args[0])
         // List the LSA rights/privileges granted to one account SID via lsarpc
         // LsarEnumerateAccountRights (the "who can do what" recon behind tools that
         // audit SeDebugPrivilege/SeBackupPrivilege holders).
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-accountrights <host> <user> <password> <sid> [domain] [port]");
-            Console.Error.WriteLine("  e.g. rpc-accountrights 127.0.0.1 Administrator 'pass' S-1-5-32-550 LAB");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string sid = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string arUsage = "usage: rpc-accountrights <[domain/]user[:password]@host> <sid> [port]   (e.g. LAB/Administrator@127.0.0.1 S-1-5-32-550)";
+        Creds _c = Creds.ResolveOrExit(args, 1, arUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(arUsage); return 2; }
+        string sid = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3357,20 +3213,13 @@ switch (args[0])
         // Resolve a privilege name <-> its LUID via lsarpc LsarLookupPrivilegeValue (opnum 31)
         // and LsarLookupPrivilegeName (opnum 32). Pass a name (e.g. SeDebugPrivilege) to get the
         // LUID and confirm with the reverse lookup; pass a number to resolve a LUID to its name.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-privlookup <host> <user> <password> <privilege-name|luid> [domain] [port]");
-            Console.Error.WriteLine("  e.g. rpc-privlookup 127.0.0.1 Administrator 'pass' SeDebugPrivilege LAB");
-            Console.Error.WriteLine("       rpc-privlookup 127.0.0.1 Administrator 'pass' 20 LAB");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string target = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string plUsage = "usage: rpc-privlookup <[domain/]user[:password]@host> <privilege-name|luid> [port]   (e.g. LAB/Administrator@127.0.0.1 SeDebugPrivilege)";
+        Creds _c = Creds.ResolveOrExit(args, 1, plUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(plUsage); return 2; }
+        string target = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3442,17 +3291,12 @@ switch (args[0])
     case "rpc-lookupsid":
     {
         // SID->name recon via lsat LsarLookupSids (the lookupsid behavior).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-lookupsid <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3501,17 +3345,12 @@ switch (args[0])
     {
         // SID->name recon via lsat LsarLookupSids2 (opnum 57) — the variant modern Windows
         // clients use (adds LookupOptions + ClientRevision; EX translated-name records).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-lookupsid2 <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3560,18 +3399,13 @@ switch (args[0])
         // changepasswd.py (SAMR / NetUserChangePassword path): a user changes their OWN password
         // over SAMR via SamrUnicodeChangePasswordUser2 — proving the old password, no admin rights.
         // Benign (normal password change). Authenticates the SMB session with the old password.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-changepw <host> <user> <oldpassword> <newpassword> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string oldPassword = args[3];
-        string newPassword = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string cpUsage = "usage: rpc-changepw <[domain/]user[:oldpassword]@host> <newpassword> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, cpUsage);
+        string host = _c.Host, user = _c.User, oldPassword = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(cpUsage); return 2; }
+        string newPassword = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3613,18 +3447,13 @@ switch (args[0])
         // %SystemRoot%\Temp vs %windir%\Temp, 1> vs >, a .log output vs .tmp, and independent
         // alphanumeric task/output names vs impacket's single 8-letter name reused for both — so a
         // brittle command/XML IOC won't catch this port. See docs/WIRE_DIFF.md.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: atexec <host> <user> <password> <command> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string command = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string _u = "usage: <[domain/]user[:password]@host> <command> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, _u);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(_u); return 2; }
+        string command = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         static string Alnum(int n) => new string(Enumerable.Range(0, n)
             .Select(_ => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Random.Shared.Next(62)]).ToArray());
@@ -3710,18 +3539,14 @@ switch (args[0])
         // self-cleaning: it creates the (disabled) account, reports the RID, then DELETES it so
         // the DC is left unchanged. The password-set (SamrSetPasswordInternal4New) and enable
         // (SamrSetInformationUser2 UserControl) are deferred (see PORTING_STATUS).
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string computerName = args[4].EndsWith('$') ? args[4] : args[4] + "$";
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string acUsage = "usage: rpc-addcomputer <[domain/]user[:password]@host> <computer-name> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, acUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(acUsage); return 2; }
+        string computerName = args[ci].EndsWith('$') ? args[ci] : args[ci] + "$";
+        ci++;
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3774,17 +3599,12 @@ switch (args[0])
     case "rpc-enumusers":
     {
         // Domain user enumeration via samr (the samrdump / enumdomusers behavior).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-enumusers <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3848,17 +3668,12 @@ switch (args[0])
         // Domain user display enumeration via samr SamrQueryDisplayInformation level 1
         // (the samrdump display path): RID + account-control flags + name/description/full name
         // for every user in a single enumeration, no per-user OpenUser round-trips.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-dispinfo <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3913,17 +3728,12 @@ switch (args[0])
     {
         // Domain group display enumeration via samr SamrQueryDisplayInformation level 3
         // (DomainDisplayGroup): RID + SE_GROUP_* attributes + name/description for every group.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-dispgroups <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -3977,17 +3787,12 @@ switch (args[0])
     {
         // Domain general info via samr SamrQueryInformationDomain level 2 (DomainGeneralInformation):
         // server role/state and live user/group/alias object counts — the quick domain-size recon.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-domaininfo <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4050,19 +3855,11 @@ switch (args[0])
         // Alias (local group) membership via samr SamrOpenAlias (opnum 27) + SamrGetMembersInAlias
         // (opnum 33), against the BUILTIN domain where the well-known aliases live. Resolves the
         // member SIDs to names via lsat. Defaults to Administrators (RID 544).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]");
-            Console.Error.WriteLine("  e.g. rpc-aliasmem 127.0.0.1 Administrator 'pass' Administrators LAB");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string aliasArg = args.Length >= 5 ? args[4] : "Administrators";
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-aliasmem <[domain/]user[:password]@host> [alias-name|rid] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string aliasArg = args.Length > ci ? args[ci++] : "Administrators";
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4172,12 +3969,10 @@ switch (args[0])
         // connect, open the account domain, then print the domain's general info, password/lockout
         // policy, every user (display info) and every group. Chains the already-validated SAMR
         // calls into the single labelled sequence a SOC wants for behavioral detection.
-        Creds sd = Creds.ResolveOrExit(args, 1,
-            "usage: rpc-samrdump <host> <user> <password> [domain] [port]   (or [domain/]user[:password]@host, with -hashes/-k)");
+        Creds sd = Creds.ResolveOrExit(args, 1, "usage: rpc-samrdump <[domain/]user[:password]@host> [port]");
         string host = sd.Host;
-        int sdi = sd.NextIndex;
-        string domain = sd.ResolveDomain(args, ref sdi);
-        int port = args.Length > sdi ? int.Parse(args[sdi]) : 445;
+        string domain = sd.DomainOrEmpty;
+        int port = args.Length > sd.NextIndex ? int.Parse(args[sd.NextIndex]) : 445;
 
         static string Days(double? d) => d is null ? "none" : $"{d.Value:0.##} days";
 
@@ -4269,18 +4064,13 @@ switch (args[0])
     {
         // Per-user detail via samr SamrQueryInformationUser2 class 21 (SAMPR_USER_ALL_INFORMATION) —
         // the account record samrdump prints: timestamps, account-control flags, counters.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string targetUser = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string _u = "usage: <[domain/]user[:password]@host> <targetUser> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, _u);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(_u); return 2; }
+        string targetUser = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4368,18 +4158,13 @@ switch (args[0])
     {
         // Name -> RID resolution via samr SamrLookupNamesInDomain (opnum 17): the reverse of
         // rpc-lookupsid, and how name-based tools map accounts to RIDs before opening them.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-lookuprid <host> <user> <password> <names-csv> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string[] targets = args[4].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string lrUsage = "usage: rpc-lookuprid <[domain/]user[:password]@host> <names-csv> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, lrUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(lrUsage); return 2; }
+        string[] targets = args[ci++].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4430,20 +4215,15 @@ switch (args[0])
     {
         // RID -> name resolution via samr SamrLookupIdsInDomain (opnum 18): the reverse of
         // rpc-lookuprid, and how a tool turns RIDs (e.g. from a group membership) into names.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: rpc-lookupid <host> <user> <password> <rids-csv> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        uint[] targetRids = args[4]
+        const string liUsage = "usage: rpc-lookupid <[domain/]user[:password]@host> <rids-csv> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, liUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(liUsage); return 2; }
+        uint[] targetRids = args[ci++]
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(uint.Parse).ToArray();
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4494,17 +4274,12 @@ switch (args[0])
     {
         // Domain group + alias enumeration via samr (the samrdump groups behavior):
         // SamrEnumerateGroupsInDomain (opnum 11) + SamrEnumerateAliasesInDomain (15).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-enumgroups <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4560,17 +4335,12 @@ switch (args[0])
     {
         // Domain password + lockout policy via samr SamrQueryInformationDomain
         // (the enum4linux / samrdump password-policy dump).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-passpol <host> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string domain = args.Length >= 5 ? args[4] : string.Empty;
-        int port = args.Length >= 6 ? int.Parse(args[5]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        string host = _c.Host;
+        string user = _c.User;
+        string password = _c.PasswordOrEmpty;
+        string domain = _c.DomainOrEmpty;
+        int port = args.Length > _c.NextIndex ? int.Parse(args[_c.NextIndex]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4626,18 +4396,11 @@ switch (args[0])
     case "rpc-lookupnames":
     {
         // Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string[] names = args.Length >= 5 ? args[4].Split(',') : new[] { "labuser", "Everyone", "Administrator" };
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-lookupnames <[domain/]user[:password]@host> [names-csv] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string[] names = args.Length > ci ? args[ci++].Split(',') : new[] { "labuser", "Everyone", "Administrator" };
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4673,18 +4436,11 @@ switch (args[0])
     {
         // Name->SID recon via lsat LsarLookupNames2 (opnum 58) — the variant modern Windows
         // clients use (adds LookupOptions + ClientRevision; EX translated-SID records).
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-lookupnames2 <host> <user> <password> [names csv] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string[] names = args.Length >= 5 ? args[4].Split(',') : new[] { "Administrator", "Guest", "Domain Admins" };
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-lookupnames2 <[domain/]user[:password]@host> [names-csv] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string[] names = args.Length > ci ? args[ci++].Split(',') : new[] { "Administrator", "Guest", "Domain Admins" };
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4720,18 +4476,11 @@ switch (args[0])
     {
         // Remote-registry recon via winreg (MS-RRP): open HKLM, read its version,
         // open a subkey, then release the handles. The impacket reg.py surface.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-reg <host> <user> <password> [subkey] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string subKey = args.Length >= 5 ? args[4] : @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-reg <[domain/]user[:password]@host> [subkey] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string subKey = args.Length > ci ? args[ci++] : @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4774,19 +4523,14 @@ switch (args[0])
     {
         // Read a named registry value via winreg: OpenHKLM -> OpenKey(subkey) ->
         // BaseRegQueryValue(value). The reg.py "reg query KEY -v VALUE" recon.
-        if (args.Length < 6)
-        {
-            Console.Error.WriteLine("usage: rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string subKey = args[4];
-        string valueName = args[5];
-        string domain = args.Length >= 7 ? args[6] : string.Empty;
-        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+        const string rqUsage = "usage: rpc-regquery <[domain/]user[:password]@host> <subkey> <value> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, rqUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci + 1 >= args.Length) { Console.Error.WriteLine(rqUsage); return 2; }
+        string subKey = args[ci++];
+        string valueName = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4837,18 +4581,11 @@ switch (args[0])
     {
         // Enumerate all values under a registry key via winreg BaseRegEnumValue
         // (reg.py "reg query KEY" — list the key's values). OpenHKLM -> OpenKey -> loop.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-regenum <host> <user> <password> [subkey] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string subKey = args.Length >= 5 ? args[4] : @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-regenum <[domain/]user[:password]@host> [subkey] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string subKey = args.Length > ci ? args[ci++] : @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4897,18 +4634,11 @@ switch (args[0])
     {
         // Enumerate a registry key's subkeys via winreg BaseRegEnumKey (reg.py key walk):
         // OpenHKLM -> OpenKey -> loop dwIndex until ERROR_NO_MORE_ITEMS.
-        if (args.Length < 4)
-        {
-            Console.Error.WriteLine("usage: rpc-regkeys <host> <user> <password> [subkey] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string user = args[2];
-        string password = args[3];
-        string subKey = args.Length >= 5 ? args[4] : @"SOFTWARE\Microsoft";
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        Creds _c = Creds.ResolveOrExit(args, 1, "usage: rpc-regkeys <[domain/]user[:password]@host> [subkey] [port]");
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        string subKey = args.Length > ci ? args[ci++] : @"SOFTWARE\Microsoft";
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -4956,19 +4686,14 @@ switch (args[0])
     case "smb2-ls":
     {
         // Directory listing over SMB2: TREE_CONNECT + CREATE(dir) + QUERY_DIRECTORY + CLOSE.
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: smb2-ls <host> <share> <user> <password> [path] [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string share = args[2];
-        string user = args[3];
-        string password = args[4];
-        string path = args.Length >= 6 ? args[5] : string.Empty;
-        string domain = args.Length >= 7 ? args[6] : string.Empty;
-        int port = args.Length >= 8 ? int.Parse(args[7]) : 445;
+        const string lsUsage = "usage: smb2-ls <[domain/]user[:password]@host> <share> [path] [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, lsUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(lsUsage); return 2; }
+        string share = args[ci++];
+        string path = args.Length > ci ? args[ci++] : string.Empty;
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -5003,18 +4728,13 @@ switch (args[0])
     case "smb2-info":
     {
         // File-system info over SMB2: CREATE(root) + QUERY_INFO (volume + size).
-        if (args.Length < 5)
-        {
-            Console.Error.WriteLine("usage: smb2-info <host> <share> <user> <password> [domain] [port]");
-            return 2;
-        }
-
-        string host = args[1];
-        string share = args[2];
-        string user = args[3];
-        string password = args[4];
-        string domain = args.Length >= 6 ? args[5] : string.Empty;
-        int port = args.Length >= 7 ? int.Parse(args[6]) : 445;
+        const string siUsage = "usage: smb2-info <[domain/]user[:password]@host> <share> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, siUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci >= args.Length) { Console.Error.WriteLine(siUsage); return 2; }
+        string share = args[ci++];
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         using var client = new Smb2Client();
         client.Connect(host, port);
@@ -5047,24 +4767,22 @@ switch (args[0])
         //   smb-attrib-set <host> <share> <path> <user> <password> <attrs> [domain] [port]
         // <attrs>: letters among R(eadonly) H(idden) S(ystem) A(rchive) N(ormal) T(emporary), or "clear".
         bool setMode = args[0] == "smb-attrib-set";
-        int minArgs = setMode ? 7 : 6;
-        if (args.Length < minArgs)
+        string atUsage = setMode
+            ? "usage: smb-attrib-set <[domain/]user[:password]@host> <share> <path> <attrs> [port]"
+            : "usage: smb-attrib <[domain/]user[:password]@host> <share> <path> [port]";
+        Creds _c = Creds.ResolveOrExit(args, 1, atUsage);
+        string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
+        int ci = _c.NextIndex;
+        if (ci + 1 >= args.Length || (setMode && ci + 2 >= args.Length))
         {
-            Console.Error.WriteLine(setMode
-                ? "usage: smb-attrib-set <host> <share> <path> <user> <password> <attrs> [domain] [port]"
-                : "usage: smb-attrib <host> <share> <path> <user> <password> [domain] [port]");
+            Console.Error.WriteLine(atUsage);
             return 2;
         }
 
-        string host = args[1];
-        string share = args[2];
-        string path = args[3].Replace('/', '\\').TrimStart('\\');
-        string user = args[4];
-        string password = args[5];
-        string attrSpec = setMode ? args[6] : string.Empty;
-        int tail = setMode ? 7 : 6;
-        string domain = args.Length > tail ? args[tail] : string.Empty;
-        int port = args.Length > tail + 1 ? int.Parse(args[tail + 1]) : 445;
+        string share = args[ci++];
+        string path = args[ci++].Replace('/', '\\').TrimStart('\\');
+        string attrSpec = setMode ? args[ci++] : string.Empty;
+        int port = args.Length > ci ? int.Parse(args[ci]) : 445;
 
         static string Format(Smb2FileAttributes a) =>
             (a.HasFlag(Smb2FileAttributes.ReadOnly) ? "R" : "-") +

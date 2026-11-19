@@ -1278,3 +1278,17 @@ captures here (what differs, why, and whether it is detection-relevant).
   target forms both authenticate, and `dcsync 'lab.local/Administrator@127.0.0.1' Administrator LAB
   -hashes :ac8d0d…` recovers the NT hash with **no password argument**. Rollout to the remaining commands
   continues. 260 tests pass (CLI parsing is validated live, like the other commands).
+
+- **2026-11-19 — full impacket target-string CLI (no legacy positional creds).** Replaced the
+  `<host> <user> <password> [domain]` positional credential form across **every** credentialed command
+  with impacket's single target token `[[domain/]username[:password]@]host` (shared `Creds.Resolve`).
+  No backwards compatibility: there is no separate user/password positional any more. The password is
+  optional whenever a ticket/hash is supplied (`-hashes`/`-aesKey`/`-k`/ccache/`-no-pass`), so the old
+  mandatory placeholder password is gone. ~55 commands migrated (SMB2 file ops, DCERPC recon, LDAP,
+  Kerberos, DCSync ×4, ACL/delegation action-first, exec, changepw); the DNS domain for LDAP/Kerberos/
+  DCSync is taken from the target's `domain/` part. Validated live across each shape family — e.g.
+  `dcsync-all 'lab.local/Administrator@127.0.0.1' LAB -hashes :ac8d0d…` dumps the domain with **no
+  password argument**; `smb2-ls 'LAB/Administrator:pass@127.0.0.1' SYSVOL`, `rpc-svcconfig … Netlogon`,
+  `dacledit read 'lab.local/Administrator:pass@127.0.0.1' Administrator`, `get-userspns …` all work.
+  README re-toned to a red-team tool and both README + CLAUDE command lists rewritten to the target
+  form. 260 tests pass.
