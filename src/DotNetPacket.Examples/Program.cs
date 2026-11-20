@@ -4870,7 +4870,14 @@ switch (args[0])
     case "-h":
     case "--help":
     case "help":
-        PrintUsage();
+        // `help` / `-h` with no argument: the full grouped listing.
+        // `help <command>`: that command's parameters and examples.
+        if (args.Length >= 2)
+        {
+            return CommandHelp.PrintCommand(args[1]);
+        }
+
+        CommandHelp.PrintOverview();
         return 0;
 
     default:
@@ -4976,121 +4983,6 @@ static void HttpNtlmVictim(string host, int port, string domain, string user, st
     ReadResponse();                                            // 200 / 401
 }
 
-static void PrintUsage()
-{
-    Console.WriteLine("DotNetPacket examples (SOC lab harness)");
-    Console.WriteLine();
-    Console.WriteLine("Usage: netpacket-examples <command>");
-    Console.WriteLine();
-    Console.WriteLine("Commands:");
-    Console.WriteLine("  smb-header       Build a sample SMBv1 header and hex-dump its bytes.");
-    Console.WriteLine("  ntlm-negotiate   Build a sample NTLMSSP NEGOTIATE message and hex-dump its bytes.");
-    Console.WriteLine("  smb2-negotiate <host> [port]");
-    Console.WriteLine("                   Perform a live SMB2 NEGOTIATE against a host and dump both directions.");
-    Console.WriteLine("  smb2-login <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Live SMB2 NEGOTIATE + NTLMv2 SESSION_SETUP; dump both handshake rounds.");
-    Console.WriteLine("  smb2-connect <host> <share> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Full session: NEGOTIATE + SESSION_SETUP + signed TREE_CONNECT to a share.");
-    Console.WriteLine("  smb2-cat <host> <share> <path> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Read a file over SMB2: TREE_CONNECT + CREATE + READ + CLOSE.");
-    Console.WriteLine("  smb2-ls <host> <share> <user> <password> [path] [domain] [port]");
-    Console.WriteLine("                   List a directory over SMB2: CREATE(dir) + QUERY_DIRECTORY.");
-    Console.WriteLine("  smb2-info <host> <share> <user> <password> [domain] [port]");
-    Console.WriteLine("  smb-attrib <host> <share> <path> <user> <password> [domain] [port]   # attrib: query DOS attributes");
-    Console.WriteLine("  smb-attrib-set <host> <share> <path> <user> <password> <attrs> [domain] [port]   # attrib: set DOS attributes (RHSATN/clear)");
-    Console.WriteLine("                   Filesystem info over SMB2: QUERY_INFO (volume label/serial, size).");
-    Console.WriteLine("  dcerpc-bind <host> <user> <password> [interface] [domain] [port]");
-    Console.WriteLine("                   Open a named pipe on IPC$ and DCERPC BIND (srvsvc/wkssvc/lsarpc/samr/svcctl).");
-    Console.WriteLine("  rpc-shares <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Enumerate shares via srvsvc NetrShareEnum (DCERPC REQUEST/RESPONSE + NDR).");
-    Console.WriteLine("  rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]");
-    Console.WriteLine("                   NetrShareEnum over an NTLMSSP-authenticated bind with packet privacy/integrity.");
-    Console.WriteLine("  rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]   # addcomputer (SAMR): create+delete a machine account (lab)");
-    Console.WriteLine("  atexec <host> <user> <password> <command> [domain] [port]   # atexec: run a command via the Task Scheduler (MS-TSCH, Windows-only)");
-    Console.WriteLine("  rpc-changepw <host> <user> <oldpassword> <newpassword> [domain] [port]   # changepasswd (SAMR): change your own password");
-    Console.WriteLine("  rpc-dump <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Enumerate registered RPC interfaces via mgmt inq_if_ids (rpcdump, over SMB).");
-    Console.WriteLine("  smb-ntlminfo <host> [port]   # DumpNTLMInfo: host/OS/DNS names from the NTLM handshake (no creds)");
-    Console.WriteLine("  gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]   # Get-GPPPassword: find+decrypt GPP cpasswords");
-    Console.WriteLine("  badsuccessor <search|add|delete|modify> <host> <user> <password> <domain-fqdn> [dmsa] [target-ou] [target]   # BadSuccessor dMSA (lab)");
-    Console.WriteLine("  get-adcomputers <host> <user> <password> <domain-fqdn> [port]   # GetADComputers: LDAP search for computer objects");
-    Console.WriteLine("  get-adusers <host> <user> <password> <domain-fqdn> [all] [port]   # GetADUsers: LDAP search for user accounts");
-    Console.WriteLine("  get-laps <host> <user> <password> <domain-fqdn> [computer] [port]   # GetLAPSPassword: LDAP search for LAPS passwords");
-    Console.WriteLine("  get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]   # GetNPUsers: AS-REP roast accounts without pre-auth");
-    Console.WriteLine("  kerb-tgt <host> <user> <password> <domain-fqdn> [port]   # getTGT: request a Kerberos TGT (RC4 pre-auth)");
-    Console.WriteLine("  get-userspns <host> <user> <password> <domain-fqdn> [target-user] [port]   # GetUserSPNs: Kerberoast SPN accounts");
-    Console.WriteLine("  ldap-signing <host> <domain> [port]   # CheckLDAPStatus (does the DC require LDAP signing)");
-    Console.WriteLine("  rpc-dump-tcp <host> [port]");
-    Console.WriteLine("                   Same, but DCERPC directly over TCP (ncacn_ip_tcp) to the endpoint mapper.");
-    Console.WriteLine("  rpc-getarch <host> [port]");
-    Console.WriteLine("                   Detect target architecture via an NDR+NDR64 two-context bind (getarch).");
-    Console.WriteLine("  rpc-epm-map <host> [interface=samr] [port]");
-    Console.WriteLine("                   Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).");
-    Console.WriteLine("  rpc-samr-tcp <host> <user> <password> [domain] [epm-port]");
-    Console.WriteLine("  dcsync <dc-host> <user> <password> <domain-fqdn> <target-user> [netbios-domain] [epm-port]   # secretsdump (DCSync): replicate an account's secrets via DRSUAPI (lab)");
-    Console.WriteLine("  dcsync-all <dc-host> <user> <password> <domain-fqdn> [netbios-domain] [epm-port]   # secretsdump (DCSync): enumerate + replicate every account by SID (lab)");
-    Console.WriteLine("  dcsync-k <dc-host> <user> <password> <domain-fqdn> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)");
-    Console.WriteLine("  dcsync-all-k <dc-host> <user> <password> <domain-fqdn> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)");
-    Console.WriteLine("  getpac <dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [port]   # getPac: S4U2self + decrypt the ticket + parse its PAC (MS-PAC) (lab)");
-    Console.WriteLine("                   Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).");
-    Console.WriteLine("  mssql-cbt <host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)");
-    Console.WriteLine("  dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)");
-    Console.WriteLine("  owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]   # owneredit: read/set an object's owner (lab)");
-    Console.WriteLine("  rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]   # rbcd: msDS-AllowedToActOnBehalfOfOtherIdentity (lab)");
-    Console.WriteLine("  ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: SMB->SMB NTLM relay (lab)");
-    Console.WriteLine("  ntlmrelayx-http <target-host> [listen-port] [victim-user victim-pass [domain]]   # ntlmrelayx: HTTP->SMB NTLM relay (lab)");
-    Console.WriteLine("  ntlmrelayx-ldap <dc-host> <listen-port> <victim-user> <victim-pass> <domain-fqdn>   # ntlmrelayx: SMB->LDAP relay (ldapattack, lab)");
-    Console.WriteLine("  rpc-services <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   List installed services via svcctl REnumServicesStatusW (services.py list).");
-    Console.WriteLine("  rpc-svcconfig <host> <user> <password> <service> [domain] [port]");
-    Console.WriteLine("                   Query one service's config (binary path, start type, account) via QueryServiceConfigW.");
-    Console.WriteLine("  rpc-svcstatus <host> <user> <password> <service> [domain] [port]");
-    Console.WriteLine("                   Query one service's live SERVICE_STATUS (run state, controls) via RQueryServiceStatus.");
-    Console.WriteLine("  rpc-svcctl <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Lab demo of svcctl service creation (psexec wire signature; benign marker).");
-    Console.WriteLine("  smbexec <host> <user> <password> <command> [share=C$] [domain] [port]");
-    Console.WriteLine("                   smbexec: run a command via a one-shot svcctl service (lab-only exec).");
-    Console.WriteLine("  rpc-hostinfo <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-srvinfo <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Host/OS recon via wkssvc NetrWkstaGetInfo + srvsvc NetrServerGetInfo.");
-    Console.WriteLine("  rpc-lsa <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Domain recon via lsarpc: account domain name + SID.");
-    Console.WriteLine("  rpc-privs <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-accountrights <host> <user> <password> <sid> [domain] [port]");
-    Console.WriteLine("  rpc-privlookup <host> <user> <password> <privilege-name|luid> [domain] [port]");
-    Console.WriteLine("                   Enumerate LSA privileges via lsarpc LsarEnumeratePrivileges.");
-    Console.WriteLine("  rpc-lookupsid <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   SID->name recon via lsat LsarLookupSids (well-known SIDs + domain RIDs).");
-    Console.WriteLine("  rpc-lookupsid2 <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   SID->name via lsat LsarLookupSids2 (opnum 57) — the modern-Windows variant.");
-    Console.WriteLine("  rpc-enumusers <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-dispinfo <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-dispgroups <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-domaininfo <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-samrdump <host> <user> <password> [domain] [port]");
-    Console.WriteLine("  rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]");
-    Console.WriteLine("                   Domain user enumeration via samr (samrdump / enumdomusers behavior).");
-    Console.WriteLine("  rpc-userinfo <host> <user> <password> <target-user> [domain] [port]");
-    Console.WriteLine("                   Per-user detail via samr QueryInformationUser2 level 21 (flags, timestamps).");
-    Console.WriteLine("  rpc-lookuprid <host> <user> <password> <names-csv> [domain] [port]");
-    Console.WriteLine("                   Name->RID resolution via samr SamrLookupNamesInDomain (opnum 17).");
-    Console.WriteLine("  rpc-lookupid <host> <user> <password> <rids-csv> [domain] [port]");
-    Console.WriteLine("                   RID->name resolution via samr SamrLookupIdsInDomain (opnum 18).");
-    Console.WriteLine("  rpc-enumgroups <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Domain group + alias enumeration via samr (samrdump groups).");
-    Console.WriteLine("  rpc-passpol <host> <user> <password> [domain] [port]");
-    Console.WriteLine("                   Domain password + lockout policy via samr SamrQueryInformationDomain.");
-    Console.WriteLine("  rpc-lookupnames <host> <user> <password> [names csv] [domain] [port]");
-    Console.WriteLine("                   Name->SID recon via lsat LsarLookupNames (inverse of lookupsid).");
-    Console.WriteLine("  rpc-lookupnames2 <host> <user> <password> [names csv] [domain] [port]");
-    Console.WriteLine("                   Name->SID via lsat LsarLookupNames2 (opnum 58) — the modern-Windows variant.");
-    Console.WriteLine("  rpc-reg <host> <user> <password> [subkey] [domain] [port]");
-    Console.WriteLine("                   Remote-registry recon via winreg (MS-RRP): OpenHKLM + GetVersion + OpenKey.");
-    Console.WriteLine("  rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]");
-    Console.WriteLine("                   Read a registry value via winreg BaseRegQueryValue (reg query KEY -v VALUE).");
-    Console.WriteLine("  rpc-regenum <host> <user> <password> [subkey] [domain] [port]");
-    Console.WriteLine("                   Enumerate a key's values via winreg BaseRegEnumValue (reg query KEY).");
-    Console.WriteLine("  rpc-regkeys <host> <user> <password> [subkey] [domain] [port]");
-    Console.WriteLine("                   Enumerate a key's subkeys via winreg BaseRegEnumKey (reg query KEY).");
-    Console.WriteLine("  help             Show this help.");
-}
+// Top-level listing (no-arg / `help` / default-error path). The command catalogue,
+// per-parameter detail, and examples all live in CommandHelp (single source of truth).
+static void PrintUsage() => CommandHelp.PrintOverview();

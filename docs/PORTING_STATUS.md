@@ -1305,3 +1305,17 @@ captures here (what differs, why, and whether it is detection-relevant).
   documented divergence for a no-prompt CLI: `user@host` with **no** `:` and no `-hashes`/`-k`/`-no-pass`
   is refused with a clear error (impacket would prompt); `user:@host` means an explicit empty password.
   Credential parsing is now unit-tested (new project reference + InternalsVisibleTo). 277 tests pass.
+
+- **2026-11-20 — CLI help rebuilt + README worked examples.** The hand-maintained `PrintUsage` block
+  had drifted badly out of sync with the real argument parsing — it still documented the **old
+  positional** credential form (`<host> <user> <password> [domain]`) for ~55 commands that had long
+  since moved to the impacket target string, so `--help` actively misled. Replaced it with a single
+  data-driven registry (`CommandHelp.cs`, one `CommandDoc` per command: category, arg synopsis,
+  summary, per-parameter notes, examples) that is the one source of truth for both the grouped
+  overview (`help` / no args) and a new **`help <command>`** detail view (synopsis + parameters +
+  examples + the credential-target and global-option primers, shown only where relevant). All 76
+  commands are covered; a `HelpTests` guard pins registry consistency (unique names, every entry has a
+  category/summary, each example invokes its own command) so the drift can't recur. The stale `get-st`
+  row in the README (old positional form) was corrected, and a **Examples** section of copy-pasteable
+  lab flows (enum, Kerberoast + ticket reuse, DCSync incl. PtH and `-k`, DACL edit, SOCKS pivot) was
+  added. 284 tests pass.
