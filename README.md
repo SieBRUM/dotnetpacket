@@ -96,7 +96,14 @@ KRB5CCNAME=alice.ccache dotnetpacket get-adusers 'lab.local/alice@dc01.lab.local
 
 > In the tables below, `<target>` means `[[domain/]username[:password]@]host`. Commands that need the
 > DNS domain (LDAP / Kerberos / DCSync) take it from the `domain/` part of the target, so use the FQDN
-> there: `lab.local/alice:pass@dc01`. Quote the target in your shell if the password has special chars.
+> there: `lab.local/alice:pass@dc01`.
+>
+> **Passwords with special characters** parse exactly like impacket's `parse_target`: the host is split
+> on the **last** `@`, so a password may contain `@`, `:` and `/` (e.g. `LAB/alice:P@ss:w/rd!@dc01` →
+> user `alice`, password `P@ss:w/rd!`). **Quote the whole target in your shell** — single quotes are
+> safest, since `!`, `$`, spaces and `()` are shell metacharacters (bash also does history expansion on
+> `!` inside double quotes). If the password itself must stay out of the process args entirely, pass
+> `-hashes`/`-aesKey`/`-k` and drop the `:password`.
 
 These flags work with **any** command and can appear anywhere on the line, like impacket:
 

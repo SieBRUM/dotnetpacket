@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Krb5\DotNetPacket.Protocols.Krb5.csproj" />
     <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Tds\DotNetPacket.Protocols.Tds.csproj" />
     <ProjectReference Include="..\..\src\DotNetPacket.Protocols.Http\DotNetPacket.Protocols.Http.csproj" />
+    <ProjectReference Include="..\..\src\DotNetPacket.Examples\DotNetPacket.Examples.csproj" />
   </ItemGroup>
 
 </Project>

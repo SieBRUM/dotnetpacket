@@ -1292,3 +1292,16 @@ captures here (what differs, why, and whether it is detection-relevant).
   `dacledit read 'lab.local/Administrator:pass@127.0.0.1' Administrator`, `get-userspns …` all work.
   README re-toned to a red-team tool and both README + CLAUDE command lists rewritten to the target
   form. 260 tests pass.
+
+- **2026-11-20 — target-string parsing hardened to impacket parity (special chars).** Reviewed the
+  `Creds` target parser against impacket's `examples/utils.parse_target` and found two bugs: a `/` in the
+  password was mis-read as the `domain/` separator, and an `@` in the password was mis-split (first `@`
+  used as the host separator). Rewrote `Creds.ParseTarget` to use impacket's exact regex
+  (`(?:(?:([^/@:]*)/)?([^@:]*)(?::([^@]*))?@)?(.*)`) **plus impacket's `@`-in-password fixup** (the host is
+  the part after the **last** `@`), so a password may contain `@`, `:` and `/`. Pinned by an 11-case
+  known-answer test whose expected (domain, user, password, host) values are impacket's own
+  `parse_target` output, and validated live end-to-end: a lab user with password `P@ss:w/rd!1`
+  authenticates via `LAB/sctest:P@ss:w/rd!1@127.0.0.1` (and a wrong password fails). One deliberate,
+  documented divergence for a no-prompt CLI: `user@host` with **no** `:` and no `-hashes`/`-k`/`-no-pass`
+  is refused with a clear error (impacket would prompt); `user:@host` means an explicit empty password.
+  Credential parsing is now unit-tested (new project reference + InternalsVisibleTo). 277 tests pass.

@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DotNetPacket.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DotNetPacket.Core\DotNetPacket.Core.csproj" />
     <ProjectReference Include="..\DotNetPacket.Protocols.Smb\DotNetPacket.Protocols.Smb.csproj" />
     <ProjectReference Include="..\DotNetPacket.Protocols.Ntlm\DotNetPacket.Protocols.Ntlm.csproj" />
