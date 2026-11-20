@@ -383,7 +383,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       The **RPC (ncacn_ip_tcp:135) transport** variant of this tool is deferred — the SMB path
       is the default and covers the same disclosure; the RPC path adds a bind-ack challenge route.
 
-- [x] `Get-GPPPassword.py` → `gpp-passwords <host> <user> <password> [domain] [share=SYSVOL] [port]`
+- [x] `Get-GPPPassword.py` → `gpp-passwords <[domain/]user[:password]@host> [share=SYSVOL] [port]`
       — authenticated SMB2 crawl of a share (default SYSVOL) for Group Policy Preferences XML,
       carving every `cpassword` and decrypting it with Microsoft's published GPP key
       (AES-256-CBC, fixed zero IV; MS14-025 made this a misconfiguration signal, not a secret).
@@ -396,7 +396,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       `LOCAL` file-parse mode and the `-hashes`/Kerberos auth variants are not ported (lab uses
       password auth).
 
-- [x] `GetADComputers.py` → `get-adcomputers <host> <user> <password> <domain-fqdn> [port]`
+- [x] `GetADComputers.py` → `get-adcomputers <domain-fqdn/user[:password]@host> [port]`
       — LDAP-search a DC for computer objects (`(&(objectCategory=computer)(objectClass=computer))`)
       and print sAMAccountName / dNSHostName / operatingSystem / operatingSystemVersion. Added the
       LDAP **search** path (SearchRequest/SearchResultEntry/Done, filters, simple bind) to
@@ -412,7 +412,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       implemented — the lab directory is small; noted for larger targets. `-resolveIP` (DNS A
       lookup per host) not ported.
 
-- [x] `GetADUsers.py` → `get-adusers <host> <user> <password> <domain-fqdn> [all] [port]`
+- [x] `GetADUsers.py` → `get-adusers <domain-fqdn/user[:password]@host> [all] [port]`
       — LDAP-search a DC for user accounts and print Name / Email / PasswordLastSet / LastLogon
       (AD FILETIME attributes decoded; 0 = never). Default filter mirrors impacket
       `(&(sAMAccountName=*)(mail=*)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))` (enabled +
@@ -424,7 +424,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       as GetADComputers (simple bind; NTLM-over-LDAP fails even for impacket). `-resolveIP` not
       ported.
 
-- [~] `GetLAPSPassword.py` → `get-laps <host> <user> <password> <domain-fqdn> [computer] [port]`
+- [~] `GetLAPSPassword.py` → `get-laps <domain-fqdn/user[:password]@host> [computer] [port]`
       — LDAP-search a DC for computer objects carrying a LAPS password and print it. Filter
       `(&(objectCategory=computer)(|(msLAPS-EncryptedPassword=*)(ms-MCS-AdmPwd=*)(msLAPS-Password=*)))`
       (+ optional `(name=…)`). Reads **ms-Mcs-AdmPwd** (LAPS v1 cleartext) and **msLAPS-Password**
@@ -435,7 +435,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       nested and/or/present filter was confirmed via Wireshark. Known-bytes test pins the request
       encoding; the cleartext-JSON parse is unit-tested. Same simple-bind lab path as GetADUsers.
 
-- [x] `findDelegation.py` → `find-delegation <host> <user> <password> <domain-fqdn> [target-user] [port]`
+- [x] `findDelegation.py` → `find-delegation <domain-fqdn/user[:password]@host> [target-user] [port]`
       — LDAP-search a DC for the four Kerberos-delegation flavours an attacker hunts: **Unconstrained**
       (`userAccountControl & 0x80000`), **Constrained w/ Protocol Transition** (`& 0x1000000`),
       **Constrained** (`msDS-AllowedToDelegateTo` present), **Resource-Based Constrained**
@@ -452,7 +452,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       can't run on this lab; DotNetPacket binds **simple** over 389 and completes. `-target-domain`
       and the SPN-exists cross-check are not ported.
 
-- [x] `lookupsid.py` → `lookupsid <host> <user> <password> [maxRid=1100] [domain] [port]` — **RID
+- [x] `lookupsid.py` → `lookupsid <[domain/]user[:password]@host> [maxRid=1100] [port]` — **RID
       cycling**: open lsarpc, read the domain SID (LsarQueryInformationPolicy account-domain), then
       call **LsarLookupSids** over a run of consecutive `domainSid-<RID>` SIDs to enumerate accounts
       with no directory read. Reuses the existing `Lsarpc`/`Lsat` stack. The RID-cycling behaviour is
@@ -464,7 +464,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       request NDR is covered by the existing lsat known-bytes tests. `-domain-sids` (brute both the
       account and primary domain) is not ported.
 
-- [~] `GetNPUsers.py` → `get-npusers <host> <user> <password> <domain-fqdn> [target-user] [port]`
+- [~] `GetNPUsers.py` → `get-npusers <domain-fqdn/[user[:password]]@host> [target-user] [port]`
       — AS-REP roasting. With a target user, send a Kerberos AS-REQ (no pre-auth) and format the
       AS-REP enc-part as a crackable `$krb5asrep$` hash; otherwise LDAP-search for accounts with
       `UF_DONT_REQUIRE_PREAUTH` (extensible-match filter) and roast each. New
@@ -479,7 +479,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       trip, not end-to-end. Scope: AS-REP roasting is a standard detection-research technique (the
       signal is the pre-auth-less AS-REQ); lab-only, see CLAUDE.md scope.
 
-- [x] `getTGT.py` (core) → `kerb-tgt <host> <user> <password> <domain-fqdn> [port]` — request a
+- [x] `getTGT.py` (core) → `kerb-tgt <domain-fqdn/user[:password]@host> [port]` — request a
       Kerberos TGT via an RC4-HMAC **PA-ENC-TIMESTAMP** AS exchange. Ported ahead of its list
       position because it is the prerequisite for the TGS examples (GetUserSPNs #8, getST). Proves
       the whole pre-auth + crypto chain: the AS-REP enc-part decrypts with the client key and yields
@@ -490,7 +490,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       enctypes are not ported (RC4 only; the lab accepts it).
       **Next: `GetUserSPNs.py` #8** (Kerberoasting) builds the TGS-REQ on top of this TGT.
 
-- [x] `GetUserSPNs.py` → `get-userspns <host> <user> <password> <domain-fqdn> [target-user] [port]`
+- [x] `GetUserSPNs.py` → `get-userspns <domain-fqdn/user[:password]@host> [target-user] [port]`
       — Kerberoasting. LDAP-search for accounts with a servicePrincipalName, then (with a TGT)
       request a service ticket per SPN via a TGS-REQ and format the service ticket's enc-part as a
       `$krb5tgs$` hash. Built the TGS layer on the TGT foundation: AP-REQ + authenticator (session-key
@@ -515,8 +515,8 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       `samba-tool domain passwordsettings set --min-pwd-age=0`. The Kerberos (kpasswd) and LDAP
       change/reset paths, and the NTLM-hash (SamrChangePasswordUser) path, are not ported.
 
-- [~] `badsuccessor.py` → `badsuccessor <search|add|delete|modify> <host> <user> <password>
-      <domain-fqdn> [dmsa] [target-ou] [target]` — the dMSA "BadSuccessor" technique (Server 2025).
+- [~] `badsuccessor.py` → `badsuccessor <search|add|delete|modify>
+      <domain-fqdn/user[:password]@host> [dmsa] [target-ou] [target]` — the dMSA "BadSuccessor" technique (Server 2025).
       Owner-authorised for the research after being raised per the scope gate. Added the LDAP
       **write** path (Add/Modify/Delete) + a security-descriptor/ACL parser and `msDS-GroupMSAMembership`
       builder + SID conversion to `DotNetPacket.Protocols.Ldap`.
@@ -531,7 +531,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       resolution are ported; the SDFlagsControl on the OU read is not sent (admin reads the DACL
       without it).
 
-- [~] `ntlmrelayx.py` (SMB→SMB relay core) → `ntlmrelayx <target-host> [listen-port] [victim-user victim-pass [domain]]`
+- [~] `ntlmrelayx.py` (SMB→SMB relay core) → `ntlmrelayx <target-host> [listen-port=4455] [victim-user victim-pass [domain]]`
       — an SMB2 **relay server**: it accepts a victim SMB connection, carries the NTLM SPNEGO
       handshake, and relays each token to a target SMB server so the victim's AUTHENTICATE (computed
       against the **target's** relayed challenge) authenticates *us* to the target as the victim.
@@ -585,7 +585,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       preauth/signing state (the relay never has the session key — by design). Tracked here as a
       multi-part port; see `docs/WIRE_DIFF.md` for the challenge-reuse artifact.
 
-- [~] `smbexec.py` → `smbexec <host> <user> <password> <command> [share=C$] [domain] [port]`
+- [~] `smbexec.py` → `smbexec <[domain/]user[:password]@host> <command> [share=C$] [port]`
       — remote command execution via a one-shot **svcctl service** (the psexec-without-RemComSvc
       technique). Creates a service whose `lpBinaryPathName` is a `%COMSPEC% /Q /c …` line that
       writes the command to a throwaway temp script, runs it, redirects output to a file on a
@@ -618,7 +618,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       AND impacket's signature tokens (`%COMSPEC%`, `/Q /c`, `__output_`, `.bat`, `%SYSTEMROOT%`)
       are absent; the random-name helpers (alphanumeric alphabet, seed-determinism) are unit-tested.
 
-- [~] `rbcd.py` → `rbcd <read|write|remove|flush> <host> <user> <password> <domain-fqdn> <delegate-to> [delegate-from]`
+- [~] `rbcd.py` → `rbcd <read|write|remove|flush> <domain-fqdn/user[:password]@host> <delegate-to> [delegate-from]`
       — read/edit **msDS-AllowedToActOnBehalfOfOtherIdentity** (Resource-Based Constrained Delegation).
       The attribute holds a security descriptor whose DACL lists the SIDs allowed to act on behalf of
       others against the target (S4U2Proxy). Reuses the `NtSecurityDescriptor`/`NtAce`/`NtAcl` model;
@@ -636,7 +636,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       Wireshark shows our `modifyReplace` of the attribute on the wire. Kerberos/LDAPS out of scope
       (simple bind over 389).
 
-- [x] `owneredit.py` → `owneredit <read|write> <host> <user> <password> <domain-fqdn> <target> [new-owner]`
+- [x] `owneredit.py` → `owneredit <read|write> <domain-fqdn/user[:password]@host> <target> [new-owner]`
       — read or change the **Owner (OwnerSid)** of an object's security descriptor. Reuses the dacledit
       `NtSecurityDescriptor` model and the LDAP SD-flags control plumbing, here with
       **sdflags=0x01** (OWNER_SECURITY_INFORMATION) so the DC returns/replaces only the owner.
@@ -647,7 +647,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       and the OWNER control value (`3003020101`) matches ldap3; Wireshark shows our search and modify
       carrying it. Kerberos/LDAPS out of scope (simple bind over 389, as the other LDAP ports).
 
-- [x] `dacledit.py` → `dacledit <read|write|remove|backup|restore> <host> <user> <password> <domain-fqdn> <target> [principal] [rights] [ace-type] [file]`
+- [x] `dacledit.py` → `dacledit <read|write|remove|backup|restore> <domain-fqdn/user[:password]@host> <target> [principal] [rights] [ace-type] [file]`
       — read and edit an object's DACL over LDAP. New round-trippable MS-DTYP model in
       `DotNetPacket.Protocols.Ldap`: `NtAce` / `NtAcl` / `NtSecurityDescriptor` (port of
       impacket's `ldaptypes` ACE/ACL/SR_SECURITY_DESCRIPTOR), plus LDAP **control** support on
@@ -680,7 +680,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       encryption-posture leg is ported; see `docs/WIRE_DIFF.md`. No live SQL Server in the lab, so the
       end-to-end posture read was exercised against a loopback TDS responder.
 
-- [~] `atexec.py` → `atexec <host> <user> <password> <command> [domain] [port]` — remote command
+- [~] `atexec.py` → `atexec <[domain/]user[:password]@host> <command> [port]` — remote command
       execution via the Task Scheduler (MS-TSCH / ITaskSchedulerService over `\atsvc`): register a
       hidden LocalSystem task that runs the command and redirects its output to a file under
       `%SystemRoot%\Temp`, run it, poll SchRpcGetLastRunInfo, read the output from ADMIN$\Temp over
@@ -706,7 +706,7 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       matching except our documented referent-id scheme and zero-filled pad. End-to-end run needs a
       Windows target. The `-session-id` / Author-log tampering options are not ported.
 
-- [~] `addcomputer.py` (SAMR method) → `rpc-addcomputer <host> <user> <password> <computer-name> [domain] [port]`
+- [~] `addcomputer.py` (SAMR method) → `rpc-addcomputer <[domain/]user[:password]@host> <computer-name> [port]`
       — create a machine account via **SamrCreateUser2InDomain** (WORKSTATION_TRUST_ACCOUNT) over
       the sealed SAMR-over-SMB pipe: the account-creation event a SOC detects (noPac / RBCD
       primitive). **First write example** — lab-first and **self-cleaning**: it creates the
@@ -729,46 +729,46 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
 - [x] `smb-header` — demo: build + hex-dump an SMBv1 header
 - [x] `ntlm-negotiate` — demo: build + hex-dump an NTLMSSP NEGOTIATE
 - [x] `smb2-negotiate <host> [port]` — live SMB2 NEGOTIATE, dumps both directions
-- [x] `smb2-login <host> <user> <password> [domain] [port]` — live NTLMv2 SESSION_SETUP
-- [x] `smb2-connect <host> <share> <user> <password> [domain] [port]` — signed TREE_CONNECT
-- [x] `smb2-cat <host> <share> <path> <user> <password> [domain] [port]` — read a file (CREATE/READ/CLOSE)
-- [x] `smb2-ls <host> <share> <user> <password> [path] [domain] [port]` — directory listing (QUERY_DIRECTORY)
-- [x] `smb2-info <host> <share> <user> <password> [domain] [port]` — filesystem info (QUERY_INFO)
-- [x] `dcerpc-bind <host> <user> <password> [interface] [domain] [port]` — DCERPC bind over IPC$
-- [x] `rpc-shares <host> <user> <password> [domain] [port]` — srvsvc NetrShareEnum (share recon)
-- [x] `rpc-shares-sealed <host> <user> <password> [seal|sign] [domain] [port]` — NetrShareEnum over NTLMSSP sign/seal
-- [x] `rpc-dump <host> <user> <password> [domain] [port]` — mgmt inq_if_ids interface enumeration (rpcdump, over SMB)
+- [x] `smb2-login <[domain/]user[:password]@host> [port]` — live NTLMv2 SESSION_SETUP
+- [x] `smb2-connect <[domain/]user[:password]@host> <share> [port]` — signed TREE_CONNECT
+- [x] `smb2-cat <[domain/]user[:password]@host> <share> <path> [port]` — read a file (CREATE/READ/CLOSE)
+- [x] `smb2-ls <[domain/]user[:password]@host> <share> [path] [port]` — directory listing (QUERY_DIRECTORY)
+- [x] `smb2-info <[domain/]user[:password]@host> <share> [port]` — filesystem info (QUERY_INFO)
+- [x] `dcerpc-bind <[domain/]user[:password]@host> [interface] [port]` — DCERPC bind over IPC$
+- [x] `rpc-shares <[domain/]user[:password]@host> [port]` — srvsvc NetrShareEnum (share recon)
+- [x] `rpc-shares-sealed <[domain/]user[:password]@host> [seal|sign] [port]` — NetrShareEnum over NTLMSSP sign/seal
+- [x] `rpc-dump <[domain/]user[:password]@host> [port]` — mgmt inq_if_ids interface enumeration (rpcdump, over SMB)
 - [x] `rpc-dump-tcp <host> [port]` — same over ncacn_ip_tcp to the endpoint mapper (DCERPC over TCP, no SMB)
 - [x] `rpc-getarch <host> [port]` — target architecture via an NDR+NDR64 two-context bind (getarch)
 - [x] `rpc-epm-map <host> [interface] [port]` — resolve an interface's dynamic TCP port via epm ept_map
-- [x] `rpc-samr-tcp <host> <user> <password> [domain]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
-- [x] `rpc-services <host> <user> <password> [domain] [port]` — svcctl service enumeration (services.py list)
-- [x] `rpc-svcconfig <host> <user> <password> <service> [domain] [port]` — svcctl per-service config (QueryServiceConfigW)
-- [x] `rpc-svcstatus <host> <user> <password> <service> [domain] [port]` — svcctl live service status (RQueryServiceStatus)
-- [x] `rpc-svcctl <host> <user> <password> [domain] [port]` — svcctl service-control (psexec signature, lab/benign)
-- [x] `rpc-hostinfo <host> <user> <password> [domain] [port]` — wkssvc/srvsvc host & OS recon
-- [x] `rpc-srvinfo <host> <user> <password> [domain] [port]` — srvsvc NetrServerGetInfo level 102
-- [x] `rpc-lsa <host> <user> <password> [domain] [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
-- [x] `rpc-privs <host> <user> <password> [domain] [port]` — lsarpc LSA privilege enumeration
-- [x] `rpc-accountrights <host> <user> <password> <sid> [domain] [port]` — lsarpc rights granted to a SID
-- [x] `rpc-privlookup <host> <user> <password> <privilege-name|luid> [domain] [port]` — lsarpc privilege name<->LUID
-- [x] `rpc-lookupsid <host> <user> <password> [domain] [port]` — lsat SID->name (lookupsid)
-- [x] `rpc-lookupsid2 <host> <user> <password> [domain] [port]` — lsat SID->name via LookupSids2 (modern Windows)
-- [x] `rpc-lookupnames2 <host> <user> <password> [names] [domain] [port]` — lsat name->SID via LookupNames2 (modern Windows)
-- [x] `rpc-lookupnames <host> <user> <password> [names] [domain] [port]` — lsat name->SID
-- [x] `rpc-enumusers <host> <user> <password> [domain] [port]` — samr domain user enumeration
-- [x] `rpc-dispinfo <host> <user> <password> [domain] [port]` — samr display-info enumeration (samrdump)
-- [x] `rpc-dispgroups <host> <user> <password> [domain] [port]` — samr group display enumeration
-- [x] `rpc-enumgroups <host> <user> <password> [domain] [port]` — samr domain group + alias enumeration
-- [x] `rpc-passpol <host> <user> <password> [domain] [port]` — samr domain password + lockout policy
-- [x] `rpc-domaininfo <host> <user> <password> [domain] [port]` — samr domain general info (role + counts)
-- [x] `rpc-samrdump <host> <user> <password> [domain] [port]` — full samrdump.py-style SAMR dump
+- [x] `rpc-samr-tcp <[domain/]user[:password]@host> [epm-port=135]` — full RPC-over-TCP flow: ept_map samr, connect, sealed bind, enumerate
+- [x] `rpc-services <[domain/]user[:password]@host> [port]` — svcctl service enumeration (services.py list)
+- [x] `rpc-svcconfig <[domain/]user[:password]@host> <service> [port]` — svcctl per-service config (QueryServiceConfigW)
+- [x] `rpc-svcstatus <[domain/]user[:password]@host> <service> [port]` — svcctl live service status (RQueryServiceStatus)
+- [x] `rpc-svcctl <[domain/]user[:password]@host> [port]` — svcctl service-control (psexec signature, lab/benign)
+- [x] `rpc-hostinfo <[domain/]user[:password]@host> [port]` — wkssvc/srvsvc host & OS recon
+- [x] `rpc-srvinfo <[domain/]user[:password]@host> [port]` — srvsvc NetrServerGetInfo level 102
+- [x] `rpc-lsa <[domain/]user[:password]@host> [port]` — lsarpc account domain + SID (+ DNS/forest info on a DC)
+- [x] `rpc-privs <[domain/]user[:password]@host> [port]` — lsarpc LSA privilege enumeration
+- [x] `rpc-accountrights <[domain/]user[:password]@host> <sid> [port]` — lsarpc rights granted to a SID
+- [x] `rpc-privlookup <[domain/]user[:password]@host> <privilege-name|luid> [port]` — lsarpc privilege name<->LUID
+- [x] `rpc-lookupsid <[domain/]user[:password]@host> [port]` — lsat SID->name (lookupsid)
+- [x] `rpc-lookupsid2 <[domain/]user[:password]@host> [port]` — lsat SID->name via LookupSids2 (modern Windows)
+- [x] `rpc-lookupnames2 <[domain/]user[:password]@host> [names-csv] [port]` — lsat name->SID via LookupNames2 (modern Windows)
+- [x] `rpc-lookupnames <[domain/]user[:password]@host> [names-csv] [port]` — lsat name->SID
+- [x] `rpc-enumusers <[domain/]user[:password]@host> [port]` — samr domain user enumeration
+- [x] `rpc-dispinfo <[domain/]user[:password]@host> [port]` — samr display-info enumeration (samrdump)
+- [x] `rpc-dispgroups <[domain/]user[:password]@host> [port]` — samr group display enumeration
+- [x] `rpc-enumgroups <[domain/]user[:password]@host> [port]` — samr domain group + alias enumeration
+- [x] `rpc-passpol <[domain/]user[:password]@host> [port]` — samr domain password + lockout policy
+- [x] `rpc-domaininfo <[domain/]user[:password]@host> [port]` — samr domain general info (role + counts)
+- [x] `rpc-samrdump <[domain/]user[:password]@host> [port]` — full samrdump.py-style SAMR dump
       (domain info + password/lockout policy + users + groups) chaining the validated SAMR calls
-- [x] `rpc-aliasmem <host> <user> <password> [alias-name|rid] [domain] [port]` — samr alias (local group) membership
-- [x] `rpc-reg <host> <user> <password> [subkey] [domain] [port]` — winreg remote-registry recon
-- [x] `rpc-regquery <host> <user> <password> <subkey> <value> [domain] [port]` — winreg read a named value
-- [x] `rpc-regenum <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's values
-- [x] `rpc-regkeys <host> <user> <password> [subkey] [domain] [port]` — winreg enumerate a key's subkeys
+- [x] `rpc-aliasmem <[domain/]user[:password]@host> [alias-name|rid] [port]` — samr alias (local group) membership
+- [x] `rpc-reg <[domain/]user[:password]@host> [subkey] [port]` — winreg remote-registry recon
+- [x] `rpc-regquery <[domain/]user[:password]@host> <subkey> <value> [port]` — winreg read a named value
+- [x] `rpc-regenum <[domain/]user[:password]@host> [subkey] [port]` — winreg enumerate a key's values
+- [x] `rpc-regkeys <[domain/]user[:password]@host> [subkey] [port]` — winreg enumerate a key's subkeys
 - [ ] Port of `examples/smbclient.py`
 - [ ] Port of `examples/rpcdump.py`
 - [ ] Port of `examples/rpcdump.py`
@@ -1319,3 +1319,23 @@ captures here (what differs, why, and whether it is detection-relevant).
   row in the README (old positional form) was corrected, and a **Examples** section of copy-pasteable
   lab flows (enum, Kerberoast + ticket reuse, DCSync incl. PtH and `-k`, DACL edit, SOCKS pivot) was
   added. 284 tests pass.
+
+- **2026-11-20 — audit pass: documentation + output consistency.** A single sweep for bugs across
+  functionality, docs and output. Build is clean (only 3 pre-existing xUnit1031 blocking-call warnings
+  in relay tests; no product warnings) and all 284 tests pass. Fixes:
+  - **Output:** `rpc-userinfo` and `atexec` printed a usage line with **no command name**
+    (`usage: <[domain/]user…>`); both now interpolate `args[0]`. `gpp-passwords`' usage omitted its
+    `[share=SYSVOL]` positional, and `rpc-samr-tcp` mislabelled its endpoint-mapper port as `[port]`
+    (now `[epm-port=135]`) — both corrected, and the registry entry aligned.
+  - **This tracker:** 53 example/status signatures still showed the **old positional** form
+    (`<cmd> <host> <user> <password> [domain]…`) that no longer exists; all rewritten to the verified
+    impacket target string, driven from the `CommandHelp` registry (the changelog's historical
+    references to the old form were deliberately left intact).
+  - **README:** four commands were absent from the tables — `rpc-lookuprid` / `rpc-lookupid`
+    (SAMR name↔RID) and `rpc-privlookup` (LSA name↔LUID) — now listed.
+  - **`tools/lab-addc.sh`:** the "ready" hint still printed the old positional
+    `rpc-passpol $BIND_IP Administrator '$ADMINPASS' $DOMAIN`; now prints the target string.
+  - **Functionality:** smoke-tested representative command shapes live against the lab DC —
+    `smb2-login`, `rpc-samrdump`, `lookupsid`, `rpc-privlookup`, `rpc-lookuprid`, `kerb-tgt` (AES256),
+    `dcsync krbtgt` — all authenticate and run end-to-end. No unfinished-code markers in source (the
+    `NotSupportedException`s are legitimate etype/version guard clauses).

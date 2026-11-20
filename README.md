@@ -222,10 +222,11 @@ dotnetpacket rpc-samrdump 'LAB/Administrator:LabAdm1n!Pass@dc01.lab.local' -prox
 | `rpc-shares` / `rpc-shares-sealed` | `<target> [seal\|sign]` | `srvsvc` | share enum (plain / signed+sealed) |
 | `rpc-hostinfo` / `rpc-srvinfo` | `<target>` | `srvsvc`/`wkssvc` | host, OS, and server-tunable recon |
 | `rpc-services` / `rpc-svcconfig` / `rpc-svcstatus` | `<target> [service]` | `services.py` | service enum / config / live status |
-| `rpc-lsa` / `rpc-privs` / `rpc-accountrights` | `<target> [sid]` | `lsarpc` | policy, SID, privilege & rights enum |
+| `rpc-lsa` / `rpc-privs` / `rpc-accountrights` / `rpc-privlookup` | `<target> [sid\|privilege]` | `lsarpc` | policy, SID, privilege & rights enum; privilege name ↔ LUID |
 | `rpc-lookupsid` / `rpc-lookupsid2` / `rpc-lookupnames[2]` | `<target> [names]` | `lookupsid.py` | SID ↔ name resolution |
 | `lookupsid` | `<target> [maxRid=1100] [port]` | `lookupsid.py` | **RID cycling** — enumerate accounts with no directory read |
 | `rpc-enumusers` / `rpc-enumgroups` / `rpc-samrdump` | `<target>` | `samrdump.py` | SAMR user/group dump + policy |
+| `rpc-lookuprid` / `rpc-lookupid` | `<target> <names-csv\|rids-csv>` | `samrdump.py` | SAMR name → RID / RID → name resolution |
 | `rpc-userinfo` / `rpc-dispinfo` / `rpc-dispgroups` / `rpc-domaininfo` / `rpc-aliasmem` | `<target> [target]` | `samrdump.py` | per-user / display / domain / alias detail |
 | `rpc-passpol` | `<target>` | `samrdump.py` | domain password policy |
 | `rpc-reg` / `rpc-regquery` / `rpc-regenum` / `rpc-regkeys` | `<target> [subkey] [value]` | `reg.py` | remote-registry read/enum |

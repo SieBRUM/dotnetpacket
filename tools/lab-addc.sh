@@ -130,7 +130,7 @@ start() {
     host=$BIND_IP  user=Administrator  password=$ADMINPASS  domain=$DOMAIN
   e.g.  dotnet run --project src/DotNetPacket.Examples -- rpc-epm-map $BIND_IP samr
         dotnet run --project src/DotNetPacket.Examples -- rpc-dump-tcp $BIND_IP
-        dotnet run --project src/DotNetPacket.Examples -- rpc-passpol $BIND_IP Administrator '$ADMINPASS' $DOMAIN
+        dotnet run --project src/DotNetPacket.Examples -- rpc-passpol '$DOMAIN/Administrator:$ADMINPASS@$BIND_IP'
 EOF
 }
 

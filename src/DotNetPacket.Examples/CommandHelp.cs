@@ -253,7 +253,7 @@ internal static class CommandHelp
             "Resolve an interface's dynamic TCP port via the endpoint mapper (ept_map).",
             Notes: new[] { "[interface]  samr (default) | lsarpc | drsuapi | ... | a UUID." },
             Examples: new[] { "rpc-epm-map 127.0.0.1 drsuapi" }),
-        new("rpc-samr-tcp", CatTcp, "<[domain/]user[:password]@host> [epm-port]",
+        new("rpc-samr-tcp", CatTcp, "<[domain/]user[:password]@host> [epm-port=135]",
             "Full RPC-over-TCP flow: ept_map samr -> connect -> sealed bind -> enum (no SMB).",
             Examples: new[] { "rpc-samr-tcp " + SmbTarget }),
 

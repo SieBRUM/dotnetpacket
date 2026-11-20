@@ -392,7 +392,7 @@ switch (args[0])
         // Get-GPPPassword.py: recursively crawl an SMB share (default SYSVOL) for GPP XML
         // files, carve every cpassword, and decrypt it with Microsoft's published GPP key.
         // Finding a cpassword is a misconfiguration signal; the key is public (MS14-025, 2014).
-        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [share=SYSVOL] [port]");
         string host = _c.Host;
         string user = _c.User;
         string password = _c.PasswordOrEmpty;
@@ -2373,7 +2373,7 @@ switch (args[0])
         // with NTLMSSP packet privacy (sign+seal), then enumerate the SAM domains
         // and their users. No SMB anywhere — this is how a modern client reaches a
         // TCP-bound RPC service.
-        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [port]");
+        Creds _c = Creds.ResolveOrExit(args, 1, $"usage: {args[0]} <[domain/]user[:password]@host> [epm-port=135]");
         string host = _c.Host;
         string user = _c.User;
         string password = _c.PasswordOrEmpty;
@@ -3447,7 +3447,7 @@ switch (args[0])
         // %SystemRoot%\Temp vs %windir%\Temp, 1> vs >, a .log output vs .tmp, and independent
         // alphanumeric task/output names vs impacket's single 8-letter name reused for both — so a
         // brittle command/XML IOC won't catch this port. See docs/WIRE_DIFF.md.
-        const string _u = "usage: <[domain/]user[:password]@host> <command> [port]";
+        string _u = $"usage: {args[0]} <[domain/]user[:password]@host> <command> [port]";
         Creds _c = Creds.ResolveOrExit(args, 1, _u);
         string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
         int ci = _c.NextIndex;
@@ -4064,7 +4064,7 @@ switch (args[0])
     {
         // Per-user detail via samr SamrQueryInformationUser2 class 21 (SAMPR_USER_ALL_INFORMATION) —
         // the account record samrdump prints: timestamps, account-control flags, counters.
-        const string _u = "usage: <[domain/]user[:password]@host> <targetUser> [port]";
+        string _u = $"usage: {args[0]} <[domain/]user[:password]@host> <target-user> [port]";
         Creds _c = Creds.ResolveOrExit(args, 1, _u);
         string host = _c.Host, user = _c.User, password = _c.PasswordOrEmpty, domain = _c.DomainOrEmpty;
         int ci = _c.NextIndex;
