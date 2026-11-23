@@ -159,6 +159,8 @@ src/
     S4uReq.cs                      #   S4U2self (PA-FOR-USER) + S4U2proxy (additional-tickets + PA-PAC-OPTIONS) TGS-REQ builders (getST; constrained-delegation abuse)
     KerberosTicket.cs              #   decrypt a Ticket's enc-part (usage 2) + lift the PAC from authorization-data (AD-WIN2K-PAC); getPac
     Pac.cs                         #   MS-PAC parse + signature verify: PACTYPE + KERB_VALIDATION_INFO (NDR) + CLIENT_INFO/UPN_DNS + SERVER/KDC checksum validation (getPac; forged-PAC detection)
+    PacBuilder.cs                  #   MS-PAC mint side: build + NDR-encode KERB_VALIDATION_INFO + PAC_ATTRIBUTES_INFO/PAC_REQUESTOR + sign SERVER/KDC checksums (ticketer)
+    GoldenTicket.cs                #   forge a golden TGT: EncTicketPart (+PAC) encrypted with the krbtgt key -> Ticket -> ccache (ticketer.py)
   DotNetPacket.Protocols.Ntlm/        # NTLM + SPNEGO (functional auth path)
     Ntlm.cs / NtlmFlags.cs         #   NTLMSSP constants, flags, AV ids
     SecurityBuffer.cs              #   NTLM len/maxlen/offset buffer
@@ -281,6 +283,7 @@ dotnet run --project src/DotNetPacket.Examples -- dcsync-all <target> [netbios-d
 dotnet run --project src/DotNetPacket.Examples -- dcsync-k <target> <target-user> <dc-fqdn> [netbios-domain] [epm-port]   # DCSync with Kerberos (-k): DCE-style GSS-authenticated sealed DRSUAPI (lab)
 dotnet run --project src/DotNetPacket.Examples -- dcsync-all-k <target> <dc-fqdn> [netbios-domain] [epm-port]   # whole-domain DCSync with Kerberos (-k): sealed SAMR enum + DRSUAPI replication (lab)
 dotnet run --project src/DotNetPacket.Examples -- getpac <dc-host> <service-user> <domain-fqdn> <impersonate-user> <service-key-hex> [krbtgt-key-hex] [port]   # getPac: S4U2self + decrypt + parse the PAC ([MS-PAC]) + verify its signatures (lab)
+dotnet run --project src/DotNetPacket.Examples -- ticketer <domain-fqdn> <netbios-domain> <domain-sid> <username> <krbtgt-key-hex> [user-rid=500]   # ticketer: forge a golden-ticket TGT (+signed PAC) into a ccache (lab)
 dotnet run --project src/DotNetPacket.Examples -- mssql-cbt <lab-host> [port]   # checkMSSQLStatus: TDS PRELOGIN encryption posture (channel-binding precondition)
 dotnet run --project src/DotNetPacket.Examples -- dacledit <read|write|remove|backup|restore> <target> <target> [principal] [rights] [ace-type] [file]   # dacledit: read/edit an object's DACL (lab)
 dotnet run --project src/DotNetPacket.Examples -- owneredit <read|write> <target> <target> [new-owner]   # owneredit: read/set an object's owner (lab)

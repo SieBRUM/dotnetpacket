@@ -344,6 +344,12 @@ Kerberos uses; GeneralString (tag 0x1B, which AsnWriter can't emit) is hand-enco
         not only with an AES ticket.
       - Lab note: the throwaway DC account had only `HOST/*` SPNs (Samba's HOST alias covers `cifs` but
         not `ldap`), so an `ldap/vm.lab.local` SPN was added to match a real DC before validating.
+- [~] **Golden ticket (`ticketer`, ticketer.py)** — forge a TGT from the krbtgt key. `PacBuilder` mints
+      + signs the PAC (KERB_VALIDATION_INFO NDR, PAC_ATTRIBUTES_INFO/PAC_REQUESTOR, SERVER+KDC checksums);
+      `GoldenTicket` builds the EncTicketPart/Ticket and a ccache. Component-validated (forge → decrypt →
+      `Pac.Verify` both sigs → `Pac.Parse` identity; cross-checked vs impacket). End-to-end KDC acceptance
+      not shown on this Samba build (rejects golden tickets with INAPP_CKSUM — impacket's reference fails
+      identically). See the changelog entry.
 - [x] **S4U / constrained delegation (`get-st`, getST.py)** — the abuse of the delegation that
       `find-delegation` enumerates. `S4uReq.BuildS4u2Self` (a service, holding its own TGT, asks the
       KDC for a ticket to itself on behalf of a user via a **PA-FOR-USER** pa-data) and
@@ -1400,3 +1406,22 @@ captures here (what differs, why, and whether it is detection-relevant).
   `smb encrypt = required`: the session negotiated AES-128-GCM, `smb2-connect` / `smb2-ls sysvol
   -smb3-seal` succeeded (share flagged EncryptData) while the same commands without the flag could not
   read the required-encryption responses. 303 tests pass.
+
+- **2026-11-23 — ticketer: golden-ticket forgery (the mint side of the PAC).** New `ticketer` command
+  (impacket `ticketer.py`) forges a TGT from the domain krbtgt key, closing the loop with DCSync (which
+  dumps the key) and the PAC parser/verifier (`Pac`). `PacBuilder` builds and NDR-encodes
+  KERB_VALIDATION_INFO field-for-field as `Pac.Parse` reads it, adds PAC_CLIENT_INFO plus the
+  modern-Samba-required **PAC_ATTRIBUTES_INFO (17)** and **PAC_REQUESTOR (18)** buffers, and signs the
+  SERVER + KDC checksums under the krbtgt key ([MS-KILE] 3.4.5.3). `GoldenTicket` wraps the PAC in an
+  EncTicketPart (RFC 4120 5.3) encrypted under the krbtgt key (usage 2), assembles the Ticket, and writes
+  an MIT ccache that `-k` consumes.
+  **Validation (component-level, strong):** in-process known-answer tests (`GoldenTicketTests`) forge a
+  ticket, decrypt it with the krbtgt key via `KerberosTicket.DecryptPac`, and confirm `Pac.Verify` passes
+  BOTH signatures and `Pac.Parse` recovers the identity (Administrator/RID 500/5 groups/domain SID) +
+  the 17/18 buffers; a tampered PAC and a wrong key both fail. Cross-checked against the impacket oracle:
+  impacket parses the forged KERB_VALIDATION_INFO and verifies both checksums (type 16) under the krbtgt
+  key, and the forged TGT decrypts KDC-side (no BADKEYVER).
+  **End-to-end KDC acceptance is NOT demonstrated on this lab** — this Samba 4.19 build rejects golden
+  tickets at the TGS with `KRB_AP_ERR_INAPP_CKSUM`, and the **impacket reference ticketer fails
+  identically** (AES → INAPP_CKSUM; RC4 → BADKEYVER, its krbtgt RC4 key being a different kvno), so this
+  is a Samba KDC hardening, not a forge defect. Marked `[~]` for that reason. 306 tests pass.

