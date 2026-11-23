@@ -47,6 +47,13 @@ public sealed class Smb2NegotiateResponse : NetStructure
     /// <summary>The SPNEGO/GSS token the server offers (its supported auth mechanisms).</summary>
     public byte[] SecurityBuffer { get; private set; } = Array.Empty<byte>();
 
+    /// <summary>
+    /// The single encryption cipher the server selected from the client's list, read from the SMB 3.1.1
+    /// SMB2_ENCRYPTION_CAPABILITIES negotiate context (MS-SMB2 2.2.3.1.2). 0 when the server offered no
+    /// cipher (encryption not negotiated). See <see cref="Smb2Cipher"/>.
+    /// </summary>
+    public ushort Cipher { get; private set; }
+
     public override void Unpack(ByteReader reader)
     {
         reader.Position += Smb2Header.Size; // skip the SMB2 header
@@ -70,6 +77,35 @@ public sealed class Smb2NegotiateResponse : NetStructure
         {
             reader.Position = SecurityBufferOffset; // offset from the SMB2 header start
             SecurityBuffer = reader.ReadBytes(SecurityBufferLength);
+        }
+
+        if (DialectRevision == Smb2Dialect.Smb311 && NegotiateContextCount > 0 && NegotiateContextOffset > 0)
+        {
+            ParseNegotiateContexts(reader);
+        }
+    }
+
+    // Walk the 8-byte-aligned negotiate contexts (each: Type(2) DataLength(2) Reserved(4) Data) and pull
+    // the server's chosen cipher out of the SMB2_ENCRYPTION_CAPABILITIES context.
+    private void ParseNegotiateContexts(ByteReader reader)
+    {
+        reader.Position = (int)NegotiateContextOffset; // offset from the SMB2 header start
+        for (int i = 0; i < NegotiateContextCount; i++)
+        {
+            var type = (Smb2NegotiateContextType)reader.ReadUInt16();
+            int dataLength = reader.ReadUInt16();
+            reader.ReadUInt32(); // Reserved
+            int dataStart = reader.Position;
+
+            if (type == Smb2NegotiateContextType.EncryptionCapabilities && dataLength >= 4)
+            {
+                reader.ReadUInt16();          // CipherCount (the server returns exactly one)
+                Cipher = reader.ReadUInt16(); // the selected cipher
+            }
+
+            // Advance to the next context, 8-byte aligned from the SMB2 header start.
+            int next = dataStart + dataLength;
+            reader.Position = (next + 7) & ~7;
         }
     }
 }

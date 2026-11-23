@@ -25,6 +25,21 @@ public static class Smb2Crypto
         KdfCounterMode(Fit16(sessionKey), Encoding.ASCII.GetBytes("SMBSigningKey\0"), preauthHash, 128);
 
     /// <summary>
+    /// SMB 3.1.1 client→server encryption key = KDF(SessionKey, "SMBC2SCipherKey\0", preauthHash)
+    /// (MS-SMB2 3.1.4.2). <paramref name="keyBits"/> is 128 or 256 to match the negotiated cipher. The
+    /// KDK is the first 16 bytes of the session key, as for the signing key.
+    /// </summary>
+    public static byte[] Smb311EncryptionKey(byte[] sessionKey, byte[] preauthHash, int keyBits) =>
+        KdfCounterMode(Fit16(sessionKey), Encoding.ASCII.GetBytes("SMBC2SCipherKey\0"), preauthHash, keyBits);
+
+    /// <summary>
+    /// SMB 3.1.1 server→client decryption key = KDF(SessionKey, "SMBS2CCipherKey\0", preauthHash)
+    /// (MS-SMB2 3.1.4.2). The client decrypts the server's responses with this key.
+    /// </summary>
+    public static byte[] Smb311DecryptionKey(byte[] sessionKey, byte[] preauthHash, int keyBits) =>
+        KdfCounterMode(Fit16(sessionKey), Encoding.ASCII.GetBytes("SMBS2CCipherKey\0"), preauthHash, keyBits);
+
+    /// <summary>
     /// SP800-108 counter-mode KDF with HMAC-SHA256. Fixed input is
     /// <c>i(4 BE) || label || 0x00 || context || L(4 BE)</c> (the 0x00 is the
     /// SP800-108 separator between label and context). Only single-block outputs

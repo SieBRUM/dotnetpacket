@@ -90,7 +90,8 @@ src/
     Smb2/Smb2Ioctl.cs              #   SMB2 IOCTL + FSCTL codes (pipe transceive)
     Smb2/Smb2Flags.cs              #   header/session/share flag + enum coverage
     Smb2/Smb2CreateConstants.cs    #   access mask, disposition, options, file attributes
-    Smb2/Smb2Crypto.cs             #   preauth integrity, SP800-108 KDF, AES-CMAC signing
+    Smb2/Smb2Crypto.cs             #   preauth integrity, SP800-108 KDF, AES-CMAC signing, cipher-key derivation
+    Smb2/Smb2Transform.cs          #   SMB3 TRANSFORM_HEADER: AES-128/256-CCM/GCM message encryption (encrypt=required shares)
     Smb2/Smb2Client.cs             #   full session: NEGOTIATE..SESSION_SETUP..TREE_CONNECT..READ/WRITE/IOCTL (+ relay-client token methods)
     Smb2/Smb2RelayServer.cs        #   ntlmrelayx SMB->SMB relay server + IRelayTarget (lab, owner-authorised)
   DotNetPacket.Protocols.Dcerpc/      # DCERPC (MS-RPCE) over SMB named pipes
@@ -179,7 +180,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
-    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -ldaps (LDAP over TLS/636), -proxy
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -ldaps (LDAP over TLS/636), -smb3-seal (SMB3 encryption), -proxy
     LdapAuth.cs                    #   LDAP connect+bind helper: simple bind, or -k Kerberos GSS-SPNEGO bind for ldap/<host> + GSS sealing (mutual auth -> AP-REP acceptor subkey)
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)

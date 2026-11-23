@@ -49,6 +49,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] SMB2 IOCTL + FSCTL_PIPE_TRANSCEIVE (`Smb2Client.Ioctl`), signed; async STATUS_PENDING handled
 - [x] SMB2 QUERY_DIRECTORY (`Smb2Client.ListDirectory`) — the dir/ls behavior
 - [x] SMB2 QUERY_INFO (`Smb2Client.QueryFileSystemInfo`) — volume label/serial, disk size
+- [x] **SMB3 session encryption** (`Smb2Transform`, MS-SMB2 2.2.41 / 3.1.4.3): AES-128/256-CCM and
+      AES-128/256-GCM TRANSFORM_HEADER wrap/unwrap, with C2S/S2C cipher keys derived from the session
+      key + preauth hash (`Smb2Crypto.Smb311EncryptionKey`/`DecryptionKey`). The server's chosen cipher
+      is parsed from the NEGOTIATE encryption context; the `-smb3-seal` flag turns it on. Round-trip +
+      tamper-rejection unit tests; validated live against Samba with `smb encrypt = required` (AES-128-GCM
+      session; `smb2-ls sysvol` works sealed, fails plaintext). (SMB 3.0/3.0.2 use different key-derivation
+      labels — only the 3.1.1 derivation is implemented, matching the rest of the stack.)
 - [ ] CREATE contexts (DHnQ / MxAc / QFid) — Windows sends them (realism gap)
 - [ ] SMB 2.x / 3.0.x signing variants (HMAC-SHA256 / 3.0 KDF) — only 3.1.1 implemented
 - [ ] SMB1 command parameter/data blocks — only if studying legacy/SMB1 traffic
@@ -1377,3 +1384,19 @@ captures here (what differs, why, and whether it is detection-relevant).
   lab DC set to `ldap server require strong auth = yes`, a plaintext bind is refused (result 8,
   "Transport encryption required") while the identical `get-adusers -ldaps` returns the full user set
   over TLS 1.3. 293 tests pass. (Deferred: StartTLS on 389, and the explicit channel-binding/EPA probe.)
+
+- **2026-11-23 — SMB3 session encryption (TRANSFORM_HEADER, AES-CCM/GCM).** A modern Windows client
+  encrypts the session when the server asks; without it the client cannot even reach an
+  `smb encrypt = required` share — a realism gap (CLAUDE.md: realism is a hard requirement) and a
+  functional one. Added `Smb2Transform` (MS-SMB2 2.2.41 / 3.1.4.3): the 52-byte TRANSFORM_HEADER plus
+  AES-128/256-CCM and -GCM authenticated encryption of a whole SMB2 message (nonce 11 bytes CCM / 12
+  GCM, 16-byte tag in the header's Signature field, the nonce + trailing header fields as AEAD
+  associated data). The client parses the server's selected cipher from the NEGOTIATE encryption
+  context, derives the C2S/S2C cipher keys (`Smb2Crypto.Smb311EncryptionKey`/`DecryptionKey`, SP800-108
+  off the session key + preauth hash), and — under the new `-smb3-seal` flag — wraps every post-auth
+  request and unwraps responses at the one send/receive seam (an encrypted PDU is AEAD-authenticated,
+  so it is not also CMAC-signed). `smb2-login` reports the negotiated cipher. Round-trip +
+  tamper-rejection unit tests (`Smb2TransformTests`, 10 cases). Validated live against Samba set to
+  `smb encrypt = required`: the session negotiated AES-128-GCM, `smb2-connect` / `smb2-ls sysvol
+  -smb3-seal` succeeded (share flagged EncryptData) while the same commands without the flag could not
+  read the required-encryption responses. 303 tests pass.

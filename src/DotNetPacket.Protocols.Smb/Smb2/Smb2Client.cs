@@ -126,7 +126,23 @@ public sealed class Smb2Client : IDisposable
     private byte[] _preauthHash = Smb2Crypto.PreauthInit();
     private byte[]? _signingKey;
     private Smb2Dialect _dialect;
+    private ushort _cipher;             // the cipher the server selected (0 = encryption not negotiated)
+    private Smb2Transform? _transform;  // set once SMB3 encryption is active for the session
     private string _host = string.Empty;
+
+    /// <summary>
+    /// Process-wide opt-in to SMB 3.x session encryption (impacket's <c>-force-encryption</c> spirit).
+    /// When true and the server negotiated a cipher (SMB 3.1.1), every post-authentication request is
+    /// wrapped in an SMB2 TRANSFORM_HEADER (AES-CCM/GCM) and responses are decrypted — the only way to
+    /// talk to an <c>smb encrypt = required</c> share.
+    /// </summary>
+    public static bool EncryptionRequested { get; set; }
+
+    /// <summary>The cipher the server selected during NEGOTIATE (0 = none); see <see cref="Smb2Cipher"/>.</summary>
+    public ushort NegotiatedCipher => _cipher;
+
+    /// <summary>True once SMB 3.x message encryption is active for this session.</summary>
+    public bool Encrypting => _transform is not null;
 
     /// <summary>
     /// Process-wide Kerberos (-k) auth switch. When true, <see cref="Login"/> authenticates with a
@@ -176,6 +192,7 @@ public sealed class Smb2Client : IDisposable
         var response = new Smb2NegotiateResponse();
         response.Unpack(responseBytes);
         _dialect = response.DialectRevision;
+        _cipher = response.Cipher;
 
         // Begin the SMB 3.1.1 preauth-integrity chain over negotiate req + resp.
         _preauthHash = Smb2Crypto.PreauthUpdate(_preauthHash, requestBytes);
@@ -228,6 +245,7 @@ public sealed class Smb2Client : IDisposable
         if (_dialect == Smb2Dialect.Smb311)
         {
             _signingKey = Smb2Crypto.Smb311SigningKey(auth.SessionKey, _preauthHash);
+            TryEnableEncryption(auth.SessionKey);
         }
 
         var header2 = new Smb2Header();
@@ -291,6 +309,7 @@ public sealed class Smb2Client : IDisposable
         if (_dialect == Smb2Dialect.Smb311 && header.Status == NtStatus.Success)
         {
             _signingKey = Smb2Crypto.Smb311SigningKey(smbSessionKey, _preauthHash);
+            TryEnableEncryption(smbSessionKey);
         }
 
         return new Smb2LoginResult
@@ -416,7 +435,10 @@ public sealed class Smb2Client : IDisposable
             parsed.Unpack(response);
         }
 
-        bool signatureValid = _signingKey is not null && Smb2Crypto.Verify(_signingKey, response);
+        // An encrypted session authenticates each response via the TRANSFORM_HEADER's AEAD tag (already
+        // verified on decrypt), so the inner PDU is not CMAC-signed — treat decryption as the proof.
+        bool signatureValid = _transform is not null
+            || (_signingKey is not null && Smb2Crypto.Verify(_signingKey, response));
 
         return new Smb2TreeConnectResult
         {
@@ -725,6 +747,11 @@ public sealed class Smb2Client : IDisposable
         while (true)
         {
             byte[] response = _transport.ReceiveMessage();
+            if (_transform is not null && Smb2Transform.IsEncrypted(response))
+            {
+                response = _transform.Decrypt(response);
+            }
+
             var header = new Smb2Header();
             header.Unpack(response);
             if (header.Status != NtStatus.Pending)
@@ -732,6 +759,29 @@ public sealed class Smb2Client : IDisposable
                 return response;
             }
         }
+    }
+
+    /// <summary>
+    /// Enables SMB 3.x session encryption when the caller opted in (<see cref="EncryptionRequested"/>)
+    /// and the server selected a cipher during NEGOTIATE. Derives the client→server / server→client
+    /// cipher keys from the session key and the session's preauth hash (MS-SMB2 3.1.4.2).
+    /// </summary>
+    private void TryEnableEncryption(byte[] sessionKey)
+    {
+        if (!EncryptionRequested || _cipher == 0)
+        {
+            return;
+        }
+
+        int keyBits = Smb2Transform.KeyBits(_cipher);
+        if (keyBits == 0)
+        {
+            return;
+        }
+
+        byte[] encryptKey = Smb2Crypto.Smb311EncryptionKey(sessionKey, _preauthHash, keyBits);
+        byte[] decryptKey = Smb2Crypto.Smb311DecryptionKey(sessionKey, _preauthHash, keyBits);
+        _transform = new Smb2Transform(encryptKey, decryptKey, _cipher, _sessionId);
     }
 
     private (byte[] Request, byte[] Response) SendSessionSetup(byte[] securityBuffer, ulong sessionId)
@@ -753,8 +803,18 @@ public sealed class Smb2Client : IDisposable
         return (request, response);
     }
 
-    private byte[] SignIfKeyed(byte[] message) =>
-        _signingKey is null ? message : Smb2Crypto.Sign(_signingKey, message);
+    // Prepares an operational PDU for the wire: when session encryption is active it is wrapped in a
+    // TRANSFORM_HEADER (the AEAD tag provides integrity, so it is NOT also CMAC-signed); otherwise it is
+    // signed when a signing key exists. The returned bytes are what actually goes on the wire.
+    private byte[] SignIfKeyed(byte[] message)
+    {
+        if (_transform is not null)
+        {
+            return _transform.Encrypt(message);
+        }
+
+        return _signingKey is null ? message : Smb2Crypto.Sign(_signingKey, message);
+    }
 
     private static byte[] Assemble(Smb2Header header, byte[] body)
     {

@@ -64,6 +64,12 @@ internal static class GlobalOptions
                     UseLdaps = true;
                     Console.Error.WriteLine("[*] LDAPS enabled (-ldaps): LDAP tools connect over TLS on port 636.");
                     break;
+                case "-smb3-seal":
+                    // Turn on SMB 3.x session encryption (AES-CCM/GCM TRANSFORM_HEADER) after login; the
+                    // only way to reach an `smb encrypt = required` share. Needs an SMB 3.1.1 session.
+                    Smb2Client.EncryptionRequested = true;
+                    Console.Error.WriteLine("[*] SMB3 encryption enabled (-smb3-seal): post-auth SMB2 messages are AES-encrypted.");
+                    break;
                 case "-k":
                     Smb2Client.UseKerberos = true;
                     Console.Error.WriteLine("[*] Kerberos authentication enabled (-k): SMB login uses a Kerberos AP-REQ. With a password the KDC's etypes are probed and the strongest is used (AES-256, matching impacket's default); the login's domain is the realm and the host is the SPN (cifs/<host>).");

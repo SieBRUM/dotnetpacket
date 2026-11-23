@@ -393,6 +393,7 @@ internal static class CommandHelp
         "  -no-pass          do not require a password (use with -hashes / -k / a ccache).\n" +
         "  -ldaps            connect the LDAP tools over TLS (port 636); a simple bind then works on a\n" +
         "                    DC that refuses plaintext binds (LDAP signing / channel binding enforced).\n" +
+        "  -smb3-seal        encrypt the SMB session (AES-CCM/GCM); needed for an 'encrypt=required' share.\n" +
         "  -ccache FILE      use a saved TGT (also honours $KRB5CCNAME).  -save-ccache FILE writes one.\n" +
         "  -dc-ip IP         KDC / DC address for Kerberos when it differs from the target host.\n" +
         "  -target-ip IP     connect here instead of resolving the target host name.\n" +

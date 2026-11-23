@@ -10,7 +10,7 @@ SMB2/3 · DCERPC (MSRPC) · LDAP · Kerberos · NTLM/SPNEGO · TDS · DCSync · 
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-293%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-303%20passing-success)](tests/)
 [![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 
 </div>
@@ -40,8 +40,9 @@ in [`docs/WIRE_DIFF.md`](docs/WIRE_DIFF.md).
 A realistic, **signed**, modern-Windows-style stack, validated end-to-end against a Samba AD DC:
 
 - **SMB 2/3** — `NEGOTIATE` with 3.1.1 negotiate contexts, NTLMv2 `SESSION_SETUP` (SPNEGO + MIC),
-  SP800-108 KDF + AES-CMAC message signing, `TREE_CONNECT`, `CREATE/READ/WRITE/CLOSE`,
-  `QUERY_DIRECTORY`, `QUERY_INFO`, `SET_INFO`, `IOCTL`.
+  SP800-108 KDF + AES-CMAC message signing, **SMB3 session encryption** (AES-128/256-CCM/GCM
+  `TRANSFORM_HEADER`, so it talks to `encrypt = required` shares), `TREE_CONNECT`,
+  `CREATE/READ/WRITE/CLOSE`, `QUERY_DIRECTORY`, `QUERY_INFO`, `SET_INFO`, `IOCTL`.
 - **DCERPC** (MSRPC) over both named pipes (`ncacn_np`) and TCP (`ncacn_ip_tcp`), with
   NTLMSSP-authenticated **sign & seal**, an NDR marshaller, and clients for `srvsvc`, `wkssvc`,
   `lsarpc`, `lsat`, `samr`, `svcctl`, `winreg`, `tsch`, `mgmt`, `epm`, `drsuapi`.
@@ -116,6 +117,7 @@ These flags work with **any** command and can appear anywhere on the line, like 
 | `-hashes [LM]:NT` | **Pass-the-hash** — authenticate with the NT hash (only NTHASH is used for NTLMv2). No password needed. |
 | `-no-pass` | Don't use/ask for a password (pair with `-k` / a ccache). |
 | `-ldaps` | Connect the LDAP tools over **TLS (636)** instead of plaintext 389 (impacket's `-use-ldaps`). A simple bind then works against a DC that enforces LDAP signing / channel binding and refuses plaintext binds. |
+| `-smb3-seal` | Turn on **SMB3 session encryption** (AES-CCM/GCM `TRANSFORM_HEADER`) after login — required to reach an `smb encrypt = required` share. Needs an SMB 3.1.1 session. |
 | `-k` | **Kerberos** — AP-REQ instead of NTLM. With a password the KDC's etypes are probed and the strongest used (**AES-256 by default**). Loads a TGT from `-ccache`/`KRB5CCNAME` if present. |
 | `-aesKey <hex>` | **Overpass-the-hash** with a 128/256-bit AES Kerberos key (implies `-k`). |
 | `-ccache <file>` | Use a cached TGT (MIT ccache v4); also read from `KRB5CCNAME`. |
@@ -194,6 +196,14 @@ dotnetpacket dcsync-all-k 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' vm.l
 ```bash
 dotnetpacket dacledit write 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' victim attacker FullControl
 dotnetpacket dacledit read  'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' victim
+```
+
+**SMB3 encryption (reach an `encrypt = required` share)**
+
+```bash
+# the login prints the negotiated cipher; -smb3-seal encrypts every post-auth message
+dotnetpacket smb2-login 'LAB/Administrator:LabAdm1n!Pass@127.0.0.1' -smb3-seal
+dotnetpacket smb2-ls    'LAB/Administrator:LabAdm1n!Pass@127.0.0.1' sysvol -smb3-seal
 ```
 
 **Against a hardened DC — LDAP over TLS**

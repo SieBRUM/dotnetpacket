@@ -79,6 +79,16 @@ public static class Smb2Cipher
     public const ushort Aes128Gcm = 0x0002;
     public const ushort Aes256Ccm = 0x0003;
     public const ushort Aes256Gcm = 0x0004;
+
+    public static string Describe(ushort cipher) => cipher switch
+    {
+        0 => "none",
+        Aes128Ccm => "AES-128-CCM",
+        Aes128Gcm => "AES-128-GCM",
+        Aes256Ccm => "AES-256-CCM",
+        Aes256Gcm => "AES-256-GCM",
+        _ => $"0x{cipher:x4}",
+    };
 }
 
 /// <summary>The handful of NTSTATUS codes the session-setup handshake cares about.</summary>

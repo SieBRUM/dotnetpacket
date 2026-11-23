@@ -108,6 +108,8 @@ switch (args[0])
         Console.WriteLine($"  Round 1:   {NtStatus.Describe(login.Round1Status)}");
         Console.WriteLine($"  Round 2:   {NtStatus.Describe(login.Round2Status)}");
         Console.WriteLine($"  Result:    {(login.Authenticated ? "AUTHENTICATED" : "FAILED")}");
+        Console.WriteLine($"  Cipher:    {Smb2Cipher.Describe(client.NegotiatedCipher)}" +
+            (client.Encrypting ? " (session encrypted)" : string.Empty));
         Console.WriteLine();
         Console.WriteLine($"--> SESSION_SETUP #1 ({login.Round1Request.Length} bytes):");
         Console.Write(Hex.Dump(login.Round1Request));
