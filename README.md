@@ -10,7 +10,7 @@ SMB2/3 · DCERPC (MSRPC) · LDAP · Kerberos · NTLM/SPNEGO · TDS · DCSync · 
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-284%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-291%20passing-success)](tests/)
 [![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 
 </div>
@@ -46,7 +46,8 @@ A realistic, **signed**, modern-Windows-style stack, validated end-to-end agains
   NTLMSSP-authenticated **sign & seal**, an NDR marshaller, and clients for `srvsvc`, `wkssvc`,
   `lsarpc`, `lsat`, `samr`, `svcctl`, `winreg`, `tsch`, `mgmt`, `epm`, `drsuapi`.
 - **LDAP** (RFC 4511) — bind (simple + GSS-SPNEGO NTLM + sealed Kerberos), the full search filter
-  grammar, add/modify/delete, and the `LDAP_SERVER_SD_FLAGS` control.
+  grammar, **simple paged results** (RFC 2696, so enumerations survive AD's 1000-object cap),
+  add/modify/delete, and the `LDAP_SERVER_SD_FLAGS` control.
 - **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, **RC4-HMAC and
   AES128/256-CTS-HMAC-SHA1-96** (RFC 3962, byte-exact vs impacket + RFC vectors), AP-REQ/AP-REP SMB
   login (`-k`, AES-256 by default), **sealed GSS-SPNEGO LDAP binds**, **S4U2self/S4U2proxy**

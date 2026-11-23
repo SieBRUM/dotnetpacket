@@ -231,7 +231,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       examples use a simple bind instead.
 - [ ] LDAPS (TLS on 636) + channel-binding probe (the second half of CheckLDAPStatus) — needs a
       TLS transport + CBT; deferred. (The lab DC does not expose 636.)
-- [ ] Paged results (SimplePagedResultsControl) — searches are currently unpaged.
+- [x] **Paged results (SimplePagedResultsControl, OID 1.2.840.113556.1.4.319)** — `LdapConnection.Search`
+      takes a `pageSize`; when set it issues one request per page (control criticality TRUE, as impacket
+      sends it), follows the server's cookie, and concatenates every page, so an enumeration is complete
+      past AD's MaxPageSize (1000) cap. Wired into `get-adusers`/`get-adcomputers`/`get-userspns`/
+      `get-npusers`/`get-laps`/`find-delegation`. Known-bytes + round-trip tests; validated live against
+      the lab (10 users returned across 5 pages at `pageSize=2`).
 
 ### GPP (`DotNetPacket.Protocols.Gpp`)
 
@@ -408,9 +413,9 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
       *even for stock impacket* (SMB NTLMv2 works fine — an environment quirk), so the example
       binds **simple** over plaintext 389, which needed `ldap server require strong auth = no`
       (now set idempotently by `tools/lab-addc.sh`). The realistic NTLM-sealed LDAP bind and LDAPS
-      are deferred (tracked under the Ldap area). Paged results (SimplePagedResultsControl) not
-      implemented — the lab directory is small; noted for larger targets. `-resolveIP` (DNS A
-      lookup per host) not ported.
+      are deferred (tracked under the Ldap area). Paged results (SimplePagedResultsControl) **are**
+      implemented (`pageSize` on `LdapConnection.Search`; this command pages at 1000). `-resolveIP`
+      (DNS A lookup per host) not ported.
 
 - [x] `GetADUsers.py` → `get-adusers <domain-fqdn/user[:password]@host> [all] [port]`
       — LDAP-search a DC for user accounts and print Name / Email / PasswordLastSet / LastLogon
@@ -1339,3 +1344,15 @@ captures here (what differs, why, and whether it is detection-relevant).
     `smb2-login`, `rpc-samrdump`, `lookupsid`, `rpc-privlookup`, `rpc-lookuprid`, `kerb-tgt` (AES256),
     `dcsync krbtgt` — all authenticate and run end-to-end. No unfinished-code markers in source (the
     `NotSupportedException`s are legitimate etype/version guard clauses).
+
+- **2026-11-23 — LDAP simple paged results (RFC 2696 / MS-ADTS).** Closed a correctness gap: LDAP
+  enumerations were unpaged, so Active Directory silently capped them at MaxPageSize (1000) and dropped
+  the rest. `LdapConnection.Search` now takes a `pageSize`; when non-zero it attaches the paged-results
+  control (OID 1.2.840.113556.1.4.319, criticality TRUE as impacket sends it), reads the cookie from
+  each `SearchResultDone`'s controls, and loops until the cookie is empty, concatenating all pages. A
+  generalized `WriteControls` lets a request carry the SD_FLAGS and paged controls together. Wired into
+  the six enumeration commands (`get-adusers`, `get-adcomputers`, `get-userspns`, `get-npusers`,
+  `get-laps`, `find-delegation`) at pageSize 1000; single-object lookups stay unpaged. Known-bytes +
+  round-trip tests (`LdapPagedResultsTests`, 7 cases); the default-unpaged path is unchanged and
+  regression-pinned. Validated live against the lab: with pageSize temporarily 2 and 10 user accounts,
+  `get-adusers -all` returned all 10 across 5 cookie-driven pages. 291 tests pass.

@@ -40,6 +40,14 @@ public sealed class LdapConnection : IDisposable
     /// <summary>LDAP_SERVER_SD_FLAGS_OID (MS-ADTS): scope a security-descriptor read/write to given SD parts.</summary>
     public const string SdFlagsControlOid = "1.2.840.113556.1.4.801";
 
+    /// <summary>
+    /// LDAP_PAGED_RESULT_OID_STRING (RFC 2696 / MS-ADTS): simple paged results. Active Directory caps an
+    /// unpaged search at MaxPageSize (1000 by default) and silently drops the rest, so enumerations must
+    /// page or they return a truncated set. impacket pages every enumeration with this control (criticality
+    /// TRUE); so does <see cref="Search"/> when given a non-zero <c>pageSize</c>.
+    /// </summary>
+    public const string PagedResultsControlOid = "1.2.840.113556.1.4.319";
+
     /// <summary>SD flags (LDAP_SERVER_SD_FLAGS): which parts of the security descriptor a request touches.</summary>
     public const int SdFlagsOwner = 0x01;
     public const int SdFlagsGroup = 0x02;
@@ -235,7 +243,7 @@ public sealed class LdapConnection : IDisposable
                 }
             }
 
-            WriteSdFlagsControls(w, sdFlags);
+            WriteControls(w, sdFlags, pageSize: 0, pagedCookie: null);
         }
 
         return w.Encode();
@@ -295,9 +303,14 @@ public sealed class LdapConnection : IDisposable
 
     /// <summary>
     /// Runs an LDAP search (RFC 4511 4.5) and returns every SearchResultEntry. Reads messages
-    /// until the SearchResultDone. Referrals/continuations are skipped. This is an unpaged
-    /// search (sizeLimit as given); the ported examples target a small lab directory, so paged
-    /// results (SimplePagedResultsControl) are not implemented — noted in PORTING_STATUS.
+    /// until the SearchResultDone. Referrals/continuations are skipped.
+    /// <para>
+    /// When <paramref name="pageSize"/> is non-zero the search uses the simple paged-results control
+    /// (RFC 2696): it issues one request per page, follows the server's cookie, and concatenates every
+    /// page — so the result is complete even past Active Directory's MaxPageSize (1000) cap, which an
+    /// unpaged search silently hits. <paramref name="pageSize"/> == 0 (the default) keeps the single
+    /// unpaged request.
+    /// </para>
     /// </summary>
     public IReadOnlyList<SearchEntry> Search(
         string baseObject,
@@ -306,12 +319,30 @@ public sealed class LdapConnection : IDisposable
         LdapSearchScope scope = LdapSearchScope.WholeSubtree,
         int sizeLimit = 0,
         int timeLimit = 0,
-        int sdFlags = 0)
+        int sdFlags = 0,
+        int pageSize = 0)
     {
-        int id = ++_messageId;
-        SendRaw(EncodeSearchRequest(id, baseObject, filter, attributes, scope, sizeLimit, timeLimit, sdFlags));
-
         var entries = new List<SearchEntry>();
+        byte[] cookie = Array.Empty<byte>();
+
+        do
+        {
+            int id = ++_messageId;
+            SendRaw(EncodeSearchRequest(
+                id, baseObject, filter, attributes, scope, sizeLimit, timeLimit, sdFlags, pageSize, cookie));
+            cookie = ReadSearchResult(entries);
+        }
+        while (pageSize > 0 && cookie.Length > 0);   // empty cookie = last page (or unpaged)
+
+        return entries;
+    }
+
+    /// <summary>
+    /// Reads SearchResultEntry messages into <paramref name="entries"/> until the SearchResultDone,
+    /// and returns the paged-results cookie from the Done message's controls (empty when none / unpaged).
+    /// </summary>
+    private byte[] ReadSearchResult(List<SearchEntry> entries)
+    {
         while (true)
         {
             var top = new AsnReader(ReadMessage(), AsnEncodingRules.BER);
@@ -325,15 +356,58 @@ public sealed class LdapConnection : IDisposable
             }
             else if (tag.HasSameClassAndValue(SearchResultDoneTag))
             {
-                break; // the search is complete (result code ignored here)
+                message.ReadEncodedValue();                  // LDAPResult protocolOp (result code ignored here)
+                if (message.HasData && message.PeekTag().HasSameClassAndValue(ControlsTag))
+                {
+                    return ExtractPagedCookie(message.ReadSequence(ControlsTag));
+                }
+
+                return Array.Empty<byte>();                  // no controls -> no more pages
             }
             else
             {
                 message.ReadEncodedValue(); // SearchResultReference or anything else — skip
             }
         }
+    }
 
-        return entries;
+    /// <summary>
+    /// Pulls the next cookie out of a response <c>controls [0]</c> sequence: finds the paged-results
+    /// control (OID 1.2.840.113556.1.4.319) and returns the cookie from its <c>SEQUENCE { size, cookie }</c>
+    /// value. Returns empty if the control is absent or carries an empty cookie (the final page).
+    /// </summary>
+    private static byte[] ExtractPagedCookie(AsnReader controls)
+    {
+        while (controls.HasData)
+        {
+            AsnReader ctrl = controls.ReadSequence();
+            string oid = Encoding.ASCII.GetString(ctrl.ReadOctetString());  // controlType
+            if (ctrl.HasData && ctrl.PeekTag().HasSameClassAndValue(Asn1Tag.Boolean))
+            {
+                ctrl.ReadBoolean();                                         // criticality (optional)
+            }
+
+            if (oid != PagedResultsControlOid || !ctrl.HasData)
+            {
+                continue;
+            }
+
+            return ParsePagedResultsControlValue(ctrl.ReadOctetString()).Cookie;
+        }
+
+        return Array.Empty<byte>();
+    }
+
+    /// <summary>
+    /// Parses a simple paged-results controlValue (RFC 2696 <c>SEQUENCE { size INTEGER, cookie OCTET
+    /// STRING }</c>) into its estimated result-set size and opaque continuation cookie. Exposed for tests.
+    /// </summary>
+    public static (int Size, byte[] Cookie) ParsePagedResultsControlValue(byte[] controlValue)
+    {
+        AsnReader seq = new AsnReader(controlValue, AsnEncodingRules.BER).ReadSequence();
+        int size = (int)seq.ReadInteger();
+        byte[] cookie = seq.ReadOctetString();
+        return (size, cookie);
     }
 
     /// <summary>
@@ -348,7 +422,9 @@ public sealed class LdapConnection : IDisposable
         LdapSearchScope scope = LdapSearchScope.WholeSubtree,
         int sizeLimit = 0,
         int timeLimit = 0,
-        int sdFlags = 0)
+        int sdFlags = 0,
+        int pageSize = 0,
+        byte[]? pagedCookie = null)
     {
         var writer = new AsnWriter(AsnEncodingRules.BER);
         using (writer.PushSequence())                       // LDAPMessage
@@ -372,32 +448,64 @@ public sealed class LdapConnection : IDisposable
                 }
             }
 
-            WriteSdFlagsControls(writer, sdFlags);
+            WriteControls(writer, sdFlags, pageSize, pagedCookie);
         }
 
         return writer.Encode();
     }
 
     /// <summary>
-    /// Writes the LDAPMessage-level <c>controls [0]</c> carrying a single LDAP_SERVER_SD_FLAGS control
-    /// (OID 1.2.840.113556.1.4.801) when <paramref name="sdFlags"/> is non-zero. criticality is left
-    /// at its default (FALSE, hence omitted), matching ldap3's <c>security_descriptor_control</c> which
-    /// dacledit uses. No-op when sdFlags == 0. Must be called inside the LDAPMessage SEQUENCE, after
-    /// the protocolOp.
+    /// Writes the LDAPMessage-level <c>controls [0]</c> sequence carrying any combination of the
+    /// LDAP_SERVER_SD_FLAGS control (OID 1.2.840.113556.1.4.801, when <paramref name="sdFlags"/> is
+    /// non-zero; criticality defaulted FALSE, matching ldap3's <c>security_descriptor_control</c>) and
+    /// the simple paged-results control (OID 1.2.840.113556.1.4.319, when <paramref name="pageSize"/> is
+    /// non-zero; criticality TRUE, as impacket sends it). No-op when neither applies. Must be called
+    /// inside the LDAPMessage SEQUENCE, after the protocolOp.
     /// </summary>
-    private static void WriteSdFlagsControls(AsnWriter w, int sdFlags)
+    private static void WriteControls(AsnWriter w, int sdFlags, int pageSize, byte[]? pagedCookie)
     {
-        if (sdFlags == 0)
+        if (sdFlags == 0 && pageSize <= 0)
         {
             return;
         }
 
-        using (w.PushSequence(ControlsTag))               // controls [0] Controls
-        using (w.PushSequence())                          // Control
+        using (w.PushSequence(ControlsTag))                   // controls [0] Controls
         {
-            w.WriteOctetString(Encoding.ASCII.GetBytes(SdFlagsControlOid)); // controlType (LDAPOID)
-            w.WriteOctetString(EncodeSdFlagsControlValue(sdFlags));         // controlValue (OCTET STRING)
+            if (sdFlags != 0)
+            {
+                using (w.PushSequence())                      // Control
+                {
+                    w.WriteOctetString(Encoding.ASCII.GetBytes(SdFlagsControlOid)); // controlType
+                    w.WriteOctetString(EncodeSdFlagsControlValue(sdFlags));         // controlValue
+                }
+            }
+
+            if (pageSize > 0)
+            {
+                using (w.PushSequence())                      // Control
+                {
+                    w.WriteOctetString(Encoding.ASCII.GetBytes(PagedResultsControlOid)); // controlType
+                    w.WriteBoolean(true);                                                // criticality TRUE
+                    w.WriteOctetString(EncodePagedResultsControlValue(pageSize, pagedCookie ?? Array.Empty<byte>()));
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// Encodes the simple paged-results controlValue (RFC 2696 <c>realSearchControlValue</c>):
+    /// BER of <c>SEQUENCE { size INTEGER, cookie OCTET STRING }</c>. Exposed for tests / offline analysis.
+    /// </summary>
+    public static byte[] EncodePagedResultsControlValue(int size, byte[] cookie)
+    {
+        var cv = new AsnWriter(AsnEncodingRules.BER);
+        using (cv.PushSequence())
+        {
+            cv.WriteInteger(size);
+            cv.WriteOctetString(cookie);
+        }
+
+        return cv.Encode();
     }
 
     /// <summary>

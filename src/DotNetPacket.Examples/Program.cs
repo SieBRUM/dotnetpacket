@@ -1614,7 +1614,7 @@ switch (args[0])
             LdapFilter.Equal("objectCategory", "computer"),
             LdapFilter.Equal("objectClass", "computer"));
         string[] attrs = { "sAMAccountName", "dNSHostName", "operatingSystem", "operatingSystemVersion" };
-        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs);
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs, pageSize: 1000);
 
         Console.WriteLine($"Querying {host} ({baseDn}) for computer objects (GetADComputers.py)");
         Console.WriteLine();
@@ -1676,7 +1676,7 @@ switch (args[0])
                 LdapFilter.Negate(LdapFilter.Extensible(
                     "1.2.840.113556.1.4.803", "userAccountControl", UF_ACCOUNTDISABLE.ToString())));
         string[] attrs = { "sAMAccountName", "pwdLastSet", "mail", "lastLogon" };
-        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs);
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs, pageSize: 1000);
 
         static string FileTime(string raw)
         {
@@ -1765,7 +1765,7 @@ switch (args[0])
             "sAMAccountName", "pwdLastSet", "userAccountControl", "objectCategory",
             RbcdAttr, AllowedToDelegateTo,
         };
-        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, LdapFilter.AllOf(conj.ToArray()), attrs);
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, LdapFilter.AllOf(conj.ToArray()), attrs, pageSize: 1000);
 
         // Resolve a SID to an account name (for the RBCD principals), like impacket's follow-up search.
         string ResolveName(string sidString)
@@ -1886,7 +1886,7 @@ switch (args[0])
             "msLAPS-EncryptedPassword", "msLAPS-PasswordExpirationTime", "msLAPS-Password",
             "sAMAccountName", "ms-Mcs-AdmPwdExpirationTime", "ms-MCS-AdmPwd",
         };
-        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs);
+        IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter, attrs, pageSize: 1000);
 
         static string FileTime(string raw)
         {
@@ -1989,7 +1989,7 @@ switch (args[0])
         }
 
         IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, LdapFilter.AllOf(conj.ToArray()),
-            new[] { "servicePrincipalName", "sAMAccountName" });
+            new[] { "servicePrincipalName", "sAMAccountName" }, pageSize: 1000);
 
         Console.WriteLine($"Querying {host} ({baseDn}) for accounts with an SPN (GetUserSPNs.py)");
         Console.WriteLine();
@@ -2202,7 +2202,7 @@ switch (args[0])
             LdapFilter.Negate(LdapFilter.Extensible("1.2.840.113556.1.4.803", "userAccountControl", UF_ACCOUNTDISABLE.ToString())),
             LdapFilter.Negate(LdapFilter.Equal("objectCategory", "computer")));
         IReadOnlyList<SearchEntry> entries = ldap.Search(baseDn, filter,
-            new[] { "sAMAccountName", "userAccountControl" });
+            new[] { "sAMAccountName", "userAccountControl" }, pageSize: 1000);
 
         Console.WriteLine($"Querying {host} ({baseDn}) for accounts without Kerberos pre-auth (GetNPUsers.py)");
         Console.WriteLine();
