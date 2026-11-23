@@ -179,7 +179,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
-    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -proxy
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -ldaps (LDAP over TLS/636), -proxy
     LdapAuth.cs                    #   LDAP connect+bind helper: simple bind, or -k Kerberos GSS-SPNEGO bind for ldap/<host> + GSS sealing (mutual auth -> AP-REP acceptor subkey)
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)

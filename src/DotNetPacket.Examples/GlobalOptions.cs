@@ -25,6 +25,9 @@ internal static class GlobalOptions
     /// <summary><c>-no-pass</c> was given.</summary>
     public static bool NoPass { get; set; }
 
+    /// <summary><c>-ldaps</c> was given: the LDAP tools connect over TLS (port 636) instead of plaintext 389.</summary>
+    public static bool UseLdaps { get; set; }
+
     /// <summary>
     /// True when authentication does not need a password because a ticket or a hash was supplied
     /// (<c>-hashes</c> / <c>-aesKey</c> / a loaded ccache / <c>-no-pass</c>) — the impacket behaviour
@@ -54,6 +57,12 @@ internal static class GlobalOptions
                 case "-no-pass":
                     // No prompt in this CLI; marks the password optional (use with -hashes / -k / ccache).
                     NoPass = true;
+                    break;
+                case "-ldaps":
+                    // Connect the LDAP tools over TLS (636). Lets a simple bind work against a DC that
+                    // refuses plaintext binds (LDAP signing / channel binding enforced). impacket: -use-ldaps.
+                    UseLdaps = true;
+                    Console.Error.WriteLine("[*] LDAPS enabled (-ldaps): LDAP tools connect over TLS on port 636.");
                     break;
                 case "-k":
                     Smb2Client.UseKerberos = true;

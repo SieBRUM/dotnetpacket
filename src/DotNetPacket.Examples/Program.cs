@@ -2239,14 +2239,37 @@ switch (args[0])
         string domain = args[2];
         int port = args.Length >= 4 ? int.Parse(args[3]) : 389;
 
-        using LdapConnection ldap = LdapConnection.Connect(host, port);
-        LdapBindResponse result = ldap.NtlmSigningProbe(domain);
-        bool required = result.StrongerAuthRequired;
+        using (LdapConnection ldap = LdapConnection.Connect(host, port))
+        {
+            LdapBindResponse result = ldap.NtlmSigningProbe(domain);
+            bool required = result.StrongerAuthRequired;
 
-        Console.WriteLine($"LDAP signing on {host}:389");
-        Console.WriteLine($"  Signing required: {required}");
-        Console.WriteLine($"  Final bind result: {result.ResultCode}" +
-            (string.IsNullOrEmpty(result.DiagnosticMessage) ? string.Empty : $" ({result.DiagnosticMessage})"));
+            Console.WriteLine($"LDAP signing on {host}:{port}");
+            Console.WriteLine($"  Signing required: {required}");
+            Console.WriteLine($"  Final bind result: {result.ResultCode}" +
+                (string.IsNullOrEmpty(result.DiagnosticMessage) ? string.Empty : $" ({result.DiagnosticMessage})"));
+        }
+
+        // LDAPS posture (the channel-binding precondition half of CheckLDAPStatus): can we reach the DC
+        // over TLS on 636? If so, report the negotiated TLS and the server certificate — a TLS-protected
+        // channel is what lets a simple bind (and channel binding / EPA) work on a hardened DC.
+        int ldapsPort = 636;
+        Console.WriteLine();
+        Console.WriteLine($"LDAPS on {host}:{ldapsPort}");
+        try
+        {
+            using LdapConnection tls = LdapConnection.ConnectTls(host, ldapsPort, host);
+            Console.WriteLine($"  Available:   yes ({tls.TlsProtocol}, {tls.TlsCipher})");
+            Console.WriteLine($"  Server cert: subject {tls.ServerCertSubject}");
+            Console.WriteLine($"               issuer  {tls.ServerCertIssuer}");
+            Console.WriteLine("  -> LDAPS is reachable: run the LDAP tools with -ldaps to bind over TLS");
+            Console.WriteLine("     (a simple bind then works even when plaintext 389 is refused).");
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or System.IO.IOException or System.Security.Authentication.AuthenticationException or TimeoutException)
+        {
+            Console.WriteLine($"  Available:   no ({ex.GetType().Name}: {ex.Message})");
+        }
+
         return 0;
     }
 

@@ -10,7 +10,7 @@ SMB2/3 · DCERPC (MSRPC) · LDAP · Kerberos · NTLM/SPNEGO · TDS · DCSync · 
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![CI](https://github.com/SieBRUM/dotnetpacket/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-291%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-293%20passing-success)](tests/)
 [![Release](https://img.shields.io/github/v/release/SieBRUM/dotnetpacket?include_prereleases&sort=semver)](../../releases)
 
 </div>
@@ -45,9 +45,9 @@ A realistic, **signed**, modern-Windows-style stack, validated end-to-end agains
 - **DCERPC** (MSRPC) over both named pipes (`ncacn_np`) and TCP (`ncacn_ip_tcp`), with
   NTLMSSP-authenticated **sign & seal**, an NDR marshaller, and clients for `srvsvc`, `wkssvc`,
   `lsarpc`, `lsat`, `samr`, `svcctl`, `winreg`, `tsch`, `mgmt`, `epm`, `drsuapi`.
-- **LDAP** (RFC 4511) — bind (simple + GSS-SPNEGO NTLM + sealed Kerberos), the full search filter
-  grammar, **simple paged results** (RFC 2696, so enumerations survive AD's 1000-object cap),
-  add/modify/delete, and the `LDAP_SERVER_SD_FLAGS` control.
+- **LDAP** (RFC 4511) — over plaintext 389 **or LDAPS (TLS on 636)**; bind (simple + GSS-SPNEGO NTLM +
+  sealed Kerberos), the full search filter grammar, **simple paged results** (RFC 2696, so enumerations
+  survive AD's 1000-object cap), add/modify/delete, and the `LDAP_SERVER_SD_FLAGS` control.
 - **Kerberos v5** — AS-REQ/AS-REP (with and without pre-auth), TGS-REQ/TGS-REP, **RC4-HMAC and
   AES128/256-CTS-HMAC-SHA1-96** (RFC 3962, byte-exact vs impacket + RFC vectors), AP-REQ/AP-REP SMB
   login (`-k`, AES-256 by default), **sealed GSS-SPNEGO LDAP binds**, **S4U2self/S4U2proxy**
@@ -115,6 +115,7 @@ These flags work with **any** command and can appear anywhere on the line, like 
 | --- | --- |
 | `-hashes [LM]:NT` | **Pass-the-hash** — authenticate with the NT hash (only NTHASH is used for NTLMv2). No password needed. |
 | `-no-pass` | Don't use/ask for a password (pair with `-k` / a ccache). |
+| `-ldaps` | Connect the LDAP tools over **TLS (636)** instead of plaintext 389 (impacket's `-use-ldaps`). A simple bind then works against a DC that enforces LDAP signing / channel binding and refuses plaintext binds. |
 | `-k` | **Kerberos** — AP-REQ instead of NTLM. With a password the KDC's etypes are probed and the strongest used (**AES-256 by default**). Loads a TGT from `-ccache`/`KRB5CCNAME` if present. |
 | `-aesKey <hex>` | **Overpass-the-hash** with a 128/256-bit AES Kerberos key (implies `-k`). |
 | `-ccache <file>` | Use a cached TGT (MIT ccache v4); also read from `KRB5CCNAME`. |
@@ -195,6 +196,16 @@ dotnetpacket dacledit write 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' vi
 dotnetpacket dacledit read  'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' victim
 ```
 
+**Against a hardened DC — LDAP over TLS**
+
+```bash
+# is LDAPS up, and does the DC refuse unsigned/plaintext binds?
+dotnetpacket ldap-signing 127.0.0.1 lab.local
+
+# bind over TLS (636) — works even when the DC rejects plaintext 389 binds
+dotnetpacket get-adusers 'lab.local/Administrator:LabAdm1n!Pass@127.0.0.1' all -ldaps
+```
+
 **Through a SOCKS pivot**
 
 ```bash
@@ -242,7 +253,7 @@ dotnetpacket rpc-samrdump 'LAB/Administrator:LabAdm1n!Pass@dc01.lab.local' -prox
 | `get-adusers` | `<target> [all] [port]` | `GetADUsers.py` | LDAP search for user accounts |
 | `get-laps` | `<target> [computer] [port]` | `GetLAPSPassword.py` | read LAPS passwords from LDAP |
 | `find-delegation` | `<target> [target-user] [port]` | `findDelegation.py` | unconstrained / constrained / protocol-transition / **RBCD** |
-| `ldap-signing` | `<host> <domain> [port]` | `CheckLDAPStatus` | does the DC require LDAP signing? |
+| `ldap-signing` | `<host> <domain> [port]` | `CheckLDAPStatus` | does the DC require LDAP signing? + **LDAPS/TLS posture** (TLS version, cipher, server cert) |
 
 ### Kerberos
 

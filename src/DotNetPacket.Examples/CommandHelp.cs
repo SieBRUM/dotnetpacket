@@ -285,7 +285,10 @@ internal static class CommandHelp
                            "[krbtgt-key-hex]  krbtgt key to also verify the KDC signature (forged-PAC check)." },
             Examples: new[] { "getpac vm.lab.local svcroast lab.local Administrator 7cd13d90d3cb835ab9c08ac18edeea2b" }),
         new("ldap-signing", CatKrb, "<host> <domain> [port]",
-            "CheckLDAPStatus: does the DC require LDAP signing / channel binding (no credentials).",
+            "CheckLDAPStatus: does the DC require LDAP signing, plus the LDAPS/TLS (636) posture — no credentials.",
+            Notes: new[] { "Reports whether an unsigned bind is refused on 389, and whether LDAPS is reachable",
+                           "(negotiated TLS version/cipher + the server certificate). Use -ldaps on the other",
+                           "LDAP tools to bind over that TLS channel." },
             Examples: new[] { "ldap-signing 127.0.0.1 lab.local" }),
 
         // ---- LDAP / AD ---------------------------------------------------------------
@@ -388,6 +391,8 @@ internal static class CommandHelp
         "  -aesKey HEX       Kerberos AES key (32 or 64 hex), overpass-the-hash; implies -k.\n" +
         "  -k                use Kerberos (AP-REQ). With a password the KDC's etypes are probed (prefers AES-256).\n" +
         "  -no-pass          do not require a password (use with -hashes / -k / a ccache).\n" +
+        "  -ldaps            connect the LDAP tools over TLS (port 636); a simple bind then works on a\n" +
+        "                    DC that refuses plaintext binds (LDAP signing / channel binding enforced).\n" +
         "  -ccache FILE      use a saved TGT (also honours $KRB5CCNAME).  -save-ccache FILE writes one.\n" +
         "  -dc-ip IP         KDC / DC address for Kerberos when it differs from the target host.\n" +
         "  -target-ip IP     connect here instead of resolving the target host name.\n" +

@@ -22,12 +22,18 @@ internal static class LdapAuth
         string host, int port, string bindName, string password, string domainFqdn, out LdapBindResponse bind)
     {
         string connectHost = Smb2Client.TargetIpOverride ?? host;
-        LdapConnection ldap = LdapConnection.Connect(connectHost, port);
+
+        // -ldaps: connect over TLS. If the caller left the default 389, use the LDAPS port 636.
+        bool ldaps = GlobalOptions.UseLdaps;
+        LdapConnection ldap = ldaps
+            ? LdapConnection.ConnectTls(connectHost, port == 389 ? 636 : port, host)
+            : LdapConnection.Connect(connectHost, port);
 
         if (Smb2Client.UseKerberos)
         {
             string user = bindName.Contains('@') ? bindName[..bindName.IndexOf('@')] : bindName;
-            bind = KerberosBind(ldap, host, domainFqdn, user, password);
+            // Over TLS the channel is already sealed, so don't stack a GSS seal on top of it.
+            bind = KerberosBind(ldap, host, domainFqdn, user, password, seal: !ldaps);
         }
         else
         {
@@ -37,7 +43,8 @@ internal static class LdapAuth
         return ldap;
     }
 
-    private static LdapBindResponse KerberosBind(LdapConnection ldap, string spnHost, string domainFqdn, string user, string password)
+    private static LdapBindResponse KerberosBind(
+        LdapConnection ldap, string spnHost, string domainFqdn, string user, string password, bool seal = true)
     {
         string realm = domainFqdn.ToUpperInvariant();
         string kdc = Smb2Client.KerberosKdc ?? Smb2Client.TargetIpOverride ?? spnHost;
@@ -59,7 +66,7 @@ internal static class LdapAuth
             r = ldap.SaslBind("GSS-SPNEGO", Array.Empty<byte>());
         }
 
-        if (r.Success)
+        if (r.Success && seal)
         {
             // Recover the acceptor subkey from the AP-REP in the server's SASL creds and seal with it.
             byte[] responseToken = Spnego.ExtractResponseToken(r.ServerSaslCreds);

@@ -229,8 +229,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
       sign/seal layer wrapping post-bind PDUs. Cannot be validated on this lab anyway: the Samba DC
       answers an NTLM LDAP bind with `data 52e` even for stock impacket (SMB NTLMv2 works), so the
       examples use a simple bind instead.
-- [ ] LDAPS (TLS on 636) + channel-binding probe (the second half of CheckLDAPStatus) — needs a
-      TLS transport + CBT; deferred. (The lab DC does not expose 636.)
+- [x] **LDAPS (LDAP over TLS on 636)** — `LdapConnection.ConnectTls` wraps the socket in a .NET
+      `SslStream` (server cert not validated, as ldap3/impacket default; DCs use self-signed/internal
+      certs). The global `-ldaps` flag routes every LDAP tool over TLS, so a **simple bind works against
+      a DC that enforces LDAP signing / channel binding** and refuses plaintext 389. Validated live: with
+      the lab DC set to `ldap server require strong auth = yes`, plaintext bind is refused (result 8,
+      "Transport encryption required") while `get-adusers -ldaps` returns the full set. The explicit
+      **channel-binding/EPA probe** (bind with vs without a CBT to see if the server enforces EPA) is
+      still deferred — LDAPS reachability + the TLS/cert posture are reported by `ldap-signing`.
 - [x] **Paged results (SimplePagedResultsControl, OID 1.2.840.113556.1.4.319)** — `LdapConnection.Search`
       takes a `pageSize`; when set it issues one request per page (control criticality TRUE, as impacket
       sends it), follows the server's cookie, and concatenates every page, so an enumeration is complete
@@ -373,9 +379,12 @@ Porting impacket's `examples/` top to bottom (as listed on GitHub):
 
 - [~] `CheckLDAPStatus.py` → `ldap-signing` — the **LDAP signing** probe is done (unsigned
       GSS-SPNEGO anonymous NTLM bind on 389; a signing-required DC answers strongerAuthRequired).
-      The **LDAPS channel-binding** half (TLS on 636 + CBT) is deferred pending a TLS transport.
-      Validated live against the DC (signing required = True, result 8). Known-bytes tests pin the
-      captured saslBindInProgress + strongerAuthRequired BindResponses.
+      The command now also reports the **LDAPS/TLS posture**: it opens a TLS connection to 636 and prints
+      the negotiated protocol + cipher and the server certificate subject/issuer. The LDAPS **transport**
+      (and the `-ldaps` flag on the other LDAP tools) is implemented; only the explicit
+      **channel-binding/EPA** probe (comparing a bind with vs without a CBT) remains deferred.
+      Validated live against the DC (signing required = True, result 8; LDAPS Tls13 reported). Known-bytes
+      tests pin the captured saslBindInProgress + strongerAuthRequired BindResponses.
 
 - [x] `DumpNTLMInfo.py` → `smb-ntlminfo <host> [port]` — credential-less host recon from the NTLM
       handshake over SMB2. SMB2 NEGOTIATE (dialect, signing mode, max read/write, system/boot time)
@@ -1356,3 +1365,15 @@ captures here (what differs, why, and whether it is detection-relevant).
   round-trip tests (`LdapPagedResultsTests`, 7 cases); the default-unpaged path is unchanged and
   regression-pinned. Validated live against the lab: with pageSize temporarily 2 and 10 user accounts,
   `get-adusers -all` returned all 10 across 5 cookie-driven pages. 291 tests pass.
+
+- **2026-11-23 — LDAPS (LDAP over TLS on 636).** Added a TLS transport to `LdapConnection`
+  (`ConnectTls`, a .NET `SslStream` with no cert validation, as ldap3/impacket default for AD's
+  self-signed certs) and a global `-ldaps` flag (impacket's `-use-ldaps`) that routes every LDAP tool
+  over TLS. The payoff: a **simple bind now works against a DC that enforces LDAP signing / channel
+  binding** and refuses plaintext 389. `ldap-signing` additionally reports LDAPS reachability — the
+  negotiated TLS version + cipher and the server certificate subject/issuer. When `-ldaps` is combined
+  with `-k`, the GSS seal is skipped (TLS already provides confidentiality). Flag parsing is unit-tested
+  (`GlobalOptionsTests`); the TLS path is validated live, like the other on-the-wire paths: against the
+  lab DC set to `ldap server require strong auth = yes`, a plaintext bind is refused (result 8,
+  "Transport encryption required") while the identical `get-adusers -ldaps` returns the full user set
+  over TLS 1.3. 293 tests pass. (Deferred: StartTLS on 389, and the explicit channel-binding/EPA probe.)

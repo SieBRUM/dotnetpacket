@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.Formats.Asn1;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using DotNetPacket.Protocols.Ntlm;
 
@@ -57,14 +59,29 @@ public sealed class LdapConnection : IDisposable
     private const string GssSpnego = "GSS-SPNEGO";
 
     private readonly TcpClient _tcp;
-    private readonly NetworkStream _stream;
+    private readonly Stream _stream;
     private int _messageId;
     private ILdapSealer? _sealer;
 
-    private LdapConnection(TcpClient tcp)
+    /// <summary>True when this connection runs over TLS (LDAPS). TLS already provides confidentiality, so
+    /// a sealed SASL layer is not stacked on top of it.</summary>
+    public bool IsTls { get; private set; }
+
+    /// <summary>Negotiated TLS protocol (e.g. <c>Tls13</c>) — populated for an LDAPS connection.</summary>
+    public string TlsProtocol { get; private set; } = string.Empty;
+
+    /// <summary>Negotiated TLS cipher suite (e.g. <c>TLS_AES_256_GCM_SHA384</c>) — LDAPS only.</summary>
+    public string TlsCipher { get; private set; } = string.Empty;
+
+    /// <summary>The server certificate subject / issuer presented during the LDAPS handshake.</summary>
+    public string ServerCertSubject { get; private set; } = string.Empty;
+
+    public string ServerCertIssuer { get; private set; } = string.Empty;
+
+    private LdapConnection(TcpClient tcp, Stream stream)
     {
         _tcp = tcp;
-        _stream = tcp.GetStream();
+        _stream = stream;
     }
 
     /// <summary>
@@ -94,7 +111,40 @@ public sealed class LdapConnection : IDisposable
     public static LdapConnection Connect(string host, int port = 389)
     {
         TcpClient tcp = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port);
-        return new LdapConnection(tcp);
+        return new LdapConnection(tcp, tcp.GetStream());
+    }
+
+    /// <summary>
+    /// Opens an LDAPS connection: TCP to <paramref name="host"/>:<paramref name="port"/> (default 636)
+    /// wrapped in TLS. The server certificate is intentionally <b>not</b> validated — AD DCs commonly
+    /// present a self-signed / internal-CA certificate, and ldap3/impacket do not validate by default.
+    /// TLS supplies confidentiality and the protected channel that satisfies a DC's "require strong auth"
+    /// / LDAP-signing policy, so a <see cref="SimpleBind"/> is accepted where plaintext 389 would be
+    /// refused with <c>strongerAuthRequired</c>.
+    /// </summary>
+    /// <param name="sniHost">TLS SNI / target host name for the handshake; defaults to <paramref name="host"/>.</param>
+    public static LdapConnection ConnectTls(string host, int port = 636, string? sniHost = null)
+    {
+        TcpClient tcp = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port);
+        var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false,
+            userCertificateValidationCallback: (_, _, _, _) => true);
+        ssl.AuthenticateAsClient(sniHost ?? host);
+
+        var conn = new LdapConnection(tcp, ssl)
+        {
+            IsTls = true,
+            TlsProtocol = ssl.SslProtocol.ToString(),
+            TlsCipher = ssl.NegotiatedCipherSuite.ToString(),
+        };
+
+        if (ssl.RemoteCertificate is { } cert)
+        {
+            using var parsed = new X509Certificate2(cert);
+            conn.ServerCertSubject = parsed.Subject;
+            conn.ServerCertIssuer = parsed.Issuer;
+        }
+
+        return conn;
     }
 
     /// <summary>
