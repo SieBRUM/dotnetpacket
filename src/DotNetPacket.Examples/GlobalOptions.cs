@@ -1,3 +1,4 @@
+using DotNetPacket.Core.Diagnostics;
 using DotNetPacket.Core.Net;
 using DotNetPacket.Protocols.Krb5;
 using DotNetPacket.Protocols.Ntlm;
@@ -13,6 +14,9 @@ namespace DotNetPacket.Examples;
 ///   <item><description><c>-no-pass</c> — don't require/derive a password (use with <c>-hashes</c>).</description></item>
 ///   <item><description><c>-proxy &lt;url&gt;</c> — route all TCP through a SOCKS/HTTP proxy
 ///   (<c>socks5://[user:pass@]host:port</c>, <c>socks4a://host:port</c>, <c>http://host:port</c>).</description></item>
+///   <item><description><c>-verbose</c> / <c>-v</c> — trace every message on the wire (connect,
+///   direction, byte count) on stderr, for any command; <c>-debug</c> adds a full hex dump. These
+///   drive <see cref="PacketTrace"/> and are observability only — no byte changes on the wire.</description></item>
 /// </list>
 /// Recognised options (and their values) are stripped from the returned argument array, so each
 /// command's existing positional parsing is unchanged. Unknown <c>-flags</c> are left in place.
@@ -57,6 +61,19 @@ internal static class GlobalOptions
                 case "-no-pass":
                     // No prompt in this CLI; marks the password optional (use with -hashes / -k / ccache).
                     NoPass = true;
+                    break;
+                case "-verbose":
+                case "-v":
+                    // Verbose wire trace: one line per connect and per message (direction + channel +
+                    // byte count) on every transport, to stderr. No hex. Realism-neutral (stderr only).
+                    PacketTrace.Level = TraceLevel.Verbose;
+                    Console.Error.WriteLine("[*] Verbose tracing enabled (-verbose): per-message wire summaries on stderr.");
+                    break;
+                case "-debug":
+                    // Full debug trace: everything -verbose shows, plus a hex dump of every message on
+                    // the wire (every transport). Handy for diffing bytes; stderr only, no wire change.
+                    PacketTrace.Level = TraceLevel.Debug;
+                    Console.Error.WriteLine("[*] Debug tracing enabled (-debug): per-message wire hex dumps on stderr.");
                     break;
                 case "-ldaps":
                     // Connect the LDAP tools over TLS (636). Lets a simple bind work against a DC that

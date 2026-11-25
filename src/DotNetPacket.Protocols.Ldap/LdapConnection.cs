@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using DotNetPacket.Core.Diagnostics;
 using DotNetPacket.Protocols.Ntlm;
 
 namespace DotNetPacket.Protocols.Ldap;
@@ -94,6 +95,7 @@ public sealed class LdapConnection : IDisposable
     // Writes one encoded LDAPMessage, sealing + length-framing it when sealing is active.
     private void SendRaw(byte[] message)
     {
+        PacketTrace.Sent("ldap", message);
         if (_sealer is null)
         {
             _stream.Write(message);
@@ -667,6 +669,13 @@ public sealed class LdapConnection : IDisposable
 
     /// <summary>Reads one complete BER-framed LDAPMessage (tag + length + content) off the stream.</summary>
     private byte[] ReadMessage()
+    {
+        byte[] message = ReadMessageCore();
+        PacketTrace.Received("ldap", message);
+        return message;
+    }
+
+    private byte[] ReadMessageCore()
     {
         if (_sealer is not null)
         {

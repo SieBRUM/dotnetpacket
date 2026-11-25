@@ -127,6 +127,8 @@ These flags work with **any** command and can appear anywhere on the line, like 
 | `-dc-ip <ip>` | KDC address for `-k` (defaults to the host). |
 | `-target-ip <ip>` | Connect here while using the host arg as the SPN/logical name (SPN host ≠ reachable address). |
 | `-proxy <url>` | Route **all** TCP through a proxy: `socks5://[user:pass@]host:port`, `socks4a://…`, `socks4://…`, `http://[user:pass@]host:port`. The target hostname is handed to the proxy so it resolves on the far side of a pivot. |
+| `-verbose`, `-v` | **Wire trace** for any command: one line per connect and per message (channel + direction + byte count) on every transport (SMB, LDAP, Kerberos, DCERPC-over-TCP, TDS), written to stderr. |
+| `-debug` | Like `-verbose`, plus a **hex dump** of every message on the wire — handy for byte-diffing a flow later. Stderr only; never changes a byte on the wire. |
 
 > **`-k` covers both SMB and LDAP.** For SMB it performs a real AP-REQ login (AS → service ticket for
 > `cifs/<host>` → AP-REQ → `SESSION_SETUP`), AES-256 by default, signing keyed on the AP-REP acceptor

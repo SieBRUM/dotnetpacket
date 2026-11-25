@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using DotNetPacket.Core.Diagnostics;
 using DotNetPacket.Core.Net;
 
 namespace DotNetPacket.Transport;
@@ -14,6 +15,9 @@ public sealed class DirectTcpTransport : IDisposable
 
     private TcpClient _client;
     private NetworkStream? _stream;
+
+    /// <summary>Label used in <see cref="PacketTrace"/> output for this transport (default "smb").</summary>
+    public string Channel { get; set; } = "smb";
 
     public DirectTcpTransport() => _client = new TcpClient();
 
@@ -36,6 +40,7 @@ public sealed class DirectTcpTransport : IDisposable
         _client.Dispose();
         _client = ProxyConnector.Connect(host, port, timeoutMs);
         _stream = _client.GetStream();
+        PacketTrace.Event(Channel, $"connected to {host}:{port}");
     }
 
     /// <summary>Frames and sends one message (the SMB2 header + body, without the 4-byte prefix).</summary>
@@ -56,6 +61,7 @@ public sealed class DirectTcpTransport : IDisposable
         stream.Write(header);
         stream.Write(payload);
         stream.Flush();
+        PacketTrace.Sent(Channel, payload);
     }
 
     /// <summary>Reads one framed message and returns its payload (without the 4-byte prefix).</summary>
@@ -66,7 +72,9 @@ public sealed class DirectTcpTransport : IDisposable
 
         byte[] header = ReadExact(4);
         int length = (header[1] << 16) | (header[2] << 8) | header[3];
-        return ReadExact(length);
+        byte[] payload = ReadExact(length);
+        PacketTrace.Received(Channel, payload);
+        return payload;
     }
 
     private byte[] ReadExact(int count)

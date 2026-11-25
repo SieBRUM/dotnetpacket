@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using DotNetPacket.Core.Diagnostics;
 
 namespace DotNetPacket.Protocols.Krb5;
 
@@ -16,6 +17,7 @@ public static class KerberosTcpClient
         using NetworkStream stream = tcp.GetStream();
         stream.ReadTimeout = timeoutMs;
         stream.WriteTimeout = timeoutMs;
+        PacketTrace.Event("krb5", $"connected to KDC {host}:{port}");
 
         Span<byte> prefix = stackalloc byte[4];
         prefix[0] = (byte)((request.Length >> 24) & 0xFF);
@@ -25,10 +27,13 @@ public static class KerberosTcpClient
         stream.Write(prefix);
         stream.Write(request);
         stream.Flush();
+        PacketTrace.Sent("krb5", request);
 
         byte[] lenBytes = ReadExact(stream, 4);
         int length = (lenBytes[0] << 24) | (lenBytes[1] << 16) | (lenBytes[2] << 8) | lenBytes[3];
-        return ReadExact(stream, length);
+        byte[] reply = ReadExact(stream, length);
+        PacketTrace.Received("krb5", reply);
+        return reply;
     }
 
     private static byte[] ReadExact(NetworkStream stream, int count)

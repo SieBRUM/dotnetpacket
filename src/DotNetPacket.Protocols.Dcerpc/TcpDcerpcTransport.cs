@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using DotNetPacket.Core;
+using DotNetPacket.Core.Diagnostics;
 
 namespace DotNetPacket.Protocols.Dcerpc;
 
@@ -20,6 +21,7 @@ public sealed class TcpDcerpcTransport : IDcerpcTransport
         _client = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port);
         _client.NoDelay = true;
         _stream = _client.GetStream();
+        PacketTrace.Event("dcerpc-tcp", $"connected to {host}:{port}");
     }
 
     public byte[] Transceive(byte[] pdu)
@@ -31,7 +33,11 @@ public sealed class TcpDcerpcTransport : IDcerpcTransport
     /// <summary>Reads one response PDU off the socket (used to reassemble fragmented responses).</summary>
     public byte[] Receive() => ReadPdu();
 
-    public void Send(byte[] pdu) => _stream.Write(pdu, 0, pdu.Length);
+    public void Send(byte[] pdu)
+    {
+        _stream.Write(pdu, 0, pdu.Length);
+        PacketTrace.Sent("dcerpc-tcp", pdu);
+    }
 
     public void Close()
     {
@@ -59,6 +65,7 @@ public sealed class TcpDcerpcTransport : IDcerpcTransport
         var pdu = new byte[header.Length + body.Length];
         Array.Copy(header, 0, pdu, 0, header.Length);
         Array.Copy(body, 0, pdu, header.Length, body.Length);
+        PacketTrace.Received("dcerpc-tcp", pdu);
         return pdu;
     }
 

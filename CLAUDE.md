@@ -67,6 +67,7 @@ src/
     Structure/FieldAttribute.cs    #   declarative field metadata
     Structure/NetStructure.cs      #   base class: declarative pack/unpack + override hook
     Hex.cs                         #   hex-dump helper for lab output
+    Diagnostics/PacketTrace.cs     #   opt-in wire trace sink every transport writes to (-verbose/-debug); stderr only, no wire change
     Net/ProxyEndpoint.cs           #   parse a proxy URL (socks5/4a/4 + http CONNECT, optional auth)
     Net/ProxyConnector.cs          #   the one TCP connect chokepoint: direct or via SOCKS/HTTP proxy (-proxy; Proxynator-compatible)
   DotNetPacket.Transport/             # sockets: SMB Direct TCP / NetBIOS framing
@@ -182,7 +183,7 @@ src/
     TdsClient.cs                   #   TDS packet framing over TCP/1433 (impacket tds.MSSQL)
   DotNetPacket.Examples/              # CLI, the impacket examples/ equivalent
     Program.cs                     #   command dispatcher + sample commands
-    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -ldaps (LDAP over TLS/636), -smb3-seal (SMB3 encryption), -proxy
+    GlobalOptions.cs               #   impacket-style global flags: -hashes (pass-the-hash), -aesKey (AES overpass-the-hash), -no-pass, -k (Kerberos; probes KDC, prefers AES-256), -ccache/KRB5CCNAME (use a saved TGT), -save-ccache, -dc-ip, -target-ip, -ldaps (LDAP over TLS/636), -smb3-seal (SMB3 encryption), -proxy, -verbose/-v + -debug (wire trace: per-message summaries / hex dumps on stderr, every command)
     LdapAuth.cs                    #   LDAP connect+bind helper: simple bind, or -k Kerberos GSS-SPNEGO bind for ldap/<host> + GSS sealing (mutual auth -> AP-REP acceptor subkey)
 tests/
   DotNetPacket.Core.Tests/            # xUnit tests (round-trip + known-bytes)

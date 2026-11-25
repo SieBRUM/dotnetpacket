@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using DotNetPacket.Core;
+using DotNetPacket.Core.Diagnostics;
 
 namespace DotNetPacket.Protocols.Tds;
 
@@ -23,6 +24,7 @@ public sealed class TdsClient : IDisposable
     public static TdsClient Connect(string host, int port = 1433, int timeoutMs = 10_000)
     {
         TcpClient tcp = DotNetPacket.Core.Net.ProxyConnector.Connect(host, port, timeoutMs);
+        PacketTrace.Event("tds", $"connected to {host}:{port}");
         return new TdsClient(tcp);
     }
 
@@ -44,8 +46,10 @@ public sealed class TdsClient : IDisposable
         w.WriteByte(0);                               // PacketID
         w.WriteByte(0);                               // Window
         w.WriteBytes(payload);
-        _stream.Write(w.ToArray());
+        byte[] framed = w.ToArray();
+        _stream.Write(framed);
         _stream.Flush();
+        PacketTrace.Sent("tds", framed);
     }
 
     /// <summary>Reads one TDS packet and returns its payload (the 8-byte header stripped).</summary>
@@ -55,7 +59,9 @@ public sealed class TdsClient : IDisposable
         byte[] header = ReadExact(8);
         int length = (header[2] << 8) | header[3]; // big-endian total length incl. header
         int payloadLength = length - 8;
-        return payloadLength <= 0 ? Array.Empty<byte>() : ReadExact(payloadLength);
+        byte[] payload = payloadLength <= 0 ? Array.Empty<byte>() : ReadExact(payloadLength);
+        PacketTrace.Received("tds", payload);
+        return payload;
     }
 
     private byte[] ReadExact(int count)

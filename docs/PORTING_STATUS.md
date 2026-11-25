@@ -1459,3 +1459,19 @@ captures here (what differs, why, and whether it is detection-relevant).
     build's profile (e.g. a pre-2004 Win10 client that omits the signing context, or a Win11 client
     adding AES-256 ciphers) can be reproduced for a given study. The ClientGuid-stability and
     CreditCharge/CreditRequest realism gaps noted on 2026-10-29 remain open.
+
+- **2026-11-25 — global wire tracing: `-verbose` / `-debug` for every command (tooling).** Added
+  `DotNetPacket.Core.Diagnostics.PacketTrace`, an opt-in, process-wide sink that the transports write
+  to, so *every* command gets packet-level tracing without per-command flags. Two tiers: `-verbose`
+  (`-v`) prints one line per connect and per message (channel + direction + byte count); `-debug`
+  adds a hex dump of each message. Wired into all five transport seams — `DirectTcpTransport` (channel
+  `smb`, which also carries ncacn_np DCERPC inside its IOCTLs), `LdapConnection` (`ldap`),
+  `KerberosTcpClient` (`krb5`), `TcpDcerpcTransport` (`dcerpc-tcp`), `TdsClient` (`tds`). Output goes
+  to **stderr only**, so it never pollutes a command's stdout (hashes, hex dumps, pcaps) and — the
+  important part for this project — **it changes nothing on the wire** (realism-neutral; aligns with
+  the "observable and inspectable" doctrine in REALISM.md / CLAUDE.md, and does not add any evasion
+  surface). Level gating + the name parser are unit-tested (`PacketTraceTests`); validated live against
+  the lab on the smb/ldap/krb5/dcerpc-tcp channels (e.g. `-verbose rpc-passpol` shows the full
+  SMB+DCERPC message sequence; `-debug smb2-negotiate` hex-dumps the request), and a run with no flag
+  emits zero trace lines. 319 tests pass. Not an impacket parity item (impacket's `-debug` is Python
+  logging); this is DotNetPacket's own inspectability aid.

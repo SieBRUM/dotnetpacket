@@ -408,7 +408,9 @@ internal static class CommandHelp
         "  -ccache FILE      use a saved TGT (also honours $KRB5CCNAME).  -save-ccache FILE writes one.\n" +
         "  -dc-ip IP         KDC / DC address for Kerberos when it differs from the target host.\n" +
         "  -target-ip IP     connect here instead of resolving the target host name.\n" +
-        "  -proxy URL        tunnel all TCP via socks5:// | socks4a:// | http:// [user:pass@]host:port.";
+        "  -proxy URL        tunnel all TCP via socks5:// | socks4a:// | http:// [user:pass@]host:port.\n" +
+        "  -verbose, -v      trace every message on the wire (connect + direction + byte count), on stderr.\n" +
+        "  -debug            like -verbose, plus a hex dump of every message (handy for byte-diffing).";
 
     /// <summary>Top-level listing: every command grouped by category, plus the shared blocks.</summary>
     public static void PrintOverview()
