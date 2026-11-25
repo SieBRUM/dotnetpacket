@@ -53,13 +53,18 @@ NEGOTIATE request (MS-SMB2 2.2.3.1), 8-byte aligned, in roughly this order:
 | --- | --- | --- | --- |
 | Preauth Integrity Capabilities | 0x0001 | SHA-512, 32-byte random salt | **implemented** |
 | Encryption Capabilities | 0x0002 | AES-128-GCM, AES-128-CCM (Win11 adds AES-256) | **implemented** |
-| Compression Capabilities | 0x0003 | LZ77, LZ77+Huffman, pattern-v1 | TODO |
-| Netname Negotiate Context Id | 0x0005 | the server name the client dialed, as UTF-16LE | TODO |
-| Signing Capabilities | 0x0008 | AES-128-GMAC, AES-128-CMAC | TODO |
+| Compression Capabilities | 0x0003 | LZNT1, LZ77, LZ77+Huffman, Pattern_V1 (CHAINED) | **implemented** |
+| Netname Negotiate Context Id | 0x0005 | the server name the client dialed, as UTF-16LE | **implemented** |
+| Signing Capabilities | 0x0008 | AES-128-GMAC, AES-128-CMAC | **implemented** |
 
-`Smb2NegotiateRequest` sends Preauth + Encryption today. Adding the remaining
-three (tracked in `PORTING_STATUS.md`) closes the gap to a real Win10/11 client —
-do it before using the negotiate as a realism baseline for research.
+`Smb2NegotiateRequest` sends all five contexts a modern Windows 10/11 client sends,
+in the order above (8-byte aligned, MS-SMB2 2.2.3.1). The netname carries the host
+the client dialed (set by `Smb2Client.Negotiate` to the connection target). This is a
+deliberate, detection-relevant divergence from impacket, which sends **only** the first
+two contexts (Preauth + Encryption) — see `docs/WIRE_DIFF.md` for the pinned capture
+diff. The contexts are settable on `Smb2NegotiateRequest`, so a specific Windows build's
+profile (e.g. a Win10 pre-2004 client with no signing context) can be reproduced for a
+given study.
 
 ## Authentication & signing realism
 

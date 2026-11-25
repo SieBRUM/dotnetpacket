@@ -39,7 +39,8 @@ in [`docs/WIRE_DIFF.md`](docs/WIRE_DIFF.md).
 
 A realistic, **signed**, modern-Windows-style stack, validated end-to-end against a Samba AD DC:
 
-- **SMB 2/3** — `NEGOTIATE` with 3.1.1 negotiate contexts, NTLMv2 `SESSION_SETUP` (SPNEGO + MIC),
+- **SMB 2/3** — `NEGOTIATE` with the full modern-Windows set of 3.1.1 negotiate contexts (preauth
+  integrity, encryption, compression, netname, signing — five, where impacket sends two), NTLMv2 `SESSION_SETUP` (SPNEGO + MIC),
   SP800-108 KDF + AES-CMAC message signing, **SMB3 session encryption** (AES-128/256-CCM/GCM
   `TRANSFORM_HEADER`, so it talks to `encrypt = required` shares), `TREE_CONNECT`,
   `CREATE/READ/WRITE/CLOSE`, `QUERY_DIRECTORY`, `QUERY_INFO`, `SET_INFO`, `IOCTL`.

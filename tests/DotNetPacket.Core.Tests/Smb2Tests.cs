@@ -56,26 +56,108 @@ public class Smb2NegotiateRequestTests
         Assert.NotEqual(0u, BitConverter.ToUInt32(body, 8));
     }
 
+    // Walk the negotiate-context list out of a packed request body: returns each
+    // context's (type, data) in order and asserts every one starts 8-byte aligned
+    // relative to the SMB2 header (MS-SMB2 2.2.3.1).
+    private static List<(ushort Type, byte[] Data)> WalkContexts(byte[] body)
+    {
+        uint contextOffset = BitConverter.ToUInt32(body, 28);
+        ushort contextCount = BitConverter.ToUInt16(body, 32);
+        var contexts = new List<(ushort, byte[])>();
+
+        int pos = (int)contextOffset - Smb2Header.Size;
+        for (int i = 0; i < contextCount; i++)
+        {
+            // Each context header begins 8-byte aligned from the start of the SMB2 header.
+            Assert.Equal(0, (Smb2Header.Size + pos) % 8);
+            ushort type = BitConverter.ToUInt16(body, pos);
+            ushort dataLen = BitConverter.ToUInt16(body, pos + 2);
+            byte[] data = body[(pos + 8)..(pos + 8 + dataLen)];
+            contexts.Add((type, data));
+            pos += 8 + dataLen;
+            pos = (pos + 7) & ~7; // skip trailing pad to the next context
+        }
+
+        return contexts;
+    }
+
     [Fact]
-    public void Offering311_EmitsTwo_EightByteAligned_Contexts()
+    public void Offering311_WithoutServerName_EmitsFourContexts_InWindowsOrder()
+    {
+        var request = new Smb2NegotiateRequest(); // no ServerName -> netname suppressed
+        byte[] body = request.Pack();
+
+        uint contextOffset = BitConverter.ToUInt32(body, 28);
+        Assert.Equal(112u, contextOffset);      // relative to header, 8-byte aligned (5 dialects)
+        Assert.Equal(0u, contextOffset % 8);
+        Assert.Equal((ushort)4, BitConverter.ToUInt16(body, 32)); // NegotiateContextCount
+
+        List<(ushort Type, byte[] Data)> ctx = WalkContexts(body);
+        Assert.Equal(
+            new[]
+            {
+                (ushort)Smb2NegotiateContextType.PreauthIntegrityCapabilities,
+                (ushort)Smb2NegotiateContextType.EncryptionCapabilities,
+                (ushort)Smb2NegotiateContextType.CompressionCapabilities,
+                (ushort)Smb2NegotiateContextType.SigningCapabilities,
+            },
+            ctx.Select(c => c.Type).ToArray());
+    }
+
+    [Fact]
+    public void Offering311_WithServerName_EmitsFiveContexts_WithNetname()
+    {
+        var request = new Smb2NegotiateRequest { ServerName = "vm.lab.local" };
+        byte[] body = request.Pack();
+
+        Assert.Equal((ushort)5, BitConverter.ToUInt16(body, 32));
+        List<(ushort Type, byte[] Data)> ctx = WalkContexts(body);
+        Assert.Equal(
+            new[]
+            {
+                (ushort)Smb2NegotiateContextType.PreauthIntegrityCapabilities,
+                (ushort)Smb2NegotiateContextType.EncryptionCapabilities,
+                (ushort)Smb2NegotiateContextType.CompressionCapabilities,
+                (ushort)Smb2NegotiateContextType.NetnameNegotiateContextId,
+                (ushort)Smb2NegotiateContextType.SigningCapabilities,
+            },
+            ctx.Select(c => c.Type).ToArray());
+
+        // Netname body is the dialed host as UTF-16LE, no NUL.
+        byte[] netname = ctx.Single(c => c.Type == (ushort)Smb2NegotiateContextType.NetnameNegotiateContextId).Data;
+        Assert.Equal("vm.lab.local", System.Text.Encoding.Unicode.GetString(netname));
+    }
+
+    [Fact]
+    public void CompressionContext_HasWindowsDefaultBody()
     {
         var request = new Smb2NegotiateRequest();
         byte[] body = request.Pack();
+        byte[] comp = WalkContexts(body)
+            .Single(c => c.Type == (ushort)Smb2NegotiateContextType.CompressionCapabilities).Data;
 
-        uint contextOffset = BitConverter.ToUInt32(body, 28); // NegotiateContextOffset
-        ushort contextCount = BitConverter.ToUInt16(body, 32); // NegotiateContextCount
+        // CompressionAlgorithmCount(2) Padding(2)=0 Flags(4)=CHAINED then 4 algorithm ids.
+        Assert.Equal((ushort)4, BitConverter.ToUInt16(comp, 0));
+        Assert.Equal((ushort)0, BitConverter.ToUInt16(comp, 2));
+        Assert.Equal((uint)Smb2CompressionFlags.Chained, BitConverter.ToUInt32(comp, 4));
+        Assert.Equal(Smb2CompressionAlgorithm.Lznt1, BitConverter.ToUInt16(comp, 8));
+        Assert.Equal(Smb2CompressionAlgorithm.Lz77, BitConverter.ToUInt16(comp, 10));
+        Assert.Equal(Smb2CompressionAlgorithm.Lz77Huffman, BitConverter.ToUInt16(comp, 12));
+        Assert.Equal(Smb2CompressionAlgorithm.PatternV1, BitConverter.ToUInt16(comp, 14));
+        Assert.Equal(8 + 4 * 2, comp.Length);
+    }
 
-        Assert.Equal((ushort)2, contextCount);
+    [Fact]
+    public void SigningContext_OffersGmacThenCmac()
+    {
+        var request = new Smb2NegotiateRequest();
+        byte[] body = request.Pack();
+        byte[] sign = WalkContexts(body)
+            .Single(c => c.Type == (ushort)Smb2NegotiateContextType.SigningCapabilities).Data;
 
-        // Offset is relative to the SMB2 header; for 5 dialects it lands at 112.
-        Assert.Equal(112u, contextOffset);
-        Assert.Equal(0u, contextOffset % 8); // 8-byte aligned
-
-        // First context (at bodyOffset = contextOffset - headerSize) is Preauth Integrity.
-        int firstContextBodyOffset = (int)contextOffset - Smb2Header.Size;
-        Assert.Equal(
-            (ushort)Smb2NegotiateContextType.PreauthIntegrityCapabilities,
-            BitConverter.ToUInt16(body, firstContextBodyOffset));
+        Assert.Equal((ushort)2, BitConverter.ToUInt16(sign, 0)); // SigningAlgorithmCount
+        Assert.Equal(Smb2SigningAlgorithm.AesGmac, BitConverter.ToUInt16(sign, 2));
+        Assert.Equal(Smb2SigningAlgorithm.AesCmac, BitConverter.ToUInt16(sign, 4));
     }
 
     [Fact]

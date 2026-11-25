@@ -38,7 +38,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `Smb2Client.Negotiate` — live NEGOTIATE over `DirectTcpTransport`
 - [x] `SmbHeader` (SMBv1, legacy) — impacket `smb.SMB.SMBHeader`
 - [x] `NetBiosSessionHeader` — RFC 1002 (16-bit length simplification)
-- [ ] SMB 3.1.1 negotiate contexts: compression, netname, signing (see REALISM.md) — close the gap to a real client
+- [x] SMB 3.1.1 negotiate contexts: compression, netname, signing (see REALISM.md) — a modern
+      Windows 10/11 client sends five negotiate contexts; `Smb2NegotiateRequest` now emits all five
+      (Preauth + Encryption + **Compression** 0x3 [LZNT1/LZ77/LZ77+Huffman/Pattern_V1, CHAINED] +
+      **Netname** 0x5 [the dialed host, UTF-16LE] + **Signing** 0x8 [AES-128-GMAC, AES-128-CMAC]) in
+      Windows order, 8-byte aligned. **impacket sends only the first two** (Preauth + Encryption,
+      AES-128-CCM only) — so this closes the realism gap *and* diverges from impacket (the exact
+      research point). Validated live against Samba (tshark dissects all five contexts cleanly, no
+      malformed fields, preauth hash computed; the signed login + sealed `smb2-ls sysvol` still work,
+      proving the preauth-hash chain is correct through the new contexts). Context-walking +
+      known-body unit tests. See the 2026-11-25 wire note + WIRE_DIFF.md for the pinned 5-vs-2 diff.
 - [x] SMB2 SESSION_SETUP request/response + two-round NTLMv2 login (`Smb2Client.Login`)
 - [x] SMB2 signing — 3.1.1 preauth integrity + SP800-108 KDF + AES-CMAC (`Smb2Crypto`)
 - [x] SMB2 TREE_CONNECT / TREE_DISCONNECT, signed (`Smb2Client.TreeConnect`)
@@ -1425,3 +1434,28 @@ captures here (what differs, why, and whether it is detection-relevant).
   tickets at the TGS with `KRB_AP_ERR_INAPP_CKSUM`, and the **impacket reference ticketer fails
   identically** (AES → INAPP_CKSUM; RC4 → BADKEYVER, its krbtgt RC4 key being a different kvno), so this
   is a Samba KDC hardening, not a forge defect. Marked `[~]` for that reason. 306 tests pass.
+
+- **2026-11-25 — SMB2 negotiate contexts: the full modern-Windows set (realism + impacket divergence).**
+  A current Windows 10/11 client sends **five** negotiate contexts on the SMB2 NEGOTIATE (MS-SMB2
+  2.2.3.1); `Smb2NegotiateRequest` previously sent two, matching impacket. It now sends all five, in
+  Windows order, 8-byte aligned: PREAUTH_INTEGRITY (SHA-512) · ENCRYPTION (AES-128-GCM, AES-128-CCM) ·
+  **COMPRESSION 0x3** (LZNT1, LZ77, LZ77+Huffman, Pattern_V1; Flags=CHAINED) · **NETNAME 0x5** (the
+  dialed host as UTF-16LE, set from the connection target) · **SIGNING 0x8** (AES-128-GMAC, AES-128-CMAC).
+  - **The diff is the research output (pinned, same lab, Wireshark).** DotNetPacket `smb2-negotiate`:
+    `NegotiateContextCount: 5`, all five contexts dissect cleanly with no malformed fields and tshark
+    computes the preauth hash (byte-perfect layout). Stock **impacket v0.13.1** (`smbclient.py`) against
+    the same DC: `NegotiateContextCount: 2` (PREAUTH + ENCRYPTION only, **AES-128-CCM only** in the
+    cipher list, no compression/netname/signing). impacket does not even define the SIGNING_CAPABILITIES
+    context. So a detection keying on "SMB 3.1.1 offered with only two negotiate contexts" or "no
+    SIGNING/COMPRESSION/NETNAME context" flags impacket but not a real Windows client — and DotNetPacket
+    now lands on the Windows side of that line.
+  - **No regression in the crypto chain.** The preauth-integrity hash is taken over the real request
+    bytes, so the extra contexts fold in automatically; the signed NTLMv2 SESSION_SETUP still returns
+    STATUS_SUCCESS and a sealed `smb2-ls sysvol` (AES-128-GCM, keys derived from the same preauth hash)
+    still lists the share — proving the signing AND encryption key derivations are correct across the new
+    contexts. Context-walking + known-body unit tests (order, 8-byte alignment, compression/signing
+    bodies, netname round-trip). 309 tests pass.
+  - **Realism knobs:** every context is a settable property on `Smb2NegotiateRequest`, so a specific
+    build's profile (e.g. a pre-2004 Win10 client that omits the signing context, or a Win11 client
+    adding AES-256 ciphers) can be reproduced for a given study. The ClientGuid-stability and
+    CreditCharge/CreditRequest realism gaps noted on 2026-10-29 remain open.

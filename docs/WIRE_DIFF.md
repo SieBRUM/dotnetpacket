@@ -40,10 +40,35 @@ current lab does not have — see the caveat at the end).
 | Field | DotNetPacket (.NET) | stock impacket | Note |
 | --- | --- | --- | --- |
 | Capabilities | `0x0000006f` (DFS, LEASING, LARGE_MTU, MULTI_CHANNEL, DIRECTORY_LEASING, ENCRYPTION) | `0x00000040` (ENCRYPTION only) | **Strong impacket tell.** A real Win10/11 client advertises ~`0x6f`; impacket advertises only ENCRYPTION. |
+| **NegotiateContextCount** | **5** (Preauth, Encryption, Compression, Netname, Signing) | **2** (Preauth, Encryption) | **Strong impacket tell** (updated 2026-11-25). A modern Windows 10/11 client sends five contexts; impacket sends two and does not define the Signing context. See the dedicated section below. |
 | Encryption ciphers | AES-128-GCM **and** AES-128-CCM | AES-128-CCM **only** | Windows offers GCM+CCM; impacket offers CCM only. |
 | Dialects | 2.0.2 … 3.1.1 | 2.0.2 … 3.1.1 | same |
 | Preauth integrity | SHA-512 | SHA-512 | same |
 | ClientGuid | random per connection | random per process | neither is a stable machine GUID (both differ from a domain-joined Windows host) |
+
+### SMB2 NEGOTIATE contexts — the five-vs-two tell (`smb2-negotiate`) — 2026-11-25
+
+A current Windows 10/11 client sends **five** SMB2 negotiate contexts (MS-SMB2 2.2.3.1),
+8-byte aligned, in a fixed order. DotNetPacket now sends exactly that set; stock impacket
+(v0.13.1) sends **two**. Captured against the same Samba DC, dissected with `tshark -O smb2`:
+
+| Negotiate context (type) | DotNetPacket (.NET) | stock impacket | Note |
+| --- | --- | --- | --- |
+| PREAUTH_INTEGRITY (0x1) | SHA-512, 32-byte salt | SHA-512, 32-byte salt | same |
+| ENCRYPTION (0x2) | AES-128-GCM, AES-128-CCM | AES-128-**CCM only** | Windows offers GCM+CCM |
+| COMPRESSION (0x3) | LZNT1, LZ77, LZ77+Huffman, Pattern_V1; Flags=CHAINED | **not sent** | **impacket tell** — no compression advertised |
+| NETNAME (0x5) | the dialed host (UTF-16LE) | **not sent** | **impacket tell** — Windows always announces the dialed name |
+| SIGNING (0x8) | AES-128-GMAC, AES-128-CMAC | **not sent** (impacket doesn't even define it) | **impacket tell** — no signing-algorithm negotiation |
+| `NegotiateContextCount` | **5** | **2** | the single clearest discriminator |
+
+**Detection takeaway:** "SMB 3.1.1 offered with only two negotiate contexts", or "no
+SIGNING_CAPABILITIES / COMPRESSION_CAPABILITIES / NETNAME context present", keys on impacket
+(and most other non-Windows tooling) while *not* firing on a real Windows client — the exact
+brittleness this project studies. DotNetPacket now sits on the Windows side of that line. The
+contexts are settable, so a specific build's profile can be reproduced (e.g. a pre-2004 Win10
+client that omits SIGNING_CAPABILITIES). Verified no crypto regression: the preauth-integrity
+hash folds in the new context bytes automatically, so the signed SESSION_SETUP and a sealed
+`smb2-ls sysvol` (keys derived from that hash) still succeed.
 
 ### NTLMSSP (inside SESSION_SETUP)
 

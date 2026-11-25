@@ -72,6 +72,50 @@ public static class Smb2HashAlgorithm
     public const ushort Sha512 = 0x0001;
 }
 
+/// <summary>Compression algorithm ids (MS-SMB2 2.2.3.1.3).</summary>
+public static class Smb2CompressionAlgorithm
+{
+    public const ushort None = 0x0000;
+    public const ushort Lznt1 = 0x0001;
+    public const ushort Lz77 = 0x0002;
+    public const ushort Lz77Huffman = 0x0003;
+    public const ushort PatternV1 = 0x0004;
+
+    public static string Describe(ushort algorithm) => algorithm switch
+    {
+        None => "NONE",
+        Lznt1 => "LZNT1",
+        Lz77 => "LZ77",
+        Lz77Huffman => "LZ77+Huffman",
+        PatternV1 => "Pattern_V1",
+        _ => $"0x{algorithm:x4}",
+    };
+}
+
+/// <summary>SMB2_COMPRESSION_CAPABILITIES Flags (MS-SMB2 2.2.3.1.3).</summary>
+[Flags]
+public enum Smb2CompressionFlags : uint
+{
+    None = 0x00000000,
+    Chained = 0x00000001,
+}
+
+/// <summary>Signing algorithm ids (MS-SMB2 2.2.3.1.7).</summary>
+public static class Smb2SigningAlgorithm
+{
+    public const ushort HmacSha256 = 0x0000;
+    public const ushort AesCmac = 0x0001;
+    public const ushort AesGmac = 0x0002;
+
+    public static string Describe(ushort algorithm) => algorithm switch
+    {
+        HmacSha256 => "HMAC-SHA256",
+        AesCmac => "AES-128-CMAC",
+        AesGmac => "AES-128-GMAC",
+        _ => $"0x{algorithm:x4}",
+    };
+}
+
 /// <summary>Encryption cipher ids (MS-SMB2 2.2.3.1.2).</summary>
 public static class Smb2Cipher
 {

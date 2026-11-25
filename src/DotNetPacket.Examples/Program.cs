@@ -82,6 +82,17 @@ switch (args[0])
         Console.WriteLine($"  Capabilities: {response.Capabilities}");
         Console.WriteLine($"  SecBuffer:    {response.SecurityBufferLength} bytes (SPNEGO/GSS token)");
         Console.WriteLine();
+        // The negotiate contexts we advertised — a modern Windows client sends all five;
+        // impacket sends only Preauth + Encryption (see docs/WIRE_DIFF.md).
+        Smb2NegotiateRequest req = result.Request;
+        Console.WriteLine("Advertised negotiate contexts (client -> server):");
+        Console.WriteLine($"  Preauth integrity: SHA-512, {req.PreauthSalt.Length}-byte salt");
+        Console.WriteLine($"  Encryption:        {string.Join(", ", req.Ciphers.Select(Smb2Cipher.Describe))}");
+        Console.WriteLine($"  Compression:       {string.Join(", ", req.CompressionAlgorithms.Select(Smb2CompressionAlgorithm.Describe))}" +
+            $" (flags {req.CompressionFlags})");
+        Console.WriteLine($"  Netname:           {(string.IsNullOrEmpty(req.ServerName) ? "(none)" : req.ServerName)}");
+        Console.WriteLine($"  Signing:           {string.Join(", ", req.SigningAlgorithms.Select(Smb2SigningAlgorithm.Describe))}");
+        Console.WriteLine();
         Console.WriteLine($"--> NEGOTIATE request ({result.RequestBytes.Length} bytes):");
         Console.Write(Hex.Dump(result.RequestBytes));
         Console.WriteLine($"<-- NEGOTIATE response ({result.ResponseBytes.Length} bytes):");

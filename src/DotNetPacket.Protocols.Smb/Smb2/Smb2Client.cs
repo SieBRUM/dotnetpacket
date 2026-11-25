@@ -178,6 +178,14 @@ public sealed class Smb2Client : IDisposable
     {
         request ??= new Smb2NegotiateRequest();
 
+        // A real client advertises the server name it dialed in the NETNAME negotiate context
+        // (MS-SMB2 2.2.3.1.4). Only set it when the caller hasn't already, and never override the
+        // target-ip logical name (the SPN/host, not the socket address).
+        if (request.ServerName.Length == 0 && _host.Length != 0)
+        {
+            request.ServerName = _host;
+        }
+
         var header = new Smb2Header
         {
             Command = (ushort)Smb2Command.Negotiate,
